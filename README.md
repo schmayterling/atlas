@@ -1,6 +1,6 @@
 # atlas
 
-code intelligence for developers and agents. indexes TypeScript/JavaScript codebases and answers structural questions about dependencies, blast radius, execution flow, and dead code. zero hallucination; every answer comes from the actual code graph.
+code intelligence for developers and agents. indexes TypeScript/JavaScript and Python codebases and answers structural questions about dependencies, blast radius, execution flow, and dead code. zero hallucination; every answer comes from the actual code graph.
 
 ## what it does
 
@@ -10,8 +10,16 @@ code intelligence for developers and agents. indexes TypeScript/JavaScript codeb
 - **blast** computes blast radius: what code is affected if a symbol changes
 - **trace** finds execution paths between two symbols
 - **dead-code** finds unreferenced symbols
+- **watch** continuous re-indexing on file changes
 - **web UI** interactive dashboard, symbol browser, graph explorer, flow trace viewer, and code wiki
 - **MCP server** exposes all of the above as tools for AI agents (Claude Code, Cursor, etc.)
+
+## supported languages
+
+| language | syntax extraction | cross-file resolution |
+|----------|------------------|----------------------|
+| TypeScript/JavaScript | tree-sitter | TS compiler API (full) |
+| Python | tree-sitter | intra-file only |
 
 ## quickstart
 
@@ -35,6 +43,9 @@ bun run src/bin.ts dead-code
 
 # launch web UI
 bun run src/bin.ts serve
+
+# watch for changes and re-index automatically
+bun run src/bin.ts watch --serve
 ```
 
 for semantic search (natural language queries):
@@ -63,7 +74,8 @@ bun run src/bin.ts search --semantic "validates user input"
 | `atlas blast <target>` | blast radius for a symbol or file (`--depth N`) |
 | `atlas trace <from> <to>` | execution paths between two symbols (`--max-paths N`, `--depth N`) |
 | `atlas dead-code` | unreferenced symbols (`--kind function`, `--path src/`) |
-| `atlas serve` | start web UI (`--port 3000`, `--no-open`) |
+| `atlas serve` | start web UI + MCP HTTP (`--port 3000`, `--no-open`) |
+| `atlas watch` | watch for changes and re-index (`--serve` to include web UI, `--no-embed`) |
 | `atlas mcp` | start MCP server (stdio transport) |
 
 all commands support `--json` for machine-readable output. piped output auto-detects non-TTY and defaults to JSON.
@@ -87,6 +99,10 @@ atlas exposes 8 tools via the [Model Context Protocol](https://modelcontextproto
 
 `atlas_status`, `atlas_search`, `atlas_semantic_search`, `atlas_resolve_symbol`, `atlas_deps`, `atlas_blast_radius`, `atlas_trace`, `atlas_dead_code`
 
+available via two transports:
+- **stdio**: `atlas mcp` (for Claude Code, Cursor, etc.)
+- **HTTP**: `atlas serve` exposes MCP at `http://localhost:3000/mcp` (streamable HTTP transport)
+
 ### claude code
 
 add to your MCP config (`.claude.json` or settings):
@@ -109,17 +125,19 @@ then ask: "what depends on AtlasEngine?", "what's the blast radius of changing s
 
 ```
 CLI (commander) --+
-MCP (stdio)     --+--> engine.ts --> queries/ --> bun:sqlite + graphology
+MCP (stdio/HTTP)--+--> engine.ts --> queries/ --> bun:sqlite + graphology
 Web (hono)      --+                    |
                                indexer (tree-sitter + TS compiler API)
                                embeddings (Ollama + sqlite-vec)
+                               watcher (chokidar)
 ```
 
 - **storage**: bun:sqlite (single .atlas/atlas.db file). FTS5 for text search. sqlite-vec for vector search.
 - **graph**: graphology MultiDirectedGraph loaded on-demand for traversals (BFS, DFS, path finding). budget-capped to prevent memory blowup.
-- **indexing**: tree-sitter for fast syntax extraction, TypeScript compiler API for cross-file resolution (module resolution, symbol binding, re-export chains). incremental via git-aware change detection.
-- **embeddings**: Ollama all-minilm model (384 dims). optional, graceful degradation when unavailable.
+- **indexing**: language-agnostic extractor registry. tree-sitter for fast syntax extraction. TypeScript compiler API for cross-file resolution (TS/JS only). incremental via git-aware change detection.
+- **embeddings**: Ollama all-minilm model (384 dims). optional, graceful degradation when unavailable. embedding text includes file context and parent symbol for better relevance.
 - **web**: Hono HTTP server, React 19 SPA (Tailwind CSS v4 dark theme, Cytoscape.js graph viz), bundled at startup by Bun.build.
+- **watch**: chokidar file watcher with debounced re-indexing. `atlas watch --serve` combines continuous indexing with the web UI.
 
 ## development
 
@@ -135,10 +153,10 @@ make format              # biome format
 ```
 src/
   bin.ts                          # entry point
-  cli/                            # commander CLI (10 commands)
-  mcp/                            # MCP server (8 tools)
+  cli/                            # commander CLI (12 commands)
+  mcp/                            # MCP server (8 tools, stdio + HTTP)
   web/
-    server.ts                     # Hono HTTP server + API routes
+    server.ts                     # Hono HTTP server + API routes + MCP HTTP
     build.ts                      # Bun.build + Tailwind CLI pipeline
     routes/                       # REST API (9 endpoints)
     client/                       # React 19 SPA
@@ -148,8 +166,13 @@ src/
   core/
     engine.ts                     # query facade
     storage/                      # bun:sqlite store, schema, migrations
-    parser/                       # tree-sitter parsing + TS/JS extractors
-    indexer/                      # file discovery, change detection, TS resolver
+    parser/
+      parser-manager.ts           # language registry + tree-sitter cache
+      extractor-registry.ts       # language-agnostic extractor dispatch
+      extractors/
+        typescript.ts             # TypeScript/JavaScript extractor
+        python.ts                 # Python extractor
+    indexer/                      # file discovery, change detection, TS resolver, watcher
     graph/                        # graphology wrapper, BFS, budget caps
     queries/                      # search, deps, blast radius, flow trace, dead code
     embeddings/                   # Ollama client, embedding pipeline
@@ -160,9 +183,9 @@ scripts/
 
 ## status
 
-internal tool. not published to npm. phases 1-3 complete, 4 deep reviews passed.
+internal tool. not published to npm. phases 1-4 complete, 4 deep reviews passed.
 
-current dogfood stats (indexes itself): 65 files, 521 symbols, 1268 edges in 1.7s. all queries sub-millisecond.
+current dogfood stats (indexes itself): 69 files, 547 symbols, 1229 edges in 1.5s. all queries sub-millisecond.
 
 ## license
 
