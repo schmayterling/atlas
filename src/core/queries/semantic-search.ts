@@ -1,4 +1,5 @@
-import type { SemanticSearchResult, SymbolKind, SymbolResult } from '../../shared/types.js'
+import { log } from '../../shared/logger.js'
+import type { SemanticSearchResult, SymbolKind } from '../../shared/types.js'
 import { isVectorSearchAvailable } from '../storage/sqlite-ext.js'
 import { OllamaClient } from '../embeddings/ollama-client.js'
 import type { AtlasStore } from '../storage/store.js'
@@ -29,7 +30,8 @@ export async function semanticSearch(
 		await ollama.ensureRunning()
 		const embeddings = await ollama.embed([query])
 		queryEmbedding = embeddings[0]
-	} catch {
+	} catch (e) {
+		log.warn(`semantic search query failed: ${e}`)
 		return { query, results: [], embeddingsAvailable: false }
 	}
 

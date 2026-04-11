@@ -102,28 +102,33 @@ function buildDependencyTree(
 	distances: Map<string, number>,
 	direction: 'inbound' | 'outbound',
 ): DependencyNode[] {
-	// get direct neighbors at depth 1
 	const directIds = [...distances.entries()]
 		.filter(([_, d]) => d === 1)
 		.map(([id]) => id)
 
+	// batch-fetch all symbols
+	const symMap = store.getSymbolsByStableIds(directIds)
+	const symResults = store.symbolsToResults([...symMap.values()])
+	const resultByStableId = new Map<string, SymbolResult>()
+	const symValues = [...symMap.values()]
+	for (let i = 0; i < symValues.length; i++) {
+		resultByStableId.set(symValues[i].stableId, symResults[i])
+	}
+
 	return directIds.map((id) => {
-		const sym = store.getSymbolByStableId(id)
-		const symResult: SymbolResult = sym
-			? store.symbolToResult(sym)
-			: {
-					name: id.slice(0, 8),
-					qualifiedName: id,
-					kind: 'variable',
-					signature: null,
-					filePath: '<unknown>',
-					lineStart: 0,
-					lineEnd: 0,
-					isExported: false,
-					docComment: null,
-					usageCount: 0,
-					dependentCount: 0,
-				}
+		const symResult: SymbolResult = resultByStableId.get(id) ?? {
+			name: id.slice(0, 8),
+			qualifiedName: id,
+			kind: 'variable',
+			signature: null,
+			filePath: '<unknown>',
+			lineStart: 0,
+			lineEnd: 0,
+			isExported: false,
+			docComment: null,
+			usageCount: 0,
+			dependentCount: 0,
+		}
 
 		// determine edge kind from graph
 		let edgeKind: EdgeKind = 'calls'

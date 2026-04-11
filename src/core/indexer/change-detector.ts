@@ -111,11 +111,10 @@ function tryGitDiff(
 			}
 		}
 
-		// filter to only files that are in the discovered set (skip non-TS, etc.)
 		return {
 			added: added.filter((p) => discoveredPaths.has(p)),
 			modified: modified.filter((p) => discoveredPaths.has(p)),
-			deleted: deleted.filter((p) => !discoveredPaths.has(p) || true), // keep deleted even if not discovered
+			deleted,
 		}
 	} catch {
 		return null

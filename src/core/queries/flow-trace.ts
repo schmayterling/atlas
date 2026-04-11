@@ -43,19 +43,31 @@ export function traceFlow(
 		}
 	}
 
-	// enumerate paths
-	const paths: FlowPath[] = []
+	// collect all paths first, then batch-resolve symbols
+	const rawPaths: string[][] = []
 	for (const nodePath of findAllSimplePaths(graph, sourceStableId, targetStableId, maxDepth)) {
-		if (paths.length >= maxPaths) break
+		if (rawPaths.length >= maxPaths) break
+		rawPaths.push(nodePath)
+	}
 
-		// build nodes and edges for this path
+	// batch-fetch all unique node symbols
+	const allNodeIds = [...new Set(rawPaths.flat())]
+	const symMap = store.getSymbolsByStableIds(allNodeIds)
+	const symResults = store.symbolsToResults([...symMap.values()])
+	const resultByStableId = new Map<string, SymbolResult>()
+	const symValues = [...symMap.values()]
+	for (let i = 0; i < symValues.length; i++) {
+		resultByStableId.set(symValues[i].stableId, symResults[i])
+	}
+
+	const paths: FlowPath[] = []
+	for (const nodePath of rawPaths) {
 		const nodes: SymbolResult[] = []
 		const edges: FlowPath['edges'] = []
 
 		for (let i = 0; i < nodePath.length; i++) {
 			const nodeId = nodePath[i]
-			const sym = store.getSymbolByStableId(nodeId)
-			nodes.push(sym ? store.symbolToResult(sym) : makeEmptySymbol(nodeId))
+			nodes.push(resultByStableId.get(nodeId) ?? makeEmptySymbol(nodeId))
 
 			if (i < nodePath.length - 1) {
 				const nextId = nodePath[i + 1]

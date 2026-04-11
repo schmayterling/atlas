@@ -128,9 +128,9 @@ export class AtlasStore {
 					throw innerErr
 				}
 			} catch (e) {
-				// vec0 migration fails if sqlite-vec extension isn't loaded; skip gracefully
+				// vec0 migration may fail if sqlite-vec extension isn't loaded; skip and try next
 				log.debug(`migration v${m.version} failed (non-fatal): ${e}`)
-				break
+				continue
 			}
 		}
 	}
@@ -195,22 +195,21 @@ export class AtlasStore {
 
 	getSymbolsByStableIds(stableIds: string[]): Map<string, SymbolRecord> {
 		if (stableIds.length === 0) return new Map()
-		const placeholders = stableIds.map(() => '?').join(',')
-		const rows = this.db
-			.query<SymbolRecord, string[]>(`${SYMBOL_SELECT} WHERE stable_id IN (${placeholders})`)
-			.all(...stableIds)
-		return new Map(rows.map((r) => [r.stableId, r]))
+		const result = new Map<string, SymbolRecord>()
+		for (let i = 0; i < stableIds.length; i += 500) {
+			const chunk = stableIds.slice(i, i + 500)
+			const placeholders = chunk.map(() => '?').join(',')
+			const rows = this.db
+				.query<SymbolRecord, string[]>(`${SYMBOL_SELECT} WHERE stable_id IN (${placeholders})`)
+				.all(...chunk)
+			for (const r of rows) result.set(r.stableId, r)
+		}
+		return result
 	}
 
 	findSymbolsByName(name: string): SymbolRecord[] {
 		return this.db
-			.query<SymbolRecord, [string]>(
-				`SELECT id, stable_id as stableId, file_id as fileId, name, qualified_name as qualifiedName,
-				kind, visibility, is_exported as isExported, line_start as lineStart, line_end as lineEnd,
-				col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
-				parent_id as parentId, signature, doc_comment as docComment, metadata
-				FROM symbols WHERE name = ?`,
-			)
+			.query<SymbolRecord, [string]>(`${SYMBOL_SELECT} WHERE name = ?`)
 			.all(name)
 	}
 
@@ -318,10 +317,6 @@ export class AtlasStore {
 	}
 
 	// --- bulk write operations (used by indexer) ---
-
-	deleteCrossFileEdges() {
-		this.db.run('DELETE FROM edges WHERE file_id IS NULL')
-	}
 
 	deleteCrossFileEdgesForSources(sourceStableIds: string[]) {
 		if (sourceStableIds.length === 0) return
@@ -541,25 +536,35 @@ export class AtlasStore {
 	symbolsToResults(syms: SymbolRecord[]): SymbolResult[] {
 		if (syms.length === 0) return []
 
-		// prefetch files
+		// batch prefetch files (single query instead of N)
 		const fileIds = [...new Set(syms.map((s) => s.fileId))]
 		const fileMap = new Map<number, string>()
-		for (const fid of fileIds) {
-			const f = this.getFile(fid)
-			if (f) fileMap.set(fid, f.path)
+		for (let i = 0; i < fileIds.length; i += 500) {
+			const chunk = fileIds.slice(i, i + 500)
+			const ph = chunk.map(() => '?').join(',')
+			const rows = this.db
+				.query<{ id: number; path: string }, number[]>(
+					`SELECT id, path FROM files WHERE id IN (${ph})`,
+				)
+				.all(...chunk)
+			for (const r of rows) fileMap.set(r.id, r.path)
 		}
 
-		// batch dependent counts
+		// batch dependent counts (chunked for SQLite variable limit)
 		const stableIds = syms.map((s) => s.stableId)
-		const placeholders = stableIds.map(() => '?').join(',')
-		const depCounts = this.db
-			.query<{ targetId: string; count: number }, string[]>(
-				`SELECT target_id as targetId, COUNT(DISTINCT source_id) as count
-				FROM edges WHERE target_id IN (${placeholders})
-				GROUP BY target_id`,
-			)
-			.all(...stableIds)
-		const depMap = new Map(depCounts.map((r) => [r.targetId, r.count]))
+		const depMap = new Map<string, number>()
+		for (let i = 0; i < stableIds.length; i += 500) {
+			const chunk = stableIds.slice(i, i + 500)
+			const ph = chunk.map(() => '?').join(',')
+			const depCounts = this.db
+				.query<{ targetId: string; count: number }, string[]>(
+					`SELECT target_id as targetId, COUNT(DISTINCT source_id) as count
+					FROM edges WHERE target_id IN (${ph})
+					GROUP BY target_id`,
+				)
+				.all(...chunk)
+			for (const r of depCounts) depMap.set(r.targetId, r.count)
+		}
 
 		return syms.map((sym) => ({
 			name: sym.name,

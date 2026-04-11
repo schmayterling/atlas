@@ -6,21 +6,11 @@ import { formatBlast, formatDeadCode, formatDeps, formatSearch, formatStatus, fo
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
 
-function safe(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> {
+async function safe(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> {
 	try {
-		const result = fn()
-		if (result instanceof Promise) {
-			return result.catch((e) => ({
-				content: [{ type: 'text' as const, text: `error: ${e}` }],
-				isError: true,
-			}))
-		}
-		return Promise.resolve(result)
+		return await fn()
 	} catch (e) {
-		return Promise.resolve({
-			content: [{ type: 'text' as const, text: `error: ${e}` }],
-			isError: true,
-		})
+		return { content: [{ type: 'text' as const, text: `error: ${e}` }], isError: true }
 	}
 }
 

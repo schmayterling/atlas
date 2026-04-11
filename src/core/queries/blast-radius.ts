@@ -39,16 +39,24 @@ export function getBlastRadius(
 
 	const distances = reachableNodes(graph, symbolStableId, 'inbound', maxDepth)
 
+	// batch-fetch all symbols and convert to results in 2 bulk queries
+	const nodeIds = [...distances.keys()]
+	const symMap = store.getSymbolsByStableIds(nodeIds)
+	const symResults = store.symbolsToResults([...symMap.values()])
+	const resultByStableId = new Map<string, import('../../shared/types.js').SymbolResult>()
+	const symValues = [...symMap.values()]
+	for (let i = 0; i < symValues.length; i++) {
+		resultByStableId.set(symValues[i].stableId, symResults[i])
+	}
+
 	const direct: AffectedItem[] = []
 	const transitive: AffectedItem[] = []
 	const affectedFiles = new Set<string>()
 	const affectedTestFiles = new Map<string, number>()
 
 	for (const [nodeId, depth] of distances.entries()) {
-		const sym = store.getSymbolByStableId(nodeId)
-		if (!sym) continue
-
-		const result = store.symbolToResult(sym)
+		const result = resultByStableId.get(nodeId)
+		if (!result) continue
 		affectedFiles.add(result.filePath)
 
 		// determine the relationship by finding the edge that connects this node
