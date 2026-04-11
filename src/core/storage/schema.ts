@@ -166,4 +166,22 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_embedding_meta_id ON embedding_meta(symbol_id);
 		`,
 	},
+	{
+		version: 3,
+		description: 'add api_endpoints for cross-language API tracing',
+		up: `
+			CREATE TABLE IF NOT EXISTS api_endpoints (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				file_path TEXT NOT NULL,
+				path_pattern TEXT NOT NULL,
+				http_method TEXT,
+				symbol_stable_id TEXT NOT NULL,
+				role TEXT NOT NULL CHECK(role IN ('client', 'server')),
+				framework TEXT,
+				line INTEGER NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_api_path ON api_endpoints(path_pattern);
+			CREATE INDEX IF NOT EXISTS idx_api_role ON api_endpoints(role);
+		`,
+	},
 ]

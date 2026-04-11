@@ -6,6 +6,16 @@ export interface ExtractionResult {
 	symbols: ExtractedSymbol[]
 	edges: ExtractedEdge[]
 	imports: ExtractedImport[]
+	apiEndpoints?: ExtractedApiEndpoint[]
+}
+
+export interface ExtractedApiEndpoint {
+	pathPattern: string
+	httpMethod: string | null
+	symbolQualifiedName: string
+	role: 'client' | 'server'
+	framework: string | null
+	line: number
 }
 
 export interface ExtractedSymbol {
@@ -63,7 +73,11 @@ export function extractTypeScript(
 		processNode(child, filePath, null, false, symbols, edges, imports)
 	}
 
-	return { symbols, edges, imports }
+	// extract API endpoints (fetch calls, route registrations)
+	const apiEndpoints: ExtractedApiEndpoint[] = []
+	extractApiEndpoints(root, filePath, apiEndpoints)
+
+	return { symbols, edges, imports, apiEndpoints }
 }
 
 function processNode(
@@ -632,4 +646,97 @@ function stripQuotes(s: string): string {
 function truncate(s: string, max: number): string {
 	if (s.length <= max) return s
 	return `${s.slice(0, max)}...`
+}
+
+// detect fetch('/api/...') calls (client) and app.get('/api/...', handler) (server)
+const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'all'])
+const FETCH_NAMES = new Set(['fetch', 'axios'])
+
+function extractApiEndpoints(
+	node: SyntaxNode,
+	filePath: string,
+	endpoints: ExtractedApiEndpoint[],
+) {
+	if (node.type === 'call_expression') {
+		const func = node.childForFieldName('function')
+		const args = node.childForFieldName('arguments')
+		if (func && args) {
+			// detect fetch('/api/...') or axios.get('/api/...')
+			if (func.type === 'identifier' && FETCH_NAMES.has(func.text)) {
+				const firstArg = args.namedChild(0)
+				if (firstArg?.type === 'string' || firstArg?.type === 'template_string') {
+					const url = extractStringValue(firstArg)
+					if (url && url.startsWith('/')) {
+						endpoints.push({
+							pathPattern: url,
+							httpMethod: null,
+							symbolQualifiedName: `${filePath}::${findContainingFunctionName(node) ?? 'module'}`,
+							role: 'client',
+							framework: 'fetch',
+							line: node.startPosition.row + 1,
+						})
+					}
+				}
+			}
+
+			// detect app.get('/api/...', handler) or router.post('/api/...')
+			if (func.type === 'member_expression') {
+				const method = func.childForFieldName('property')
+				if (method && HTTP_METHODS.has(method.text)) {
+					const firstArg = args.namedChild(0)
+					if (firstArg?.type === 'string' || firstArg?.type === 'template_string') {
+						const url = extractStringValue(firstArg)
+						if (url && url.startsWith('/')) {
+							endpoints.push({
+								pathPattern: url,
+								httpMethod: method.text === 'all' ? null : method.text.toUpperCase(),
+								symbolQualifiedName: `${filePath}::${findContainingFunctionName(node) ?? 'module'}`,
+								role: 'server',
+								framework: null,
+								line: node.startPosition.row + 1,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	for (let i = 0; i < node.namedChildCount; i++) {
+		extractApiEndpoints(node.namedChild(i)!, filePath, endpoints)
+	}
+}
+
+function extractStringValue(node: SyntaxNode): string | null {
+	if (node.type === 'string') {
+		// strip quotes
+		const text = node.text
+		if ((text.startsWith("'") && text.endsWith("'")) || (text.startsWith('"') && text.endsWith('"'))) {
+			return text.slice(1, -1)
+		}
+		return text
+	}
+	if (node.type === 'template_string') {
+		// only extract if it's a simple template without expressions
+		if (node.namedChildCount === 0) {
+			return node.text.slice(1, -1) // strip backticks
+		}
+	}
+	return null
+}
+
+function findContainingFunctionName(node: SyntaxNode): string | null {
+	let current = node.parent
+	while (current) {
+		if (current.type === 'function_declaration' || current.type === 'method_definition') {
+			const name = current.childForFieldName('name')
+			if (name) return name.text
+		}
+		if (current.type === 'variable_declarator') {
+			const name = current.childForFieldName('name')
+			if (name) return name.text
+		}
+		current = current.parent
+	}
+	return null
 }

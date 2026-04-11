@@ -192,6 +192,23 @@ export class Indexer {
 						edgeCount++
 					}
 
+					// store API endpoints if extracted
+					if (result.apiEndpoints && result.apiEndpoints.length > 0) {
+						this.store.deleteApiEndpointsForFile(filePath)
+						for (const ep of result.apiEndpoints) {
+							const epSymbolId = stableSymbolId(filePath, 'function', ep.symbolQualifiedName)
+							this.store.insertApiEndpoint({
+								filePath,
+								pathPattern: ep.pathPattern,
+								httpMethod: ep.httpMethod,
+								symbolStableId: epSymbolId,
+								role: ep.role,
+								framework: ep.framework,
+								line: ep.line,
+							})
+						}
+					}
+
 					// only TypeScript/JavaScript files go through TS compiler resolution
 					const tsLangs = ['typescript', 'tsx', 'javascript', 'jsx']
 					if (tsLangs.includes(parserLang)) {

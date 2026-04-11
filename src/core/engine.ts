@@ -22,6 +22,7 @@ import { findDeadCode } from './queries/dead-code.js'
 import { getDependencies } from './queries/dependencies.js'
 import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
+import { traceApi, type ApiTraceResult } from './queries/api-trace.js'
 import { semanticSearch } from './queries/semantic-search.js'
 import { AtlasStore } from './storage/store.js'
 
@@ -234,6 +235,13 @@ export class AtlasEngine {
 	fileSymbols(path: string): import('../shared/types.js').SymbolResult[] {
 		const store = this.getStore()
 		return store.getSymbolsByFilePath(path)
+	}
+
+	// --- API trace ---
+
+	traceApi(pathPattern: string): ApiTraceResult {
+		const store = this.getStore()
+		return traceApi(store, pathPattern)
 	}
 
 	// --- symbol detail ---

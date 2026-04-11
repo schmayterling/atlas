@@ -127,6 +127,13 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 		} catch (e) { log.error(`wiki: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
+	app.get('/api/api-trace', (c) => {
+		const pattern = c.req.query('pattern')
+		if (!pattern) return c.json({ error: 'pattern required' }, 400)
+		try { return c.json(eng(c).traceApi(pattern)) }
+		catch (e) { log.error(`api-trace: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
 	// MCP over HTTP
 	const defaultEngine = getOrCreateEngine(undefined, projectRoot)
 	const mcpServer = createMcpServer(defaultEngine)

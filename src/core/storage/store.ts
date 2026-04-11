@@ -500,6 +500,49 @@ export class AtlasStore {
 		this.db.run(sql, params as any[])
 	}
 
+	// --- api endpoints ---
+
+	insertApiEndpoint(endpoint: {
+		filePath: string
+		pathPattern: string
+		httpMethod: string | null
+		symbolStableId: string
+		role: 'client' | 'server'
+		framework: string | null
+		line: number
+	}) {
+		this.db.run(
+			'INSERT INTO api_endpoints (file_path, path_pattern, http_method, symbol_stable_id, role, framework, line) VALUES (?, ?, ?, ?, ?, ?, ?)',
+			[endpoint.filePath, endpoint.pathPattern, endpoint.httpMethod, endpoint.symbolStableId, endpoint.role, endpoint.framework, endpoint.line],
+		)
+	}
+
+	deleteApiEndpointsForFile(filePath: string) {
+		this.db.run('DELETE FROM api_endpoints WHERE file_path = ?', [filePath])
+	}
+
+	findApiEndpoints(pathPattern?: string, role?: 'client' | 'server'): {
+		filePath: string
+		pathPattern: string
+		httpMethod: string | null
+		symbolStableId: string
+		role: string
+		framework: string | null
+		line: number
+	}[] {
+		let sql = 'SELECT file_path as filePath, path_pattern as pathPattern, http_method as httpMethod, symbol_stable_id as symbolStableId, role, framework, line FROM api_endpoints WHERE 1=1'
+		const params: string[] = []
+		if (pathPattern) {
+			sql += ' AND path_pattern LIKE ?'
+			params.push(`%${pathPattern}%`)
+		}
+		if (role) {
+			sql += ' AND role = ?'
+			params.push(role)
+		}
+		return this.db.query(sql).all(...params) as any[]
+	}
+
 	getDbSize(): number {
 		try {
 			return statSync(this.dbPath).size
