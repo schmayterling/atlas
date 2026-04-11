@@ -1,20 +1,14 @@
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { Hono } from 'hono'
-import { AtlasEngine } from '../core/engine.js'
 import { log } from '../shared/logger.js'
 import { buildClient } from './build.js'
-import { statusRoutes } from './routes/status.js'
-import { searchRoutes } from './routes/search.js'
-import { filesRoutes } from './routes/files.js'
-import { depsRoutes } from './routes/deps.js'
-import { blastRoutes } from './routes/blast.js'
-import { traceRoutes } from './routes/trace.js'
-import { deadCodeRoutes } from './routes/dead-code.js'
-import { symbolRoutes } from './routes/symbol.js'
-import { wikiRoutes } from './routes/wiki.js'
+import { getOrCreateEngine, closeAll } from '../core/engine-pool.js'
+import { addProject } from '../core/registry.js'
+import { projectsRoutes } from './routes/projects.js'
 import { createMcpServer } from '../mcp/server.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+import type { SymbolKind } from '../shared/types.js'
 
 export function parseIntParam(val: string | undefined, max = 100): number | undefined {
 	if (!val) return undefined
@@ -23,82 +17,153 @@ export function parseIntParam(val: string | undefined, max = 100): number | unde
 }
 
 export async function startWebServer(projectRoot: string, opts: { port: number; open: boolean }) {
-	const engine = new AtlasEngine(projectRoot)
-
+	addProject(projectRoot)
 	const outDir = await buildClient(projectRoot)
-
 	const app = new Hono()
 
-	app.route('/api/status', statusRoutes(engine))
-	app.route('/api/search', searchRoutes(engine))
-	app.route('/api/files', filesRoutes(engine))
-	app.route('/api/deps', depsRoutes(engine))
-	app.route('/api/blast', blastRoutes(engine))
-	app.route('/api/trace', traceRoutes(engine))
-	app.route('/api/dead-code', deadCodeRoutes(engine))
-	app.route('/api/symbol', symbolRoutes(engine))
-	app.route('/api/wiki', wikiRoutes(engine))
+	// helper: resolve engine for a request
+	const eng = (c: any) => getOrCreateEngine(c.req.query('project'), projectRoot)
 
-	// MCP over HTTP (streamable HTTP transport)
-	const mcpServer = createMcpServer(engine)
+	// project management
+	app.route('/api/projects', projectsRoutes())
+
+	// data routes (engine resolved per-request)
+	app.get('/api/status', (c) => {
+		try { return c.json(eng(c).status()) }
+		catch (e) { log.error(`status: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/search', async (c) => {
+		const q = c.req.query('q')
+		if (!q) return c.json({ error: 'q required' }, 400)
+		try {
+			const semantic = c.req.query('semantic') === 'true'
+			if (semantic) return c.json(await eng(c).semanticSearch(q, { limit: parseIntParam(c.req.query('limit'), 500) }))
+			return c.json(eng(c).search(q, { kind: c.req.query('kind') as SymbolKind | undefined, limit: parseIntParam(c.req.query('limit'), 500) }))
+		} catch (e) { log.error(`search: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/files', (c) => {
+		try { return c.json(eng(c).files()) }
+		catch (e) { log.error(`files: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/files/symbols', (c) => {
+		const path = c.req.query('path')
+		if (!path) return c.json({ error: 'path required' }, 400)
+		try { return c.json(eng(c).fileSymbols(path)) }
+		catch (e) { log.error(`files/symbols: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/deps', (c) => {
+		const symbol = c.req.query('symbol')
+		if (!symbol) return c.json({ error: 'symbol required' }, 400)
+		try {
+			const result = eng(c).deps(symbol, { direction: c.req.query('direction') as any, depth: parseIntParam(c.req.query('depth'), 10) })
+			if (!result) return c.json({ error: 'symbol not found' }, 404)
+			return c.json(result)
+		} catch (e) { log.error(`deps: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/blast', (c) => {
+		const target = c.req.query('target')
+		if (!target) return c.json({ error: 'target required' }, 400)
+		try {
+			const result = eng(c).blast(target, { depth: parseIntParam(c.req.query('depth'), 10) })
+			if (!result) return c.json({ error: 'symbol not found' }, 404)
+			return c.json(result)
+		} catch (e) { log.error(`blast: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/trace', (c) => {
+		const from = c.req.query('from'), to = c.req.query('to')
+		if (!from || !to) return c.json({ error: 'from and to required' }, 400)
+		try {
+			const result = eng(c).trace(from, to, { maxPaths: parseIntParam(c.req.query('maxPaths'), 50), maxDepth: parseIntParam(c.req.query('maxDepth'), 10) })
+			if (!result) return c.json({ error: 'could not resolve both symbols' }, 404)
+			return c.json(result)
+		} catch (e) { log.error(`trace: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/dead-code', (c) => {
+		try { return c.json(eng(c).deadCode({ kind: c.req.query('kind') as SymbolKind | undefined, path: c.req.query('path') ?? undefined })) }
+		catch (e) { log.error(`dead-code: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/symbol', async (c) => {
+		const q = c.req.query('q')
+		if (!q) return c.json({ error: 'q required' }, 400)
+		try {
+			if (c.req.query('detail') === 'true') {
+				const result = await eng(c).symbolDetail(q)
+				if (!result) return c.json({ error: 'symbol not found' }, 404)
+				return c.json(result)
+			}
+			const result = eng(c).resolveSymbol(q)
+			if (!result) return c.json({ error: 'symbol not found' }, 404)
+			return c.json(result)
+		} catch (e) { log.error(`symbol: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/wiki', async (c) => {
+		const { marked } = await import('marked')
+		const symbolQuery = c.req.query('symbol')
+		try {
+			if (!symbolQuery) {
+				return c.json({ type: 'index', files: eng(c).files().map((f) => ({ path: f.path, language: f.language, symbolCount: f.symbolCount })) })
+			}
+			const detail = await eng(c).symbolDetail(symbolQuery)
+			if (!detail) return c.json({ error: 'symbol not found' }, 404)
+			const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+			const { symbol, upstream, downstream, sourceCode } = detail
+			let md = `# ${symbol.kind} \`${esc(symbol.name)}\`\n\n**File:** \`${symbol.filePath}:${symbol.lineStart}\`\n\n`
+			if (symbol.signature) md += `**Signature:** \`${esc(symbol.signature)}\`\n\n`
+			if (symbol.isExported) md += `*exported*\n\n`
+			if (symbol.docComment) md += `${esc(symbol.docComment)}\n\n`
+			if (sourceCode) md += `\`\`\`typescript\n${esc(sourceCode)}\n\`\`\`\n\n`
+			if (upstream.length > 0) { md += `## depends on\n\n`; for (const d of upstream) md += `- \`${esc(d.symbol.name)}\` (${d.edgeKind})\n`; md += '\n' }
+			if (downstream.length > 0) { md += `## depended on by\n\n`; for (const d of downstream) md += `- \`${esc(d.symbol.name)}\` (${d.edgeKind})\n`; md += '\n' }
+			return c.json({ type: 'symbol', symbol, html: await marked(md) })
+		} catch (e) { log.error(`wiki: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	// MCP over HTTP
+	const defaultEngine = getOrCreateEngine(undefined, projectRoot)
+	const mcpServer = createMcpServer(defaultEngine)
 	const mcpTransport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined })
 	mcpServer.connect(mcpTransport)
 	app.all('/mcp', async (c) => {
-		try {
-			const response = await mcpTransport.handleRequest(c.req.raw)
-			return response
-		} catch (e) {
-			log.error(`mcp http: ${e}`)
-			return c.json({ error: 'mcp request failed' }, 500)
-		}
+		try { return await mcpTransport.handleRequest(c.req.raw) }
+		catch (e) { log.error(`mcp http: ${e}`); return c.json({ error: 'mcp request failed' }, 500) }
 	})
 
 	// static files + SPA fallback
 	const indexPath = join(outDir, 'index.html')
 	if (existsSync(indexPath)) {
 		const indexHtml = await Bun.file(indexPath).text()
-
 		app.get('*', async (c) => {
 			const urlPath = new URL(c.req.url).pathname
 			if (urlPath !== '/') {
 				const filePath = join(outDir, urlPath)
-				// prevent path traversal: resolved path must stay inside outDir
-				if (!filePath.startsWith(outDir + '/')) {
-					return c.html(indexHtml)
-				}
+				if (!filePath.startsWith(outDir + '/')) return c.html(indexHtml)
 				const file = Bun.file(filePath)
-				if (await file.exists()) {
-					return new Response(file)
-				}
+				if (await file.exists()) return new Response(file)
 			}
 			return c.html(indexHtml)
 		})
 	}
 
-	const server = Bun.serve({
-		fetch: app.fetch,
-		port: opts.port,
-		hostname: '127.0.0.1',
-	})
-
+	const server = Bun.serve({ fetch: app.fetch, port: opts.port, hostname: '127.0.0.1' })
 	log.info(`atlas web UI: http://localhost:${server.port}`)
 
 	if (opts.open) {
 		const url = `http://localhost:${server.port}`
-		try {
-			if (process.platform === 'darwin') Bun.spawn(['open', url])
-			else if (process.platform === 'linux') Bun.spawn(['xdg-open', url])
-		} catch {
-			// user can open manually
-		}
+		try { if (process.platform === 'darwin') Bun.spawn(['open', url]); else if (process.platform === 'linux') Bun.spawn(['xdg-open', url]) }
+		catch { /* user can open manually */ }
 	}
 
-	const shutdown = () => {
-		engine.close()
-		process.exit(0)
-	}
+	const shutdown = () => { closeAll(); process.exit(0) }
 	process.on('SIGINT', shutdown)
 	process.on('SIGTERM', shutdown)
-
 	await new Promise(() => {})
 }

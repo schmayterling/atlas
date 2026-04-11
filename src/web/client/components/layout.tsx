@@ -1,5 +1,6 @@
 import { useLocation, Link } from 'wouter'
-import type { ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
+import { api, setCurrentProject, getCurrentProject } from '../lib/api.js'
 
 const NAV_ITEMS = [
 	{ path: '/', label: 'dashboard', icon: '◈' },
@@ -12,12 +13,44 @@ const NAV_ITEMS = [
 
 export function Layout({ children }: { children: ReactNode }) {
 	const [location] = useLocation()
+	const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+	const [activeProject, setActiveProject] = useState(getCurrentProject())
+
+	useEffect(() => {
+		api.projects().then((r) => {
+			setProjects(r.projects)
+			if (!activeProject && r.projects.length > 0) {
+				setActiveProject(r.projects[0].id)
+				setCurrentProject(r.projects[0].id)
+			}
+		}).catch(() => {})
+	}, [])
+
+	const handleProjectChange = (id: string) => {
+		setActiveProject(id)
+		setCurrentProject(id)
+		window.location.reload()
+	}
 
 	return (
 		<div className="flex h-screen">
 			<nav className="w-48 shrink-0 border-r border-border bg-surface-raised flex flex-col">
 				<div className="px-4 py-4 border-b border-border">
 					<span className="text-sm font-bold tracking-wider text-accent">atlas</span>
+					{projects.length > 1 && (
+						<select
+							value={activeProject ?? ''}
+							onChange={(e) => handleProjectChange(e.target.value)}
+							className="mt-2 w-full bg-surface border border-border rounded px-2 py-1 text-[10px] text-text-muted"
+						>
+							{projects.map((p) => (
+								<option key={p.id} value={p.id}>{p.name}</option>
+							))}
+						</select>
+					)}
+					{projects.length === 1 && (
+						<div className="mt-1 text-[10px] text-text-muted truncate">{projects[0].name}</div>
+					)}
 				</div>
 				<div className="flex flex-col gap-0.5 p-2 flex-1">
 					{NAV_ITEMS.map((item) => {

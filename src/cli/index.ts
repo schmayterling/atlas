@@ -11,6 +11,7 @@ import { searchCommand } from './commands/search.js'
 import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
 import { watchCommand } from './commands/watch.js'
+import { projectsCommand } from './commands/projects.js'
 
 const program = new Command()
 	.name('atlas')
@@ -160,6 +161,14 @@ program
 			port: Number(cmdOpts.port),
 			noEmbed: !cmdOpts.embed,
 		})
+	})
+
+program
+	.command('projects <action> [args...]')
+	.description('manage projects (list, add <path>, remove <id>, link <from> <to>)')
+	.action((action, args) => {
+		const opts = program.opts()
+		projectsCommand(action, args, opts.json)
 	})
 
 export { program }

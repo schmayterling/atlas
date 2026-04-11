@@ -13,8 +13,22 @@ import type {
 
 const BASE = '/api'
 
+let currentProjectId: string | null = localStorage.getItem('atlas-project')
+
+export function setCurrentProject(id: string | null) {
+	currentProjectId = id
+	if (id) localStorage.setItem('atlas-project', id)
+	else localStorage.removeItem('atlas-project')
+}
+
+export function getCurrentProject(): string | null {
+	return currentProjectId
+}
+
 async function get<T>(path: string, params?: Record<string, string | undefined>): Promise<T> {
 	const url = new URL(`${BASE}${path}`, window.location.origin)
+	// inject current project if set
+	if (currentProjectId) url.searchParams.set('project', currentProjectId)
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
 			if (v !== undefined) url.searchParams.set(k, v)
@@ -60,4 +74,6 @@ export const api = {
 	symbolDetail: (q: string) => get<SymbolDetail>('/symbol', { q, detail: 'true' }),
 	wiki: (symbol?: string) =>
 		get<{ type: string; files?: any[]; symbol?: SymbolResult; html?: string }>('/wiki', { symbol }),
+	projects: () =>
+		get<{ projects: { id: string; name: string; root: string }[]; links: any[] }>('/projects'),
 }
