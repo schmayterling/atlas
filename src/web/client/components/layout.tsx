@@ -71,21 +71,21 @@ export function Layout({ children }: { children: ReactNode }) {
 		<div className="flex h-screen overflow-hidden">
 			{/* sidebar */}
 			<nav
-				className={`shrink-0 border-r border-border bg-surface-raised flex flex-col overflow-hidden ${
-					collapsed ? 'w-12' : 'w-48'
+				className={`shrink-0 border-r border-border bg-surface-raised flex flex-col sidebar-transition ${
+					collapsed ? 'w-12 sidebar-collapsed' : 'w-48'
 				}`}
 			>
 				{/* logo + collapse */}
-				<div className="flex items-center h-11 border-b border-border overflow-hidden whitespace-nowrap">
-					<div className={`flex items-center justify-between w-full ${collapsed ? 'px-1.5' : 'px-3'}`}>
+				<div className="flex items-center justify-between px-3 h-11 border-b border-border">
+					{!collapsed && (
 						<span className="text-xs font-semibold tracking-wide text-accent sidebar-label">atlas</span>
-						<button
-							onClick={toggleCollapsed}
-							className="p-1 rounded-[var(--radius-default)] text-text-muted hover:text-text hover:bg-surface-hover cursor-pointer transition-colors shrink-0"
-						>
-							{collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
-						</button>
-					</div>
+					)}
+					<button
+						onClick={toggleCollapsed}
+						className="p-1 rounded-[var(--radius-default)] text-text-muted hover:text-text hover:bg-surface-hover cursor-pointer transition-colors"
+					>
+						{collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+					</button>
 				</div>
 
 				{/* project selector */}
@@ -114,8 +114,8 @@ export function Layout({ children }: { children: ReactNode }) {
 							<Link
 								key={item.path}
 								href={item.path}
-								className={`flex items-center h-8 rounded-[var(--radius-default)] transition-colors whitespace-nowrap overflow-hidden ${
-									collapsed ? 'justify-center px-0' : 'gap-2.5 px-2.5'
+								className={`flex items-center gap-2.5 rounded-[var(--radius-default)] transition-colors ${
+									collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-[7px]'
 								} ${
 									active
 										? 'bg-accent/10 text-accent'
@@ -123,8 +123,8 @@ export function Layout({ children }: { children: ReactNode }) {
 								}`}
 								title={collapsed ? item.label : undefined}
 							>
-								<Icon size={15} strokeWidth={1.8} className="shrink-0 min-w-[15px]" />
-								<span className="text-[12px] sidebar-label">{item.label}</span>
+								<Icon size={15} strokeWidth={1.8} />
+								{!collapsed && <span className="text-[12px] sidebar-label">{item.label}</span>}
 							</Link>
 						)
 					})}
