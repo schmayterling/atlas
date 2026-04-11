@@ -2,15 +2,15 @@ import pc from 'picocolors'
 import { AtlasEngine } from '../../core/engine.js'
 import { formatDuration, outputJson } from '../formatters/common.js'
 
-export function indexCommand(
+export async function indexCommand(
 	projectRoot: string,
 	json: boolean,
-	opts: { force?: boolean; dryRun?: boolean },
+	opts: { force?: boolean; dryRun?: boolean; noEmbed?: boolean },
 ) {
 	const engine = new AtlasEngine(projectRoot)
 
 	try {
-		const result = engine.index(opts)
+		const result = await engine.index(opts)
 
 		if (json) {
 			outputJson(result)

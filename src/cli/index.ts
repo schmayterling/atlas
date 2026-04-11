@@ -36,11 +36,13 @@ program
 	.description('index the codebase (incremental by default)')
 	.option('--full', 'force full re-index')
 	.option('--dry-run', 'show what would be indexed without changes')
-	.action((cmdOpts) => {
+	.option('--no-embed', 'skip embedding generation')
+	.action(async (cmdOpts) => {
 		const opts = program.opts()
-		indexCommand(opts.project, opts.json, {
+		await indexCommand(opts.project, opts.json, {
 			force: cmdOpts.full,
 			dryRun: cmdOpts.dryRun,
+			noEmbed: cmdOpts.noEmbed ?? !cmdOpts.embed,
 		})
 	})
 

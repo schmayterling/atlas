@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { log } from '../../shared/logger.js'
+import { isVectorSearchAvailable, loadVecExtension } from './sqlite-ext.js'
 import type {
 	Confidence,
 	EdgeKind,
@@ -33,6 +34,7 @@ export class AtlasStore {
 		}
 
 		this.db = new Database(dbPath)
+		loadVecExtension(this.db)
 		this.initialize()
 	}
 
@@ -69,15 +71,21 @@ export class AtlasStore {
 		)
 		if (pending.length === 0) return
 
-		this.db.transaction(() => {
-			for (const m of pending) {
-				log.info(`applying migration v${m.version}: ${m.description}`)
-				this.db.run(m.up)
-				this.db.run("UPDATE atlas_meta SET value = ? WHERE key = 'schema_version'", [
-					String(m.version),
-				])
+		for (const m of pending) {
+			try {
+				this.db.transaction(() => {
+					log.info(`applying migration v${m.version}: ${m.description}`)
+					this.db.run(m.up)
+					this.db.run("UPDATE atlas_meta SET value = ? WHERE key = 'schema_version'", [
+						String(m.version),
+					])
+				})()
+			} catch (e) {
+				// vec0 migration fails if sqlite-vec extension isn't loaded; skip gracefully
+				log.debug(`migration v${m.version} failed (non-fatal): ${e}`)
+				break
 			}
-		})()
+		}
 	}
 
 	close() {
@@ -478,9 +486,19 @@ export class AtlasStore {
 		this.db.transaction(operations)()
 	}
 
-	// run an arbitrary read query (for queries that don't fit a typed method)
+	// run an arbitrary read query
 	queryRaw<T>(sql: string): T[] {
 		return this.db.query<T, []>(sql).all()
+	}
+
+	// run a read query with parameters
+	queryRawWithParams<T>(sql: string, ...params: any[]): T[] {
+		return (this.db.query(sql) as any).all(...params) as T[]
+	}
+
+	// run an arbitrary write statement with params
+	runRaw(sql: string, ...params: unknown[]) {
+		this.db.run(sql, params as any[])
 	}
 
 	// get database size

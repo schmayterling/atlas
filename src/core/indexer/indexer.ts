@@ -23,7 +23,7 @@ export class Indexer {
 		private store: AtlasStore,
 	) {}
 
-	index(opts?: { force?: boolean; dryRun?: boolean }): IndexResult {
+	async index(opts?: { force?: boolean; dryRun?: boolean; noEmbed?: boolean }): Promise<IndexResult> {
 		const start = performance.now()
 		const warnings: string[] = []
 
@@ -232,7 +232,20 @@ export class Indexer {
 			log.warn(`cross-file resolution failed: ${e}`)
 		}
 
-		// step 7: update metadata
+		// step 7: embedding pipeline (optional)
+		if (!opts?.noEmbed) {
+			try {
+				const { runEmbeddingPipeline } = await import('../embeddings/embed-pipeline.js')
+				const embedResult = await runEmbeddingPipeline(this.store)
+				if (embedResult.embedded > 0) {
+					log.info(`embedded ${embedResult.embedded} symbols (${embedResult.skipped} cached)`)
+				}
+			} catch (e) {
+				log.debug(`embedding pipeline skipped: ${e}`)
+			}
+		}
+
+		// step 8: update metadata
 		const commit = getCurrentCommit(this.projectRoot)
 		const branch = getCurrentBranch(this.projectRoot)
 		const configHash = computeConfigHash(this.projectRoot)

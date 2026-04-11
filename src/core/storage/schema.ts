@@ -150,10 +150,20 @@ export interface Migration {
 }
 
 export const MIGRATIONS: Migration[] = [
-	// future migrations go here
-	// {
-	//   version: 2,
-	//   description: 'add symbol_embeddings for semantic search',
-	//   up: `CREATE VIRTUAL TABLE IF NOT EXISTS symbol_embeddings USING vec0(embedding float[384]);`,
-	// },
+	{
+		version: 2,
+		description: 'add symbol_embeddings for semantic search',
+		up: `
+			CREATE VIRTUAL TABLE IF NOT EXISTS symbol_embeddings USING vec0(
+				embedding float[384]
+			);
+			CREATE TABLE IF NOT EXISTS embedding_meta (
+				symbol_stable_id TEXT PRIMARY KEY,
+				symbol_id INTEGER NOT NULL,
+				embed_text TEXT NOT NULL,
+				embed_hash TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_embedding_meta_id ON embedding_meta(symbol_id);
+		`,
+	},
 ]

@@ -13,17 +13,18 @@
     "format": "bunx @biomejs/biome format --write ."
   },
   "dependencies": {
+    "commander": "^13.1.0",
+    "graphology": "^0.25.4",
+    "graphology-dag": "^0.4.1",
+    "graphology-shortest-path": "^2.1.0",
+    "graphology-traversal": "^0.3.1",
+    "graphology-types": "^0.24.7",
+    "picocolors": "^1.1.1",
+    "sqlite-vec": "^0.1.9",
     "tree-sitter": "^0.22.4",
     "tree-sitter-typescript": "^0.23.2",
-    "graphology": "^0.25.4",
-    "graphology-traversal": "^0.3.1",
-    "graphology-shortest-path": "^2.1.0",
-    "graphology-dag": "^0.4.1",
-    "graphology-types": "^0.24.7",
-    "commander": "^13.1.0",
-    "picocolors": "^1.1.1",
-    "zod": "^3.24.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "zod": "^3.24.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

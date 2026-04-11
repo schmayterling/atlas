@@ -9,6 +9,7 @@ import type {
 	FlowTraceResult,
 	IndexResult,
 	SearchResult,
+	SemanticSearchResult,
 	StatusResult,
 	SymbolKind,
 } from '../shared/types.js'
@@ -18,6 +19,7 @@ import { findDeadCode } from './queries/dead-code.js'
 import { getDependencies } from './queries/dependencies.js'
 import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
+import { semanticSearch } from './queries/semantic-search.js'
 import { AtlasStore } from './storage/store.js'
 
 export class AtlasEngine {
@@ -80,7 +82,7 @@ export class AtlasEngine {
 
 	// --- index ---
 
-	index(opts?: { force?: boolean; dryRun?: boolean }): IndexResult {
+	async index(opts?: { force?: boolean; dryRun?: boolean; noEmbed?: boolean }): Promise<IndexResult> {
 		const store = this.getStore()
 		const indexer = new Indexer(this.projectRoot, this.config, store)
 		return indexer.index(opts)
@@ -189,5 +191,15 @@ export class AtlasEngine {
 	deadCode(opts?: { path?: string; kind?: SymbolKind }): DeadCodeResult {
 		const store = this.getStore()
 		return findDeadCode(store, opts)
+	}
+
+	// --- semantic search ---
+
+	async semanticSearch(
+		query: string,
+		opts?: { limit?: number },
+	): Promise<SemanticSearchResult> {
+		const store = this.getStore()
+		return semanticSearch(store, query, opts)
 	}
 }
