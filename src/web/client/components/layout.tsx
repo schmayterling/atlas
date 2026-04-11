@@ -69,26 +69,21 @@ export function Layout({ children }: { children: ReactNode }) {
 
 	return (
 		<div className="flex h-screen overflow-hidden">
-			{/* sidebar */}
 			<nav
-				className={`shrink-0 border-r border-border bg-surface-raised flex flex-col sidebar-transition ${
+				className={`shrink-0 border-r border-border bg-surface-raised flex flex-col sidebar-nav ${
 					collapsed ? 'w-12 sidebar-collapsed' : 'w-48'
 				}`}
 			>
-				{/* logo + collapse */}
-				<div className="flex items-center justify-between px-3 h-11 border-b border-border">
-					{!collapsed && (
-						<span className="text-xs font-semibold tracking-wide text-accent sidebar-label">atlas</span>
-					)}
+				<div className="flex items-center h-11 border-b border-border px-3 gap-2">
 					<button
 						onClick={toggleCollapsed}
-						className="p-1 rounded-[var(--radius-default)] text-text-muted hover:text-text hover:bg-surface-hover cursor-pointer transition-colors"
+						className="shrink-0 p-1 rounded-[var(--radius-default)] text-text-muted hover:text-text hover:bg-surface-hover cursor-pointer"
 					>
 						{collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
 					</button>
+					<span className="text-xs font-semibold tracking-wide text-accent sidebar-label">atlas</span>
 				</div>
 
-				{/* project selector */}
 				{!collapsed && projects.length > 1 && (
 					<div className="px-2 py-2 border-b border-border">
 						<select
@@ -103,8 +98,7 @@ export function Layout({ children }: { children: ReactNode }) {
 					</div>
 				)}
 
-				{/* nav items */}
-				<div className="flex flex-col gap-px p-1.5 flex-1 overflow-y-auto">
+				<div className="flex flex-col gap-px p-1.5 flex-1 overflow-y-auto overflow-x-hidden">
 					{NAV_ITEMS.map((item) => {
 						const active = item.path === '/'
 							? location === '/'
@@ -114,8 +108,8 @@ export function Layout({ children }: { children: ReactNode }) {
 							<Link
 								key={item.path}
 								href={item.path}
-								className={`flex items-center gap-2.5 rounded-[var(--radius-default)] transition-colors ${
-									collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-[7px]'
+								className={`flex items-center gap-2.5 rounded-[var(--radius-default)] py-[7px] ${
+									collapsed ? 'justify-center px-0' : 'px-2.5'
 								} ${
 									active
 										? 'bg-accent/10 text-accent'
@@ -123,14 +117,13 @@ export function Layout({ children }: { children: ReactNode }) {
 								}`}
 								title={collapsed ? item.label : undefined}
 							>
-								<Icon size={15} strokeWidth={1.8} />
-								{!collapsed && <span className="text-[12px] sidebar-label">{item.label}</span>}
+								<Icon size={15} strokeWidth={1.8} className="shrink-0" />
+								<span className="text-[12px] sidebar-label">{item.label}</span>
 							</Link>
 						)
 					})}
 				</div>
 
-				{/* project name at bottom */}
 				{!collapsed && projects.length === 1 && (
 					<div className="px-3 py-2 border-t border-border">
 						<div className="text-[10px] text-text-muted truncate">{projects[0]?.name}</div>
@@ -138,9 +131,7 @@ export function Layout({ children }: { children: ReactNode }) {
 				)}
 			</nav>
 
-			{/* main content */}
 			<div className="flex-1 flex flex-col min-w-0">
-				{/* breadcrumbs */}
 				<div className="flex items-center gap-1 px-5 h-11 border-b border-border text-[12px] shrink-0">
 					{breadcrumbs.map((crumb, i) => (
 						<span key={crumb.href} className="flex items-center gap-1">
@@ -148,7 +139,7 @@ export function Layout({ children }: { children: ReactNode }) {
 							{i === breadcrumbs.length - 1 ? (
 								<span className="text-text-secondary">{crumb.label}</span>
 							) : (
-								<Link href={crumb.href} className="text-text-muted hover:text-text transition-colors">
+								<Link href={crumb.href} className="text-text-muted hover:text-text">
 									{crumb.label}
 								</Link>
 							)}
@@ -156,7 +147,6 @@ export function Layout({ children }: { children: ReactNode }) {
 					))}
 				</div>
 
-				{/* page content */}
 				<main className="flex-1 overflow-auto p-5">{children}</main>
 			</div>
 		</div>
