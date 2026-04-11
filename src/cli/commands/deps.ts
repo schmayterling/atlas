@@ -1,6 +1,6 @@
 import pc from 'picocolors'
 import { AtlasEngine } from '../../core/engine.js'
-import { badge, fileRef, heading, outputJson } from '../formatters/common.js'
+import { heading, outputJson } from '../formatters/common.js'
 import { renderDependencyTree } from '../formatters/tree.js'
 
 export function depsCommand(

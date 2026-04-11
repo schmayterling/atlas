@@ -3,10 +3,9 @@ import { extname } from 'node:path'
 import type { AtlasConfig } from '../../shared/config.js'
 import { contentHash, stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
-import type { IndexResult, SymbolKind } from '../../shared/types.js'
+import type { IndexResult } from '../../shared/types.js'
 import { getLanguageForExtension, parseSource } from '../parser/parser-manager.js'
 import { extractTypeScript } from '../parser/extractors/typescript.js'
-import type { ExtractedSymbol } from '../parser/extractors/typescript.js'
 import type { AtlasStore } from '../storage/store.js'
 import {
 	computeConfigHash,
@@ -259,10 +258,4 @@ export class Indexer {
 			warnings,
 		}
 	}
-}
-
-// look up the kind of a symbol by its qualified name in the extraction results
-function resolveParentKind(qualifiedName: string, symbols: ExtractedSymbol[]): SymbolKind {
-	const sym = symbols.find((s) => s.qualifiedName === qualifiedName)
-	return sym?.kind ?? 'variable'
 }

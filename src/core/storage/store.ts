@@ -9,7 +9,6 @@ import type {
 	FileRecord,
 	ImportRecord,
 	ReferenceKind,
-	ReferenceRecord,
 	SymbolKind,
 	SymbolRecord,
 	SymbolResult,

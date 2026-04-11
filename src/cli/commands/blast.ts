@@ -36,7 +36,7 @@ export function blastCommand(
 		if (result.direct.length > 0) {
 			console.log()
 			console.log(
-				pc.bold(`DIRECT (${result.direct.length} symbols)`),
+				pc.bold(`direct (${result.direct.length} symbols)`),
 			)
 			for (const item of result.direct) {
 				const kindBadge = badge(item.symbol.kind)
@@ -51,7 +51,7 @@ export function blastCommand(
 			console.log()
 			console.log(
 				pc.bold(
-					`TRANSITIVE (${result.transitive.length} symbols, depth 2-${result.summary.maxDepthReached})`,
+					`transitive (${result.transitive.length} symbols, depth 2-${result.summary.maxDepthReached})`,
 				),
 			)
 			for (const item of result.transitive.slice(0, 20)) {
@@ -71,7 +71,7 @@ export function blastCommand(
 		if (result.affectedTests.length > 0) {
 			console.log()
 			console.log(
-				pc.bold(`AFFECTED TESTS (${result.affectedTests.length} files)`),
+				pc.bold(`affected tests (${result.affectedTests.length} files)`),
 			)
 			for (const test of result.affectedTests) {
 				console.log(`  ${pc.magenta('◆')} ${test.file}`)

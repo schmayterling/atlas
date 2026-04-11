@@ -1,9 +1,5 @@
 import pc from 'picocolors'
 
-export function isJsonMode(): boolean {
-	return !process.stdout.isTTY || process.env.ATLAS_JSON === '1'
-}
-
 export function outputJson(data: unknown) {
 	console.log(JSON.stringify(data, null, 2))
 }

@@ -3,7 +3,6 @@ import type {
 	BlastRadiusResult,
 	EdgeKind,
 	SubgraphBudget,
-	SymbolResult,
 } from '../../shared/types.js'
 import { loadSubgraph, reachableNodes } from '../graph/graph-index.js'
 import type { AtlasStore } from '../storage/store.js'
