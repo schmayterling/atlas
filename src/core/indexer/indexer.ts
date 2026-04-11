@@ -28,12 +28,15 @@ export class Indexer {
 		const warnings: string[] = []
 
 		// step 1: discover files
-		log.info('discovering files...')
+		let t = performance.now()
 		const discovered = discoverFiles(this.projectRoot, this.config)
+		log.debug(`file discovery: ${(performance.now() - t).toFixed(0)}ms`)
 		log.info(`found ${discovered.length} files`)
 
 		// step 2: detect changes
+		t = performance.now()
 		let changes = detectChanges(this.projectRoot, discovered, this.store)
+		log.debug(`change detection: ${(performance.now() - t).toFixed(0)}ms`)
 
 		if (opts?.force) {
 			// delete ALL existing files (cascade cleans symbols/edges), then re-add everything
@@ -101,6 +104,7 @@ export class Indexer {
 		let symbolCount = 0
 		let edgeCount = 0
 		const processedStableIds: string[] = []
+		t = performance.now()
 
 		log.info(`indexing ${toProcess.length} files...`)
 
@@ -189,8 +193,10 @@ export class Indexer {
 				}
 			}
 		})
+		log.debug(`parsing + extraction: ${(performance.now() - t).toFixed(0)}ms`)
 
 		// step 6: cross-file resolution via TS compiler API
+		t = performance.now()
 		log.info('resolving cross-file references...')
 		try {
 			// delete cross-file edges only for symbols in processed files (not all)
@@ -233,6 +239,7 @@ export class Indexer {
 			warnings.push(`cross-file resolution failed: ${e}`)
 			log.warn(`cross-file resolution failed: ${e}`)
 		}
+		log.debug(`cross-file resolution: ${(performance.now() - t).toFixed(0)}ms`)
 
 		// step 7: embedding pipeline (optional)
 		if (!opts?.noEmbed) {

@@ -89,12 +89,12 @@ program
 	.command('blast <target>')
 	.description('show blast radius for a file or symbol')
 	.option('--depth <n>', 'max propagation depth', '5')
-	.option('--tests', 'include affected test files', true)
+	.option('--no-tests', 'exclude affected test files')
 	.action((target, cmdOpts) => {
 		const opts = program.opts()
 		blastCommand(opts.project, target, opts.json, {
 			depth: Number(cmdOpts.depth),
-			tests: cmdOpts.tests,
+			tests: cmdOpts.tests !== false,
 		})
 	})
 

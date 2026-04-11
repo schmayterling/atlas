@@ -49,8 +49,9 @@ export function detectChanges(
 		}
 	}
 
-	// try git-based detection first
-	const gitChanges = tryGitDiff(projectRoot, store)
+	// try git-based detection first, filtered to discovered file paths
+	const discoveredPaths = new Set(discoveredFiles.map((f) => f.path))
+	const gitChanges = tryGitDiff(projectRoot, store, discoveredPaths)
 	if (gitChanges) {
 		return { ...gitChanges, configChanged, branchChanged: false, isFullReindex: false }
 	}
@@ -67,6 +68,7 @@ export function detectChanges(
 function tryGitDiff(
 	projectRoot: string,
 	store: AtlasStore,
+	discoveredPaths: Set<string>,
 ): { added: string[]; modified: string[]; deleted: string[] } | null {
 	const lastCommit = store.getMeta('last_indexed_commit')
 	if (!lastCommit || !/^[0-9a-f]{40}$/.test(lastCommit)) return null
@@ -109,7 +111,12 @@ function tryGitDiff(
 			}
 		}
 
-		return { added, modified, deleted }
+		// filter to only files that are in the discovered set (skip non-TS, etc.)
+		return {
+			added: added.filter((p) => discoveredPaths.has(p)),
+			modified: modified.filter((p) => discoveredPaths.has(p)),
+			deleted: deleted.filter((p) => !discoveredPaths.has(p) || true), // keep deleted even if not discovered
+		}
 	} catch {
 		return null
 	}
