@@ -9,20 +9,20 @@ import { buildSummaryPrompt } from './prompt.js'
 export async function runSummaryPipeline(
 	store: AtlasStore,
 	projectRoot: string,
-): Promise<{ generated: number; cached: number; skipped: number }> {
+): Promise<{ generated: number; cached: number; skipped: number; fileSummaries: number }> {
 	// check if summary table exists
 	const tables = store.queryRaw<{ name: string }>(
 		"SELECT name FROM sqlite_master WHERE type='table' AND name='symbol_summaries'",
 	)
-	if (tables.length === 0) return { generated: 0, cached: 0, skipped: 0 }
+	if (tables.length === 0) return { generated: 0, cached: 0, skipped: 0, fileSummaries: 0 }
 
 	// check if Ollama has a chat model available
 	const client = new OllamaClient()
 	try {
 		const running = await client.isRunning()
-		if (!running) return { generated: 0, cached: 0, skipped: 0 }
+		if (!running) return { generated: 0, cached: 0, skipped: 0, fileSummaries: 0 }
 	} catch {
-		return { generated: 0, cached: 0, skipped: 0 }
+		return { generated: 0, cached: 0, skipped: 0, fileSummaries: 0 }
 	}
 
 	// use qwen2.5-coder:1.5b (fast, code-specialized, ~1GB)
@@ -39,12 +39,12 @@ export async function runSummaryPipeline(
 				const pull = Bun.spawnSync(['ollama', 'pull', chatModel], { stdout: 'inherit', stderr: 'inherit' })
 				if (pull.exitCode !== 0) {
 					log.warn(`failed to pull ${chatModel}`)
-					return { generated: 0, cached: 0, skipped: 0 }
+					return { generated: 0, cached: 0, skipped: 0, fileSummaries: 0 }
 				}
 			}
 		}
 	} catch {
-		return { generated: 0, cached: 0, skipped: 0 }
+		return { generated: 0, cached: 0, skipped: 0, fileSummaries: 0 }
 	}
 
 	// get exported symbols without cached summaries
@@ -62,9 +62,22 @@ export async function runSummaryPipeline(
 		s.signature, s.doc_comment as docComment, f.path as filePath,
 		s.line_start as lineStart, s.line_end as lineEnd
 		FROM symbols s JOIN files f ON s.file_id = f.id
-		WHERE s.is_exported = 1
-		AND s.kind IN ('function', 'class', 'method', 'interface', 'type')
 		ORDER BY s.kind, s.name`)
+
+	// build flow membership map: stableId -> flow names
+	const flowMap = new Map<string, string[]>()
+	try {
+		const flows = store.queryRaw<{ name: string; symbolIds: string }>(
+			'SELECT name, symbol_ids as symbolIds FROM flows',
+		)
+		for (const flow of flows) {
+			const ids: string[] = JSON.parse(flow.symbolIds)
+			for (const id of ids) {
+				if (!flowMap.has(id)) flowMap.set(id, [])
+				flowMap.get(id)!.push(flow.name)
+			}
+		}
+	} catch { /* flows table may not exist */ }
 
 	// get existing summaries
 	const existing = new Map<string, string>()
@@ -97,6 +110,7 @@ export async function runSummaryPipeline(
 			continue
 		}
 
+		const flows = flowMap.get(sym.stableId)
 		const prompt = buildSummaryPrompt(
 			{
 				name: sym.name,
@@ -114,6 +128,7 @@ export async function runSummaryPipeline(
 			sourceCode,
 			[],
 			[],
+			flows,
 		)
 		work.push({ sym, sourceCode, hash, prompt })
 	}
@@ -155,5 +170,65 @@ export async function runSummaryPipeline(
 		}
 	}
 
-	return { generated, cached, skipped }
+	// file-level summaries
+	let fileSummaries = 0
+	try {
+		const files = store.queryRaw<{ path: string }>('SELECT path FROM files')
+		const existingFiles = new Map<string, string>()
+		try {
+			const rows = store.queryRaw<{ filePath: string; sourceHash: string }>(
+				'SELECT symbol_stable_id as filePath, source_hash as sourceHash FROM symbol_summaries WHERE symbol_stable_id LIKE \'file:%\'',
+			)
+			for (const r of rows) existingFiles.set(r.filePath, r.sourceHash)
+		} catch { /* no table */ }
+
+		const fileWork: { path: string; hash: string; prompt: string }[] = []
+		for (const file of files) {
+			const fileSymbols = store.getSymbolsByFilePath(file.path)
+			if (fileSymbols.length === 0) continue
+			const hash = contentHash(fileSymbols.map((s) => s.name).join(','))
+			const key = `file:${file.path}`
+			if (existingFiles.has(key) && existingFiles.get(key) === hash) continue
+
+			const { buildFileSummaryPrompt } = await import('./prompt.js')
+			const prompt = buildFileSummaryPrompt(
+				file.path,
+				fileSymbols.map((s) => s.name),
+				fileSymbols.map((s) => s.kind),
+			)
+			fileWork.push({ path: file.path, hash, prompt })
+		}
+
+		if (fileWork.length > 0) {
+			log.info(`summarizing ${fileWork.length} files...`)
+		}
+
+		for (let i = 0; i < fileWork.length; i += batchSize) {
+			const batch = fileWork.slice(i, i + batchSize)
+			const results = await Promise.allSettled(
+				batch.map(async (item) => {
+					const summary = await client.generate(item.prompt, chatModel)
+					return { path: item.path, summary: summary.trim(), hash: item.hash }
+				}),
+			)
+			for (const result of results) {
+				if (result.status === 'fulfilled') {
+					const { path, summary, hash } = result.value
+					store.runRaw(
+						'INSERT OR REPLACE INTO symbol_summaries (symbol_stable_id, summary, model, generated_at, source_hash) VALUES (?, ?, ?, ?, ?)',
+						`file:${path}`,
+						summary,
+						chatModel,
+						Date.now(),
+						hash,
+					)
+					fileSummaries++
+				}
+			}
+		}
+	} catch (e) {
+		log.debug(`file summaries failed: ${e}`)
+	}
+
+	return { generated, cached, skipped, fileSummaries }
 }

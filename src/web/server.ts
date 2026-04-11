@@ -111,6 +111,20 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 		const symbolQuery = c.req.query('symbol')
 		try {
 			if (!symbolQuery) {
+				// check if requesting a file summary
+				const filePath = c.req.query('file')
+				if (filePath) {
+					const engine = eng(c)
+					let fileSummary: string | null = null
+					try {
+						const store = engine.getStoreForCrossProject()
+						const cached = store.queryRawWithParams<{ summary: string }>(
+							'SELECT summary FROM symbol_summaries WHERE symbol_stable_id = ?', `file:${filePath}`,
+						)
+						if (cached.length > 0) fileSummary = cached[0].summary
+					} catch { /* no table */ }
+					return c.json({ type: 'file', path: filePath, summary: fileSummary, symbols: engine.fileSymbols(filePath) })
+				}
 				return c.json({ type: 'index', files: eng(c).files().map((f) => ({ path: f.path, language: f.language, symbolCount: f.symbolCount })) })
 			}
 			const engine = eng(c)
@@ -136,6 +150,25 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 			if (symbol.signature) md += `**Signature:** \`${esc(symbol.signature)}\`\n\n`
 			if (symbol.isExported) md += `*exported*\n\n`
 			if (llmSummary) md += `> ${esc(llmSummary)}\n\n`
+
+			// look up flows this symbol belongs to
+			try {
+				const s = engine.getStoreForCrossProject()
+				const resolved = s.resolveSymbol(symbolQuery)
+				if (resolved) {
+					const flows = s.queryRaw<{ name: string; symbolIds: string }>(
+						'SELECT name, symbol_ids as symbolIds FROM flows',
+					)
+					const memberFlows = flows.filter((f: any) => {
+						const ids: string[] = JSON.parse(f.symbolIds)
+						return ids.includes(resolved.stableId)
+					})
+					if (memberFlows.length > 0) {
+						md += `**Flows:** ${memberFlows.map((f: any) => f.name).join(', ')}\n\n`
+					}
+				}
+			} catch { /* flows table may not exist */ }
+
 			if (symbol.docComment) md += `${esc(symbol.docComment)}\n\n`
 			if (sourceCode) md += `\`\`\`typescript\n${esc(sourceCode)}\n\`\`\`\n\n`
 			if (upstream.length > 0) { md += `## depends on\n\n`; for (const d of upstream) md += `- \`${esc(d.symbol.name)}\` (${d.edgeKind})\n`; md += '\n' }

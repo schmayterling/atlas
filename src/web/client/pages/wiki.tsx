@@ -49,6 +49,7 @@ export function WikiPage() {
 	const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
 	const [wikiContent, setWikiContent] = useState<string | null>(null)
 	const [fileSymbols, setFileSymbols] = useState<any[]>([])
+	const [fileSummary, setFileSummary] = useState<string | null>(null)
 	const [searchFilter, setSearchFilter] = useState('')
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -63,12 +64,18 @@ export function WikiPage() {
 	useEffect(() => {
 		if (!selectedFile) {
 			setFileSymbols([])
+			setFileSummary(null)
 			return
 		}
 		api
 			.fileSymbols(selectedFile)
 			.then(setFileSymbols)
 			.catch((e) => setError(e.message))
+		// fetch file summary
+		fetch(`/api/wiki?file=${encodeURIComponent(selectedFile)}`)
+			.then((r) => r.json())
+			.then((r) => setFileSummary(r.summary))
+			.catch(() => setFileSummary(null))
 	}, [selectedFile])
 
 	useEffect(() => {
@@ -185,7 +192,13 @@ export function WikiPage() {
 									<span className="mx-1">/</span>
 									<span>{selectedFile}</span>
 								</div>
-								<h1 className="text-lg font-bold mb-4">{selectedFile.split('/').pop()}</h1>
+								<h1 className="text-lg font-bold mb-2">{selectedFile.split('/').pop()}</h1>
+							{fileSummary && (
+								<div className="text-xs text-text-muted mb-4 p-2 rounded border border-accent/20 bg-surface">
+									<span className="text-[10px] text-accent">file summary: </span>
+									{fileSummary}
+								</div>
+							)}
 								<div className="space-y-1">
 									{exported.map((sym: any) => (
 										<button

@@ -286,8 +286,8 @@ export class Indexer {
 			try {
 				const { runSummaryPipeline } = await import('../llm/summary-pipeline.js')
 				const summaryResult = await runSummaryPipeline(this.store, this.projectRoot)
-				if (summaryResult.generated > 0) {
-					log.info(`summarized ${summaryResult.generated} symbols (${summaryResult.cached} cached, ${summaryResult.skipped} skipped)`)
+				if (summaryResult.generated > 0 || summaryResult.fileSummaries > 0) {
+					log.info(`summarized ${summaryResult.generated} symbols, ${summaryResult.fileSummaries} files (${summaryResult.cached} cached)`)
 				}
 			} catch (e) {
 				log.debug(`summary pipeline skipped: ${e}`)
