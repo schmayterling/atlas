@@ -35,6 +35,7 @@
     "tree-sitter": "^0.22.4",
     "tree-sitter-go": "0.23.2",
     "tree-sitter-python": "0.23.2",
+    "tree-sitter-rust": "0.23.2",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "^5.8.3",
     "wouter": "^3.9.0",
@@ -52,6 +53,7 @@
     "@biomejs/biome",
     "tree-sitter-go",
     "tree-sitter-javascript",
-    "tree-sitter-python"
+    "tree-sitter-python",
+    "tree-sitter-rust"
   ]
 }

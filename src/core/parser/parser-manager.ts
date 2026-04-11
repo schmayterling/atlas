@@ -5,9 +5,12 @@ import TypeScript from 'tree-sitter-typescript'
 import Python from 'tree-sitter-python'
 // @ts-ignore: tree-sitter-go has no type declarations
 import Go from 'tree-sitter-go'
+// @ts-ignore: tree-sitter-rust has no type declarations
+import Rust from 'tree-sitter-rust'
 import { extractTypeScript } from './extractors/typescript.js'
 import { extractPython } from './extractors/python.js'
 import { extractGo } from './extractors/go.js'
+import { extractRust } from './extractors/rust.js'
 import { registerExtractor } from './extractor-registry.js'
 
 const languageMap = new Map<string, Parser.Language>()
@@ -34,6 +37,10 @@ function registerBuiltins() {
 	// register Go support
 	registerLanguage('go', Go as Parser.Language, ['.go'])
 	registerExtractor('go', { extract: extractGo })
+
+	// register Rust support
+	registerLanguage('rust', Rust as Parser.Language, ['.rs'])
+	registerExtractor('rust', { extract: extractRust })
 }
 
 export function registerLanguage(language: string, grammar: Parser.Language, extensions: string[]) {
