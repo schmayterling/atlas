@@ -23,6 +23,7 @@ import { getDependencies } from './queries/dependencies.js'
 import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
 import { traceApi, type ApiTraceResult } from './queries/api-trace.js'
+import { summarizeSymbol, type SummaryResult } from './llm/summarizer.js'
 import { semanticSearch } from './queries/semantic-search.js'
 import { AtlasStore } from './storage/store.js'
 
@@ -242,6 +243,15 @@ export class AtlasEngine {
 	traceApi(pathPattern: string): ApiTraceResult {
 		const store = this.getStore()
 		return traceApi(store, pathPattern)
+	}
+
+	// --- LLM summaries ---
+
+	async summarize(symbolQuery: string, opts?: { model?: string }): Promise<SummaryResult> {
+		const detail = await this.symbolDetail(symbolQuery)
+		if (!detail) throw new Error(`symbol not found: ${symbolQuery}`)
+		const store = this.getStore()
+		return summarizeSymbol(store, detail, opts)
 	}
 
 	// --- symbol detail ---

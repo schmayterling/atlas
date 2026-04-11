@@ -100,4 +100,21 @@ export class OllamaClient {
 
 		return results
 	}
+
+	async generate(prompt: string, model?: string): Promise<string> {
+		await this.ensureRunning()
+		const useModel = model ?? 'llama3.2'
+		const res = await fetch(`${this.baseUrl}/api/generate`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ model: useModel, prompt, stream: false }),
+		})
+
+		if (!res.ok) {
+			throw new Error(`ollama generate failed: ${res.status} ${await res.text()}`)
+		}
+
+		const data = (await res.json()) as { response: string }
+		return data.response
+	}
 }

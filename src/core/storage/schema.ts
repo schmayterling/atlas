@@ -184,4 +184,17 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_api_role ON api_endpoints(role);
 		`,
 	},
+	{
+		version: 4,
+		description: 'add symbol_summaries for LLM-generated explanations',
+		up: `
+			CREATE TABLE IF NOT EXISTS symbol_summaries (
+				symbol_stable_id TEXT PRIMARY KEY,
+				summary TEXT NOT NULL,
+				model TEXT NOT NULL,
+				generated_at INTEGER NOT NULL,
+				source_hash TEXT NOT NULL
+			);
+		`,
+	},
 ]
