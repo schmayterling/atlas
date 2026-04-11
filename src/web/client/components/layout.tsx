@@ -9,6 +9,7 @@ const NAV_ITEMS = [
 	{ path: '/trace', label: 'trace', icon: '→' },
 	{ path: '/dead-code', label: 'dead code', icon: '✕' },
 	{ path: '/wiki', label: 'wiki', icon: '≡' },
+	{ path: '/projects', label: 'projects', icon: '◫' },
 ]
 
 export function Layout({ children }: { children: ReactNode }) {
