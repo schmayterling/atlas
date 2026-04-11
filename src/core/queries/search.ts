@@ -13,11 +13,13 @@ export function searchSymbols(
 		return { query, total: results.length, results }
 	}
 
-	const results = store.searchSymbols(query, limit)
+	// when kind filter is specified, request more results from FTS
+	// then filter, to avoid the limit cutting off valid matches
+	const fetchLimit = opts?.kind ? limit * 5 : limit
+	const results = store.searchSymbols(query, fetchLimit)
 
-	// filter by kind if specified
 	const filtered = opts?.kind
-		? results.filter((r) => r.kind === opts.kind)
+		? results.filter((r) => r.kind === opts.kind).slice(0, limit)
 		: results
 
 	return { query, total: filtered.length, results: filtered }

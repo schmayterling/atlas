@@ -105,7 +105,9 @@ export class AtlasStore {
 
 	getFile(id: number): FileRecord | null {
 		return this.db
-			.query<FileRecord, [number]>('SELECT * FROM files WHERE id = ?')
+			.query<FileRecord, [number]>(
+				'SELECT id, path, content_hash as contentHash, language, indexed_at as indexedAt, size_bytes as sizeBytes FROM files WHERE id = ?',
+			)
 			.get(id)
 	}
 
@@ -182,24 +184,31 @@ export class AtlasStore {
 	// --- search ---
 
 	searchSymbols(query: string, limit = 20): SymbolResult[] {
-		// use FTS5 match syntax. append * for prefix matching if no special operators.
-		const ftsQuery = /[*+"{}()]/.test(query) ? query : `${query}*`
+		// sanitize FTS5 query: strip operators, keep only alphanumeric and underscore
+		const sanitized = query.replace(/[^a-zA-Z0-9_\s]/g, '')
+		if (!sanitized.trim()) return []
+		const ftsQuery = `${sanitized}*`
 
-		return this.db
-			.query<SymbolResult, [string, number]>(
-				`SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
-				f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
-				s.is_exported as isExported, s.doc_comment as docComment,
-				(SELECT COUNT(*) FROM "references" r WHERE r.symbol_id = s.stable_id) as usageCount,
-				(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
-				FROM symbols_fts
-				JOIN symbols s ON s.id = symbols_fts.rowid
-				JOIN files f ON f.id = s.file_id
-				WHERE symbols_fts MATCH ?
-				ORDER BY rank
-				LIMIT ?`,
-			)
-			.all(ftsQuery, limit)
+		try {
+			return this.db
+				.query<SymbolResult, [string, number]>(
+					`SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
+					f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
+					s.is_exported as isExported, s.doc_comment as docComment,
+					(SELECT COUNT(*) FROM "references" r WHERE r.symbol_id = s.stable_id) as usageCount,
+					(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
+					FROM symbols_fts
+					JOIN symbols s ON s.id = symbols_fts.rowid
+					JOIN files f ON f.id = s.file_id
+					WHERE symbols_fts MATCH ?
+					ORDER BY rank
+					LIMIT ?`,
+				)
+				.all(ftsQuery, limit)
+		} catch {
+			// fall back to exact search on FTS parse error
+			return this.searchSymbolsExact(query, undefined, limit)
+		}
 	}
 
 	searchSymbolsExact(name: string, kind?: SymbolKind, limit = 20): SymbolResult[] {
@@ -334,6 +343,10 @@ export class AtlasStore {
 	}
 
 	// --- bulk write operations (used by indexer) ---
+
+	deleteCrossFileEdges() {
+		this.db.run('DELETE FROM edges WHERE file_id IS NULL')
+	}
 
 	deleteFileByPath(path: string) {
 		this.db.run('DELETE FROM files WHERE path = ?', [path])

@@ -187,7 +187,7 @@ function extractClassMember(
 		if (!nameNode) return
 
 		const name = nameNode.text
-		const kind: SymbolKind = name === 'constructor' ? 'method' : 'method'
+		const kind: SymbolKind = 'method'
 		const memberQName = `${classQName}.${name}`
 
 		symbols.push({
@@ -450,19 +450,17 @@ function extractExportStatement(
 	}
 
 	// process the declaration inside the export
+	const countBefore = symbols.length
 	for (const child of node.namedChildren) {
 		if (child.type === 'export_clause') {
-			// `export { foo, bar }` - named re-exports from current module
-			// these reference existing symbols, no new symbols to create
 			continue
 		}
 
-		// delegate to normal processors with isExported=true
 		processNode(child, filePath, parentQName, true, symbols, edges, imports)
 	}
 
 	// handle `export default expression` (not a declaration)
-	if (isDefault && symbols.length === 0) {
+	if (isDefault && symbols.length === countBefore) {
 		const decl = node.namedChildren.find(
 			(c) =>
 				c.type !== 'export_clause' &&

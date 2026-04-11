@@ -37,10 +37,15 @@ export class Indexer {
 		let changes = detectChanges(this.projectRoot, discovered, this.store)
 
 		if (opts?.force) {
+			// compute stale files that exist in DB but not on disk
+			const existingPaths = new Set(this.store.getAllFiles().map((f) => f.path))
+			const discoveredPaths = new Set(discovered.map((f) => f.path))
+			const stale = [...existingPaths].filter((p) => !discoveredPaths.has(p))
+
 			changes = {
 				added: discovered.map((f) => f.path),
 				modified: [],
-				deleted: [],
+				deleted: stale,
 				configChanged: false,
 				branchChanged: false,
 				isFullReindex: true,
@@ -195,6 +200,9 @@ export class Indexer {
 		// step 6: cross-file resolution via TS compiler API
 		log.info('resolving cross-file references...')
 		try {
+			// clean stale cross-file edges (file_id IS NULL) before re-inserting
+			this.store.deleteCrossFileEdges()
+
 			const resolved = resolveProject(this.projectRoot, absolutePaths, this.store)
 
 			this.store.bulkInsert(() => {

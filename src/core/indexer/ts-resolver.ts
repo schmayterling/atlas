@@ -168,6 +168,9 @@ function resolveCallExpression(
 		const declFile = decl.getSourceFile()
 		const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
 
+		// skip calls to external libraries
+		if (declRelPath.includes('node_modules')) return
+
 		// find the containing function at the call site
 		const containingFn = findContainingFunction(node, sourceFile, relPath)
 		if (!containingFn) return
@@ -252,7 +255,7 @@ function resolveHeritageClause(
 	edges: ResolvedEdge[],
 ) {
 	const edgeKind: EdgeKind =
-		node.token === ts.SyntaxKind.ExtendsKeyword ? 'extends' : 'extends'
+		node.token === ts.SyntaxKind.ExtendsKeyword ? 'extends' : 'type_ref'
 
 	for (const expr of node.types) {
 		try {
@@ -387,7 +390,15 @@ function getSymbolKind(decl: ts.Declaration): SymbolKind {
 	if (ts.isEnumDeclaration(decl)) return 'enum'
 	if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) return 'method'
 	if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) return 'property'
-	if (ts.isVariableDeclaration(decl)) return 'variable'
+	if (ts.isVariableDeclaration(decl)) {
+		// check if initializer is an arrow function or function expression
+		// to match the extractor which stores these as 'function'
+		const init = (decl as ts.VariableDeclaration).initializer
+		if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+			return 'function'
+		}
+		return 'variable'
+	}
 	return 'variable'
 }
 

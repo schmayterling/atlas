@@ -103,7 +103,7 @@ function tryGitDiff(
 					break
 				case 'R':
 					// rename: old path deleted, new path added
-					deleted.push(filePath)
+					if (parts[0]) deleted.push(parts[0])
 					if (parts[1]) added.push(parts[1])
 					break
 			}

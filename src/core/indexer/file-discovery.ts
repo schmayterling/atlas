@@ -105,10 +105,18 @@ function matchPattern(path: string, pattern: string): boolean {
 	// exact match
 	if (path === pattern) return true
 
-	// **/*.ext -> matches any file with that extension
-	if (pattern.startsWith('**/') && pattern.includes('*.')) {
-		const ext = pattern.slice(pattern.lastIndexOf('.'))
-		return path.endsWith(ext)
+	// **/*.foo.* or **/*.ext -> matches pattern like **/*.test.* or **/*.ts
+	if (pattern.startsWith('**/') && pattern.includes('*')) {
+		// extract the part after **/ e.g. "*.test.*" or "*.ts"
+		const glob = pattern.slice(3)
+		// convert simple glob to regex: * becomes [^/]*, . is escaped
+		const regexStr = glob.replace(/\./g, '\\.').replace(/\*/g, '[^/]*')
+		try {
+			const regex = new RegExp(`(^|/)${regexStr}$`)
+			return regex.test(path)
+		} catch {
+			return false
+		}
 	}
 
 	// **/dir/** -> matches any path containing /dir/
