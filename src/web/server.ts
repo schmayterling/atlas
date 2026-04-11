@@ -13,6 +13,8 @@ import { traceRoutes } from './routes/trace.js'
 import { deadCodeRoutes } from './routes/dead-code.js'
 import { symbolRoutes } from './routes/symbol.js'
 import { wikiRoutes } from './routes/wiki.js'
+import { createMcpServer } from '../mcp/server.js'
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 
 export function parseIntParam(val: string | undefined, max = 100): number | undefined {
 	if (!val) return undefined
@@ -36,6 +38,20 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 	app.route('/api/dead-code', deadCodeRoutes(engine))
 	app.route('/api/symbol', symbolRoutes(engine))
 	app.route('/api/wiki', wikiRoutes(engine))
+
+	// MCP over HTTP (streamable HTTP transport)
+	const mcpServer = createMcpServer(engine)
+	const mcpTransport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+	mcpServer.connect(mcpTransport)
+	app.all('/mcp', async (c) => {
+		try {
+			const response = await mcpTransport.handleRequest(c.req.raw)
+			return response
+		} catch (e) {
+			log.error(`mcp http: ${e}`)
+			return c.json({ error: 'mcp request failed' }, 500)
+		}
+	})
 
 	// static files + SPA fallback
 	const indexPath = join(outDir, 'index.html')

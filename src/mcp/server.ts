@@ -23,9 +23,7 @@ async function safe(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolRes
 	}
 }
 
-export async function startMcpServer(projectRoot: string) {
-	const engine = new AtlasEngine(projectRoot)
-
+export function createMcpServer(engine: AtlasEngine): McpServer {
 	const server = new McpServer(
 		{ name: 'atlas', version: '0.1.0' },
 		{
@@ -219,6 +217,12 @@ export async function startMcpServer(projectRoot: string) {
 			}),
 	)
 
+	return server
+}
+
+export async function startMcpServer(projectRoot: string) {
+	const engine = new AtlasEngine(projectRoot)
+	const server = createMcpServer(engine)
 	const transport = new StdioServerTransport()
 	await server.connect(transport)
 }
