@@ -10,6 +10,7 @@ code intelligence for developers and agents. indexes TypeScript/JavaScript codeb
 - **blast** computes blast radius: what code is affected if a symbol changes
 - **trace** finds execution paths between two symbols
 - **dead-code** finds unreferenced symbols
+- **web UI** interactive dashboard, symbol browser, graph explorer, flow trace viewer, and code wiki
 - **MCP server** exposes all of the above as tools for AI agents (Claude Code, Cursor, etc.)
 
 ## quickstart
@@ -31,6 +32,9 @@ bun run src/bin.ts deps blastCommand
 bun run src/bin.ts blast store.ts
 bun run src/bin.ts trace blastCommand blast
 bun run src/bin.ts dead-code
+
+# launch web UI
+bun run src/bin.ts serve
 ```
 
 for semantic search (natural language queries):
@@ -59,9 +63,23 @@ bun run src/bin.ts search --semantic "validates user input"
 | `atlas blast <target>` | blast radius for a symbol or file (`--depth N`) |
 | `atlas trace <from> <to>` | execution paths between two symbols (`--max-paths N`, `--depth N`) |
 | `atlas dead-code` | unreferenced symbols (`--kind function`, `--path src/`) |
+| `atlas serve` | start web UI (`--port 3000`, `--no-open`) |
 | `atlas mcp` | start MCP server (stdio transport) |
 
 all commands support `--json` for machine-readable output. piped output auto-detects non-TTY and defaults to JSON.
+
+## web UI
+
+`atlas serve` launches a local web interface at `http://localhost:3000` with:
+
+- **dashboard**: index health, file/symbol/edge counts, language distribution
+- **search**: debounced symbol search with kind filter, detail panel with source code and dependencies
+- **graph**: interactive dependency graph and blast radius visualization (Cytoscape.js), click-to-explore nodes
+- **trace**: execution path finder between two symbols with step-by-step flow display
+- **dead code**: unreferenced symbol browser with kind/path filters and summary stats
+- **wiki**: auto-generated documentation from docstrings, file tree navigation, rendered source code
+
+the web UI is built at startup (React 19 + Tailwind CSS v4, bundled by Bun.build) and served from a single Hono process. no separate build step needed.
 
 ## MCP server (for AI agents)
 
@@ -92,7 +110,7 @@ then ask: "what depends on AtlasEngine?", "what's the blast radius of changing s
 ```
 CLI (commander) --+
 MCP (stdio)     --+--> engine.ts --> queries/ --> bun:sqlite + graphology
-                                       |
+Web (hono)      --+                    |
                                indexer (tree-sitter + TS compiler API)
                                embeddings (Ollama + sqlite-vec)
 ```
@@ -101,6 +119,7 @@ MCP (stdio)     --+--> engine.ts --> queries/ --> bun:sqlite + graphology
 - **graph**: graphology MultiDirectedGraph loaded on-demand for traversals (BFS, DFS, path finding). budget-capped to prevent memory blowup.
 - **indexing**: tree-sitter for fast syntax extraction, TypeScript compiler API for cross-file resolution (module resolution, symbol binding, re-export chains). incremental via git-aware change detection.
 - **embeddings**: Ollama all-minilm model (384 dims). optional, graceful degradation when unavailable.
+- **web**: Hono HTTP server, React 19 SPA (Tailwind CSS v4 dark theme, Cytoscape.js graph viz), bundled at startup by Bun.build.
 
 ## development
 
@@ -116,8 +135,16 @@ make format              # biome format
 ```
 src/
   bin.ts                          # entry point
-  cli/                            # commander CLI (9 commands)
+  cli/                            # commander CLI (10 commands)
   mcp/                            # MCP server (8 tools)
+  web/
+    server.ts                     # Hono HTTP server + API routes
+    build.ts                      # Bun.build + Tailwind CLI pipeline
+    routes/                       # REST API (9 endpoints)
+    client/                       # React 19 SPA
+      pages/                      # dashboard, search, graph, trace, dead-code, wiki
+      components/                 # layout, graph-view, symbol-card, search-input
+      lib/                        # typed API client, graph utils
   core/
     engine.ts                     # query facade
     storage/                      # bun:sqlite store, schema, migrations
@@ -133,9 +160,9 @@ scripts/
 
 ## status
 
-internal tool. not published to npm. phases 1 and 2 complete, 3 deep reviews passed.
+internal tool. not published to npm. phases 1-3 complete, 4 deep reviews passed.
 
-current dogfood stats (indexes itself): 40 files, 451 symbols, 959 edges in 0.9s. all queries sub-millisecond.
+current dogfood stats (indexes itself): 65 files, 521 symbols, 1268 edges in 1.7s. all queries sub-millisecond.
 
 ## license
 
