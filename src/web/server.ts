@@ -1,7 +1,6 @@
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { Hono } from 'hono'
-import { serveStatic } from 'hono/bun'
 import { AtlasEngine } from '../core/engine.js'
 import { log } from '../shared/logger.js'
 import { buildClient } from './build.js'
@@ -34,16 +33,24 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 	app.route('/api/symbol', symbolRoutes(engine))
 	app.route('/api/wiki', wikiRoutes(engine))
 
-	// static files
+	// static files + SPA fallback
 	const indexPath = join(outDir, 'index.html')
 	if (existsSync(indexPath)) {
-		app.use('/assets/*', serveStatic({ root: outDir }))
-		app.use('/styles.css', serveStatic({ root: outDir }))
-		app.use('/index.js', serveStatic({ root: outDir }))
-
-		// SPA fallback: serve index.html for all non-API routes
 		const indexHtml = await Bun.file(indexPath).text()
-		app.get('*', (c) => c.html(indexHtml))
+
+		app.get('*', async (c) => {
+			// try to serve static file from outDir
+			const urlPath = new URL(c.req.url).pathname
+			if (urlPath !== '/') {
+				const filePath = join(outDir, urlPath)
+				const file = Bun.file(filePath)
+				if (await file.exists()) {
+					return new Response(file)
+				}
+			}
+			// SPA fallback
+			return c.html(indexHtml)
+		})
 	}
 
 	const server = Bun.serve({
