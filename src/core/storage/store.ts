@@ -8,8 +8,6 @@ import type {
 	EdgeKind,
 	EdgeRecord,
 	FileRecord,
-	ImportRecord,
-	ReferenceKind,
 	SymbolKind,
 	SymbolRecord,
 	SymbolResult,
@@ -304,62 +302,6 @@ export class AtlasStore {
 		return (this.stmtEdgesTo as any).all(stableId) as EdgeRecord[]
 	}
 
-	// get all edges for loading into graphology
-	getAllEdges(edgeKinds?: EdgeKind[]): EdgeRecord[] {
-		if (edgeKinds && edgeKinds.length > 0) {
-			const placeholders = edgeKinds.map(() => '?').join(',')
-			return this.db
-				.query<EdgeRecord, string[]>(
-					`SELECT id, source_id as sourceId, target_id as targetId, kind,
-					file_id as fileId, line, col, confidence, metadata
-					FROM edges WHERE kind IN (${placeholders})`,
-				)
-				.all(...edgeKinds)
-		}
-		return this.db
-			.query<EdgeRecord, []>(
-				`SELECT id, source_id as sourceId, target_id as targetId, kind,
-				file_id as fileId, line, col, confidence, metadata
-				FROM edges`,
-			)
-			.all()
-	}
-
-	// get all symbols (for loading into graphology)
-	getAllSymbols(): SymbolRecord[] {
-		return this.db
-			.query<SymbolRecord, []>(
-				`SELECT id, stable_id as stableId, file_id as fileId, name, qualified_name as qualifiedName,
-				kind, visibility, is_exported as isExported, line_start as lineStart, line_end as lineEnd,
-				col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
-				parent_id as parentId, signature, doc_comment as docComment, metadata
-				FROM symbols`,
-			)
-			.all()
-	}
-
-	// --- imports ---
-
-	getImportsForFile(fileId: number): ImportRecord[] {
-		return this.db
-			.query<ImportRecord, [number]>(
-				`SELECT id, source_file_id as sourceFileId, target_file_id as targetFileId,
-				import_path as importPath, is_type_only as isTypeOnly, line
-				FROM imports WHERE source_file_id = ?`,
-			)
-			.all(fileId)
-	}
-
-	getImportersOfFile(fileId: number): ImportRecord[] {
-		return this.db
-			.query<ImportRecord, [number]>(
-				`SELECT id, source_file_id as sourceFileId, target_file_id as targetFileId,
-				import_path as importPath, is_type_only as isTypeOnly, line
-				FROM imports WHERE target_file_id = ?`,
-			)
-			.all(fileId)
-	}
-
 	// --- language stats ---
 
 	getLanguageStats(): Record<string, number> {
@@ -394,9 +336,6 @@ export class AtlasStore {
 		}
 	}
 
-	deleteFileByPath(path: string) {
-		this.db.run('DELETE FROM files WHERE path = ?', [path])
-	}
 
 	deleteFilesByPaths(paths: string[]) {
 		if (paths.length === 0) return
@@ -493,19 +432,6 @@ export class AtlasStore {
 		)
 	}
 
-	insertReference(ref: {
-		symbolId: string
-		fileId: number
-		line: number
-		col: number
-		byteOffset: number
-		kind: ReferenceKind
-	}) {
-		this.db.run(
-			'INSERT INTO "references" (symbol_id, file_id, line, col, byte_offset, kind) VALUES (?, ?, ?, ?, ?, ?)',
-			[ref.symbolId, ref.fileId, ref.line, ref.col, ref.byteOffset, ref.kind],
-		)
-	}
 
 	insertImport(imp: {
 		sourceFileId: number

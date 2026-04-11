@@ -1,5 +1,4 @@
-// symbol kinds: every type of named declaration we track
-export const SYMBOL_KINDS = [
+const SYMBOL_KINDS = [
 	'function',
 	'class',
 	'method',
@@ -17,15 +16,15 @@ export const EDGE_KINDS = ['imports', 'calls', 'contains', 'extends', 'type_ref'
 export type EdgeKind = (typeof EDGE_KINDS)[number]
 
 // confidence levels for edge resolution
-export const CONFIDENCE_LEVELS = ['resolved', 'heuristic', 'unresolved'] as const
+const CONFIDENCE_LEVELS = ['resolved', 'heuristic', 'unresolved'] as const
 export type Confidence = (typeof CONFIDENCE_LEVELS)[number]
 
 // reference kinds: how a symbol is used at a site
-export const REFERENCE_KINDS = ['declaration', 'usage', 'type_usage', 'import'] as const
+const REFERENCE_KINDS = ['declaration', 'usage', 'type_usage', 'import'] as const
 export type ReferenceKind = (typeof REFERENCE_KINDS)[number]
 
 // visibility levels
-export const VISIBILITY_LEVELS = ['public', 'private', 'protected', 'export'] as const
+const VISIBILITY_LEVELS = ['public', 'private', 'protected', 'export'] as const
 export type Visibility = (typeof VISIBILITY_LEVELS)[number]
 
 // file record
@@ -92,12 +91,6 @@ export interface ImportRecord {
 	importPath: string
 	isTypeOnly: boolean
 	line: number
-}
-
-// metadata key-value store
-export interface MetadataRecord {
-	key: string
-	value: string
 }
 
 // query result types
@@ -201,14 +194,6 @@ export interface SubgraphBudget {
 	maxEdges: number
 	edgeKinds: EdgeKind[]
 	timeoutMs: number
-}
-
-export const DEFAULT_BUDGET: SubgraphBudget = {
-	maxDepth: 10,
-	maxNodes: 5000,
-	maxEdges: 20000,
-	edgeKinds: [...EDGE_KINDS],
-	timeoutMs: 5000,
 }
 
 // flow tracing

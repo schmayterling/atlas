@@ -5,7 +5,6 @@ import { badge, fileRef } from './common.js'
 export function renderDependencyTree(
 	nodes: DependencyNode[],
 	prefix = '',
-	isLast = true,
 ) {
 	for (let i = 0; i < nodes.length; i++) {
 		const node = nodes[i]
@@ -23,7 +22,7 @@ export function renderDependencyTree(
 		console.log(`${prefix}${childPrefix}${ref}`)
 
 		if (node.children.length > 0) {
-			renderDependencyTree(node.children, prefix + childPrefix, last)
+			renderDependencyTree(node.children, prefix + childPrefix)
 		}
 	}
 }

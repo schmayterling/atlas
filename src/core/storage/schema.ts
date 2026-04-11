@@ -143,7 +143,7 @@ PRAGMA temp_store = MEMORY;
 PRAGMA foreign_keys = ON;
 `
 
-export interface Migration {
+interface Migration {
 	version: number
 	description: string
 	up: string

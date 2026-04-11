@@ -2,6 +2,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import type { AtlasConfig } from '../../shared/config.js'
 import { log } from '../../shared/logger.js'
+import { toForwardSlash } from '../../shared/paths.js'
 
 export interface DiscoveredFile {
 	path: string
@@ -143,6 +144,3 @@ function matchPattern(path: string, pattern: string): boolean {
 	return false
 }
 
-function toForwardSlash(p: string): string {
-	return p.replace(/\\/g, '/')
-}

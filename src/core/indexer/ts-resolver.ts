@@ -2,6 +2,7 @@ import { relative } from 'node:path'
 import ts from 'typescript'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
+import { toForwardSlash } from '../../shared/paths.js'
 import type { Confidence, EdgeKind, SymbolKind } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
 
@@ -414,6 +415,3 @@ function buildQualifiedName(relPath: string, decl: ts.Declaration, name: string)
 	return `${relPath}::${name}`
 }
 
-function toForwardSlash(p: string): string {
-	return p.replace(/\\/g, '/')
-}

@@ -5,7 +5,7 @@ import { log } from '../../shared/logger.js'
 import type { AtlasStore } from '../storage/store.js'
 import type { DiscoveredFile } from './file-discovery.js'
 
-export interface ChangeSet {
+interface ChangeSet {
 	added: string[]
 	modified: string[]
 	deleted: string[]
