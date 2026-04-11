@@ -11,17 +11,28 @@ interface EmbedCandidate {
 	embedHash: string
 }
 
-// build the text to embed for a symbol
+// build the text to embed for a symbol. include file path and qualified name
+// for better semantic context (e.g., "class AtlasStore in storage/store.ts")
 function buildEmbedText(row: {
 	kind: string
 	name: string
+	qualifiedName: string
+	filePath: string
 	signature: string | null
 	docComment: string | null
 }): string {
 	const parts = [row.kind, row.name]
+	// add file context (just the filename, not the full path)
+	const fileName = row.filePath.split('/').pop()
+	if (fileName) parts.push(`in ${fileName}`)
 	if (row.signature) parts.push(row.signature)
 	if (row.docComment) parts.push(row.docComment)
-	return parts.join(' ').slice(0, 512) // cap at 512 chars
+	// add parent context from qualified name if it's a member
+	if (row.qualifiedName.includes('.')) {
+		const parent = row.qualifiedName.split('::').pop()?.split('.').slice(0, -1).join('.')
+		if (parent) parts.push(`member of ${parent}`)
+	}
+	return parts.join(' ').slice(0, 512)
 }
 
 function hashText(text: string): string {
@@ -49,9 +60,13 @@ export async function runEmbeddingPipeline(
 		stableId: string
 		kind: string
 		name: string
+		qualifiedName: string
+		filePath: string
 		signature: string | null
 		docComment: string | null
-	}>('SELECT id, stable_id as stableId, kind, name, signature, doc_comment as docComment FROM symbols')
+	}>(`SELECT s.id, s.stable_id as stableId, s.kind, s.name, s.qualified_name as qualifiedName,
+		f.path as filePath, s.signature, s.doc_comment as docComment
+		FROM symbols s JOIN files f ON s.file_id = f.id`)
 
 	// get existing embed hashes
 	const existingMeta = store.queryRaw<{
