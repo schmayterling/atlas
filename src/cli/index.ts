@@ -10,6 +10,7 @@ import { serveCommand } from './commands/serve.js'
 import { searchCommand } from './commands/search.js'
 import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
+import { watchCommand } from './commands/watch.js'
 
 const program = new Command()
 	.name('atlas')
@@ -143,6 +144,21 @@ program
 		await serveCommand(opts.project, {
 			port: Number(cmdOpts.port),
 			open: cmdOpts.open !== false,
+		})
+	})
+
+program
+	.command('watch')
+	.description('watch for file changes and re-index automatically')
+	.option('--serve', 'also start web UI server')
+	.option('--port <port>', 'web UI port (with --serve)', '3000')
+	.option('--no-embed', 'skip embedding generation')
+	.action(async (cmdOpts) => {
+		const opts = program.opts()
+		await watchCommand(opts.project, {
+			serve: !!cmdOpts.serve,
+			port: Number(cmdOpts.port),
+			noEmbed: !cmdOpts.embed,
 		})
 	})
 
