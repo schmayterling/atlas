@@ -1,4 +1,4 @@
-.PHONY: dev build install test lint format
+.PHONY: dev build install test dogfood lint format
 
 dev:
 	bun run src/bin.ts
@@ -11,6 +11,9 @@ install:
 
 test:
 	bun test
+
+dogfood:
+	bun run scripts/dogfood.ts
 
 lint:
 	bunx @biomejs/biome check .
