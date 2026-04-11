@@ -137,13 +137,15 @@ export async function runSummaryPipeline(
 		log.info(`summarizing ${work.length} symbols (${cached} cached)...`)
 	}
 
-	// process in parallel batches of 4 (Ollama handles concurrent requests)
+	let done = 0
 	const batchSize = 20
 	for (let i = 0; i < work.length; i += batchSize) {
 		const batch = work.slice(i, i + batchSize)
 		const results = await Promise.allSettled(
 			batch.map(async (item) => {
 				const summary = await client.generate(item.prompt, chatModel)
+				done++
+				log.info(`[${done}/${work.length}] ${item.sym.kind} ${item.sym.name}`)
 				return { stableId: item.sym.stableId, name: item.sym.name, summary: summary.trim(), hash: item.hash }
 			}),
 		)
@@ -163,10 +165,6 @@ export async function runSummaryPipeline(
 			} else {
 				skipped++
 			}
-		}
-
-		if (generated > 0 && (i + batchSize) % 20 < batchSize) {
-			log.info(`summarized ${generated}/${work.length} symbols...`)
 		}
 	}
 
