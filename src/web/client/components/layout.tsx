@@ -76,7 +76,7 @@ export function Layout({ children }: { children: ReactNode }) {
 				}`}
 			>
 				{/* logo + collapse */}
-				<div className="flex items-center h-11 border-b border-border overflow-hidden">
+				<div className="flex items-center h-11 border-b border-border overflow-hidden whitespace-nowrap">
 					<div className={`flex items-center justify-between w-full ${collapsed ? 'px-1.5' : 'px-3'}`}>
 						<span className="text-xs font-semibold tracking-wide text-accent sidebar-label">atlas</span>
 						<button
@@ -114,8 +114,8 @@ export function Layout({ children }: { children: ReactNode }) {
 							<Link
 								key={item.path}
 								href={item.path}
-								className={`flex items-center rounded-[var(--radius-default)] transition-colors overflow-hidden ${
-									collapsed ? 'justify-center w-9 h-8' : 'gap-2.5 px-2.5 py-[7px]'
+								className={`flex items-center h-8 rounded-[var(--radius-default)] transition-colors whitespace-nowrap overflow-hidden ${
+									collapsed ? 'justify-center px-0' : 'gap-2.5 px-2.5'
 								} ${
 									active
 										? 'bg-accent/10 text-accent'
@@ -123,7 +123,7 @@ export function Layout({ children }: { children: ReactNode }) {
 								}`}
 								title={collapsed ? item.label : undefined}
 							>
-								<Icon size={15} strokeWidth={1.8} className="shrink-0" />
+								<Icon size={15} strokeWidth={1.8} className="shrink-0 min-w-[15px]" />
 								<span className="text-[12px] sidebar-label">{item.label}</span>
 							</Link>
 						)
