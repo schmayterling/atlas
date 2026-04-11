@@ -2,14 +2,29 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { log } from '../shared/logger.js'
 
-function needsRebuild(entrypoint: string, outFile: string): boolean {
+function needsRebuild(clientDir: string, outFile: string): boolean {
 	try {
-		const src = statSync(entrypoint).mtimeMs
-		const out = statSync(outFile).mtimeMs
-		return src > out
+		const outMtime = statSync(outFile).mtimeMs
+		// check all files in client dir, not just the entrypoint
+		return hasNewerFiles(clientDir, outMtime)
 	} catch {
 		return true
 	}
+}
+
+function hasNewerFiles(dir: string, threshold: number): boolean {
+	try {
+		const { readdirSync } = require('node:fs')
+		for (const entry of readdirSync(dir, { withFileTypes: true, encoding: 'utf-8' }) as any[]) {
+			const fullPath = join(dir, entry.name)
+			if (entry.isDirectory()) {
+				if (hasNewerFiles(fullPath, threshold)) return true
+			} else if (statSync(fullPath).mtimeMs > threshold) {
+				return true
+			}
+		}
+	} catch { /* ignore */ }
+	return false
 }
 
 export async function buildClient(projectRoot: string): Promise<string> {
@@ -25,7 +40,7 @@ export async function buildClient(projectRoot: string): Promise<string> {
 	}
 
 	const outJs = join(outDir, 'index.js')
-	if (!needsRebuild(entrypoint, outJs)) {
+	if (!needsRebuild(clientDir, outJs)) {
 		log.debug('client build: output up to date, skipping')
 		return outDir
 	}

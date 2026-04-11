@@ -23,12 +23,21 @@ export function traceApi(
 ): ApiTraceResult {
 	const endpoints = store.findApiEndpoints(pathPattern)
 
+	// batch-fetch all symbols for matched endpoints
+	const allEpIds = endpoints.map((ep) => ep.symbolStableId)
+	const epSymMap = store.getSymbolsByStableIds(allEpIds)
+	const epResults = store.symbolsToResults([...epSymMap.values()])
+	const epResultMap = new Map<string, import('../../shared/types.js').SymbolResult>()
+	const epSymValues = [...epSymMap.values()]
+	for (let i = 0; i < epSymValues.length; i++) {
+		epResultMap.set(epSymValues[i].stableId, epResults[i])
+	}
+
 	const clients: ApiEndpointResult[] = []
 	const servers: ApiEndpointResult[] = []
 
 	for (const ep of endpoints) {
-		const sym = store.getSymbolByStableId(ep.symbolStableId)
-		const symbolResult = sym ? store.symbolToResult(sym) : null
+		const symbolResult = epResultMap.get(ep.symbolStableId) ?? null
 
 		const result: ApiEndpointResult = {
 			pathPattern: ep.pathPattern,

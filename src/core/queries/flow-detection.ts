@@ -56,23 +56,33 @@ export function getFlows(store: AtlasStore): DetectedFlow[] {
 		generatedAt: number
 	}>('SELECT id, name, description, root_stable_id as rootStableId, symbol_ids as symbolIds, generated_at as generatedAt FROM flows ORDER BY name')
 
-	return rows.map((row) => {
+	// batch-fetch all symbols across all flows
+	const allIds = new Set<string>()
+	const parsedIds: string[][] = []
+	for (const row of rows) {
 		const ids: string[] = JSON.parse(row.symbolIds)
-		const rootSym = store.getSymbolByStableId(row.rootStableId)
-		const symbols = ids
-			.map((id) => store.getSymbolByStableId(id))
-			.filter((s) => s !== null)
-			.map((s) => store.symbolToResult(s!))
+		parsedIds.push(ids)
+		allIds.add(row.rootStableId)
+		for (const id of ids) allIds.add(id)
+	}
+	const symMap = store.getSymbolsByStableIds([...allIds])
+	const results = store.symbolsToResults([...symMap.values()])
+	const resultMap = new Map<string, import('../../shared/types.js').SymbolResult>()
+	const symValues = [...symMap.values()]
+	for (let i = 0; i < symValues.length; i++) {
+		resultMap.set(symValues[i].stableId, results[i])
+	}
 
-		return {
-			id: row.id,
-			name: row.name,
-			description: row.description,
-			rootSymbol: rootSym ? store.symbolToResult(rootSym) : null,
-			symbols,
-			generatedAt: row.generatedAt,
-		}
-	})
+	return rows.map((row, idx) => ({
+		id: row.id,
+		name: row.name,
+		description: row.description,
+		rootSymbol: resultMap.get(row.rootStableId) ?? null,
+		symbols: parsedIds[idx]
+			.filter((id) => resultMap.has(id))
+			.map((id) => resultMap.get(id)!),
+		generatedAt: row.generatedAt,
+	}))
 }
 
 // store a detected flow

@@ -25,14 +25,24 @@ export function findDuplicates(
 	}>('SELECT symbol_a_id as symbolAId, symbol_b_id as symbolBId, similarity, confirmed, description FROM duplicates ORDER BY similarity DESC')
 
 	if (stored.length > 0) {
+		// batch-fetch all symbols
+		const allIds = [...new Set(stored.flatMap((r) => [r.symbolAId, r.symbolBId]))]
+		const symMap = store.getSymbolsByStableIds(allIds)
+		const results = store.symbolsToResults([...symMap.values()])
+		const resultMap = new Map<string, import('../../shared/types.js').SymbolResult>()
+		const symValues = [...symMap.values()]
+		for (let i = 0; i < symValues.length; i++) {
+			resultMap.set(symValues[i].stableId, results[i])
+		}
+
 		return stored
 			.map((row) => {
-				const symA = store.getSymbolByStableId(row.symbolAId)
-				const symB = store.getSymbolByStableId(row.symbolBId)
-				if (!symA || !symB) return null
+				const a = resultMap.get(row.symbolAId)
+				const b = resultMap.get(row.symbolBId)
+				if (!a || !b) return null
 				return {
-					symbolA: store.symbolToResult(symA),
-					symbolB: store.symbolToResult(symB),
+					symbolA: a,
+					symbolB: b,
 					similarity: row.similarity,
 					confirmed: row.confirmed === 1,
 					description: row.description,
@@ -70,6 +80,8 @@ export function detectDuplicatesFromEmbeddings(
 
 	if (meta.length < 2) return 0
 
+	// pre-build lookup map to avoid O(n^2) .find() inside the KNN loop
+	const metaById = new Map(meta.map((m) => [m.symbolId, m]))
 	let count = 0
 
 	// for each symbol, find similar symbols via KNN
@@ -93,7 +105,7 @@ export function detectDuplicatesFromEmbeddings(
 				if (similarity < threshold) continue
 
 				// find the matched symbol's stable_id
-				const matchedMeta = meta.find((m) => m.symbolId === match.rowid)
+				const matchedMeta = metaById.get(match.rowid)
 				if (!matchedMeta) continue
 
 				// avoid duplicate pairs (a,b) and (b,a)
