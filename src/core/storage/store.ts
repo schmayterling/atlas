@@ -24,8 +24,22 @@ import {
 	SCHEMA_VERSION,
 } from './schema.js'
 
+const SYMBOL_SELECT = `SELECT id, stable_id as stableId, file_id as fileId, name, qualified_name as qualifiedName,
+	kind, visibility, is_exported as isExported, line_start as lineStart, line_end as lineEnd,
+	col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
+	parent_id as parentId, signature, doc_comment as docComment, metadata
+	FROM symbols`
+
 export class AtlasStore {
 	private db: Database
+	private dbPath: string
+
+	// cached prepared statements for hot paths
+	private stmtGetSymbol!: ReturnType<Database['query']>
+	private stmtEdgesFrom!: ReturnType<Database['query']>
+	private stmtEdgesFromKind!: ReturnType<Database['query']>
+	private stmtEdgesTo!: ReturnType<Database['query']>
+	private stmtEdgesToKind!: ReturnType<Database['query']>
 
 	constructor(dbPath: string) {
 		const dir = dirname(dbPath)
@@ -33,9 +47,35 @@ export class AtlasStore {
 			mkdirSync(dir, { recursive: true })
 		}
 
+		this.dbPath = dbPath
 		this.db = new Database(dbPath)
 		loadVecExtension(this.db)
 		this.initialize()
+		this.prepareStatements()
+	}
+
+	private prepareStatements() {
+		this.stmtGetSymbol = this.db.query(`${SYMBOL_SELECT} WHERE stable_id = ?`)
+		this.stmtEdgesFrom = this.db.query(
+			`SELECT id, source_id as sourceId, target_id as targetId, kind,
+			file_id as fileId, line, col, confidence, metadata
+			FROM edges WHERE source_id = ?`,
+		)
+		this.stmtEdgesFromKind = this.db.query(
+			`SELECT id, source_id as sourceId, target_id as targetId, kind,
+			file_id as fileId, line, col, confidence, metadata
+			FROM edges WHERE source_id = ? AND kind = ?`,
+		)
+		this.stmtEdgesTo = this.db.query(
+			`SELECT id, source_id as sourceId, target_id as targetId, kind,
+			file_id as fileId, line, col, confidence, metadata
+			FROM edges WHERE target_id = ?`,
+		)
+		this.stmtEdgesToKind = this.db.query(
+			`SELECT id, source_id as sourceId, target_id as targetId, kind,
+			file_id as fileId, line, col, confidence, metadata
+			FROM edges WHERE target_id = ? AND kind = ?`,
+		)
 	}
 
 	private initialize() {
@@ -152,15 +192,16 @@ export class AtlasStore {
 	// --- symbols ---
 
 	getSymbolByStableId(stableId: string): SymbolRecord | null {
-		return this.db
-			.query<SymbolRecord, [string]>(
-				`SELECT id, stable_id as stableId, file_id as fileId, name, qualified_name as qualifiedName,
-				kind, visibility, is_exported as isExported, line_start as lineStart, line_end as lineEnd,
-				col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
-				parent_id as parentId, signature, doc_comment as docComment, metadata
-				FROM symbols WHERE stable_id = ?`,
-			)
-			.get(stableId)
+		return (this.stmtGetSymbol as any).get(stableId) as SymbolRecord | null
+	}
+
+	getSymbolsByStableIds(stableIds: string[]): Map<string, SymbolRecord> {
+		if (stableIds.length === 0) return new Map()
+		const placeholders = stableIds.map(() => '?').join(',')
+		const rows = this.db
+			.query<SymbolRecord, string[]>(`${SYMBOL_SELECT} WHERE stable_id IN (${placeholders})`)
+			.all(...stableIds)
+		return new Map(rows.map((r) => [r.stableId, r]))
 	}
 
 	findSymbolsByName(name: string): SymbolRecord[] {
@@ -251,40 +292,16 @@ export class AtlasStore {
 
 	getDirectEdgesFrom(stableId: string, kind?: EdgeKind): EdgeRecord[] {
 		if (kind) {
-			return this.db
-				.query<EdgeRecord, [string, string]>(
-					`SELECT id, source_id as sourceId, target_id as targetId, kind,
-					file_id as fileId, line, col, confidence, metadata
-					FROM edges WHERE source_id = ? AND kind = ?`,
-				)
-				.all(stableId, kind)
+			return (this.stmtEdgesFromKind as any).all(stableId, kind) as EdgeRecord[]
 		}
-		return this.db
-			.query<EdgeRecord, [string]>(
-				`SELECT id, source_id as sourceId, target_id as targetId, kind,
-				file_id as fileId, line, col, confidence, metadata
-				FROM edges WHERE source_id = ?`,
-			)
-			.all(stableId)
+		return (this.stmtEdgesFrom as any).all(stableId) as EdgeRecord[]
 	}
 
 	getDirectEdgesTo(stableId: string, kind?: EdgeKind): EdgeRecord[] {
 		if (kind) {
-			return this.db
-				.query<EdgeRecord, [string, string]>(
-					`SELECT id, source_id as sourceId, target_id as targetId, kind,
-					file_id as fileId, line, col, confidence, metadata
-					FROM edges WHERE target_id = ? AND kind = ?`,
-				)
-				.all(stableId, kind)
+			return (this.stmtEdgesToKind as any).all(stableId, kind) as EdgeRecord[]
 		}
-		return this.db
-			.query<EdgeRecord, [string]>(
-				`SELECT id, source_id as sourceId, target_id as targetId, kind,
-				file_id as fileId, line, col, confidence, metadata
-				FROM edges WHERE target_id = ?`,
-			)
-			.all(stableId)
+		return (this.stmtEdgesTo as any).all(stableId) as EdgeRecord[]
 	}
 
 	// get all edges for loading into graphology
@@ -510,10 +527,9 @@ export class AtlasStore {
 		this.db.run(sql, params as any[])
 	}
 
-	// get database size
-	getDbSize(dbPath: string): number {
+	getDbSize(): number {
 		try {
-			return statSync(dbPath).size
+			return statSync(this.dbPath).size
 		} catch {
 			return 0
 		}
@@ -564,7 +580,7 @@ export class AtlasStore {
 		return byQual ?? null
 	}
 
-	// get symbol result with file path and counts
+	// convert a symbol record to a result (without N+1 count queries)
 	symbolToResult(sym: SymbolRecord): SymbolResult {
 		const file = this.getFile(sym.fileId)
 		return {
@@ -577,18 +593,47 @@ export class AtlasStore {
 			lineEnd: sym.lineEnd,
 			isExported: Boolean(sym.isExported),
 			docComment: sym.docComment,
-			usageCount:
-				this.db
-					.query<{ count: number }, [string]>(
-						'SELECT COUNT(*) as count FROM "references" WHERE symbol_id = ?',
-					)
-					.get(sym.stableId)?.count ?? 0,
-			dependentCount:
-				this.db
-					.query<{ count: number }, [string]>(
-						'SELECT COUNT(DISTINCT source_id) as count FROM edges WHERE target_id = ?',
-					)
-					.get(sym.stableId)?.count ?? 0,
+			usageCount: 0,
+			dependentCount: 0,
 		}
+	}
+
+	// batch convert symbols to results with counts in 2 bulk queries instead of 2N
+	symbolsToResults(syms: SymbolRecord[]): SymbolResult[] {
+		if (syms.length === 0) return []
+
+		// prefetch files
+		const fileIds = [...new Set(syms.map((s) => s.fileId))]
+		const fileMap = new Map<number, string>()
+		for (const fid of fileIds) {
+			const f = this.getFile(fid)
+			if (f) fileMap.set(fid, f.path)
+		}
+
+		// batch dependent counts
+		const stableIds = syms.map((s) => s.stableId)
+		const placeholders = stableIds.map(() => '?').join(',')
+		const depCounts = this.db
+			.query<{ targetId: string; count: number }, string[]>(
+				`SELECT target_id as targetId, COUNT(DISTINCT source_id) as count
+				FROM edges WHERE target_id IN (${placeholders})
+				GROUP BY target_id`,
+			)
+			.all(...stableIds)
+		const depMap = new Map(depCounts.map((r) => [r.targetId, r.count]))
+
+		return syms.map((sym) => ({
+			name: sym.name,
+			qualifiedName: sym.qualifiedName,
+			kind: sym.kind,
+			signature: sym.signature,
+			filePath: fileMap.get(sym.fileId) ?? '<unknown>',
+			lineStart: sym.lineStart,
+			lineEnd: sym.lineEnd,
+			isExported: Boolean(sym.isExported),
+			docComment: sym.docComment,
+			usageCount: 0, // references table not populated yet
+			dependentCount: depMap.get(sym.stableId) ?? 0,
+		}))
 	}
 }

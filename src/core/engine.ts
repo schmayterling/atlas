@@ -118,7 +118,7 @@ export class AtlasEngine {
 		return {
 			projectRoot: this.projectRoot,
 			dbPath: this.dbPath,
-			dbSizeBytes: store.getDbSize(this.dbPath),
+			dbSizeBytes: store.getDbSize(),
 			lastIndexedAt: lastIndexedAt ? Number(lastIndexedAt) : null,
 			lastCommit,
 			lastBranch,
