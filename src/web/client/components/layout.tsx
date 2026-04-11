@@ -8,6 +8,8 @@ const NAV_ITEMS = [
 	{ path: '/graph', label: 'graph', icon: '◉' },
 	{ path: '/trace', label: 'trace', icon: '→' },
 	{ path: '/dead-code', label: 'dead code', icon: '✕' },
+	{ path: '/flows', label: 'flows', icon: '⇢' },
+	{ path: '/duplicates', label: 'duplicates', icon: '⊜' },
 	{ path: '/wiki', label: 'wiki', icon: '≡' },
 	{ path: '/projects', label: 'projects', icon: '◫' },
 ]

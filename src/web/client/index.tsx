@@ -9,6 +9,8 @@ import { TracePage } from './pages/trace.js'
 import { DeadCodePage } from './pages/dead-code.js'
 import { WikiPage } from './pages/wiki.js'
 import { ProjectsPage } from './pages/projects.js'
+import { FlowsPage } from './pages/flows.js'
+import { DuplicatesPage } from './pages/duplicates.js'
 
 class ErrorBoundary extends React.Component<
 	{ children: React.ReactNode },
@@ -37,6 +39,8 @@ function App() {
 					<Route path="/trace" component={TracePage} />
 					<Route path="/dead-code" component={DeadCodePage} />
 					<Route path="/wiki" component={WikiPage} />
+					<Route path="/flows" component={FlowsPage} />
+					<Route path="/duplicates" component={DuplicatesPage} />
 					<Route path="/projects" component={ProjectsPage} />
 					<Route>
 						<div className="text-text-muted text-sm">
