@@ -33,6 +33,7 @@
     "react-dom": "^19.2.5",
     "sqlite-vec": "^0.1.9",
     "tree-sitter": "^0.22.4",
+    "tree-sitter-go": "0.23.2",
     "tree-sitter-python": "0.23.2",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "^5.8.3",
@@ -49,6 +50,7 @@
   },
   "trustedDependencies": [
     "@biomejs/biome",
+    "tree-sitter-go",
     "tree-sitter-javascript",
     "tree-sitter-python"
   ]
