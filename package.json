@@ -1,0 +1,36 @@
+{
+  "name": "atlas",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "atlas": "./src/bin.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/bin.ts",
+    "build": "bun build --compile src/bin.ts --outfile dist/atlas",
+    "test": "bun test",
+    "lint": "bunx @biomejs/biome check .",
+    "format": "bunx @biomejs/biome format --write ."
+  },
+  "dependencies": {
+    "tree-sitter": "^0.22.4",
+    "tree-sitter-typescript": "^0.23.2",
+    "graphology": "^0.25.4",
+    "graphology-traversal": "^0.3.1",
+    "graphology-shortest-path": "^2.1.0",
+    "graphology-dag": "^0.4.1",
+    "graphology-types": "^0.24.7",
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1",
+    "zod": "^3.24.4",
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "latest"
+  },
+  "trustedDependencies": [
+    "@biomejs/biome",
+    "tree-sitter-javascript"
+  ]
+}
