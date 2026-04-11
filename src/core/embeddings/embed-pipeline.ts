@@ -100,9 +100,17 @@ export async function runEmbeddingPipeline(
 	const texts = candidates.map((c) => c.embedText)
 	const embeddings = await ollama.embedBatched(texts)
 
-	// store embeddings
+	// validate we got embeddings for all candidates
+	if (embeddings.length < candidates.length) {
+		log.warn(
+			`ollama returned ${embeddings.length} embeddings for ${candidates.length} candidates, processing partial results`,
+		)
+	}
+	const validCount = Math.min(embeddings.length, candidates.length)
+
+	// store embeddings (only for successfully embedded symbols)
 	store.bulkInsert(() => {
-		for (let i = 0; i < candidates.length; i++) {
+		for (let i = 0; i < validCount; i++) {
 			const candidate = candidates[i]
 			const embedding = new Float32Array(embeddings[i])
 
@@ -129,5 +137,5 @@ export async function runEmbeddingPipeline(
 		}
 	})
 
-	return { embedded: candidates.length, skipped }
+	return { embedded: validCount, skipped }
 }

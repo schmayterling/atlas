@@ -381,6 +381,19 @@ export class AtlasStore {
 		this.db.run('DELETE FROM edges WHERE file_id IS NULL')
 	}
 
+	deleteCrossFileEdgesForSources(sourceStableIds: string[]) {
+		if (sourceStableIds.length === 0) return
+		// batch in chunks of 500 to avoid SQLite variable limit
+		for (let i = 0; i < sourceStableIds.length; i += 500) {
+			const chunk = sourceStableIds.slice(i, i + 500)
+			const placeholders = chunk.map(() => '?').join(',')
+			this.db.run(
+				`DELETE FROM edges WHERE file_id IS NULL AND source_id IN (${placeholders})`,
+				chunk,
+			)
+		}
+	}
+
 	deleteFileByPath(path: string) {
 		this.db.run('DELETE FROM files WHERE path = ?', [path])
 	}

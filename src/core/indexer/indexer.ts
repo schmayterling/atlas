@@ -100,6 +100,7 @@ export class Indexer {
 
 		let symbolCount = 0
 		let edgeCount = 0
+		const processedStableIds: string[] = []
 
 		log.info(`indexing ${toProcess.length} files...`)
 
@@ -130,6 +131,7 @@ export class Indexer {
 
 					for (const sym of result.symbols) {
 						const sid = stableSymbolId(filePath, sym.kind, sym.qualifiedName)
+						processedStableIds.push(sid)
 						const parentId = sym.parentQualifiedName
 							? stableSymbolId(
 									filePath,
@@ -191,8 +193,10 @@ export class Indexer {
 		// step 6: cross-file resolution via TS compiler API
 		log.info('resolving cross-file references...')
 		try {
-			// clean stale cross-file edges (file_id IS NULL) before re-inserting
-			this.store.deleteCrossFileEdges()
+			// delete cross-file edges only for symbols in processed files (not all)
+			if (processedStableIds.length > 0) {
+				this.store.deleteCrossFileEdgesForSources(processedStableIds)
+			}
 
 			const resolved = resolveProject(this.projectRoot, absolutePaths, this.store)
 
