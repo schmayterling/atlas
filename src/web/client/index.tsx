@@ -6,6 +6,7 @@ import { SearchPage } from './pages/search.js'
 import { GraphPage } from './pages/graph.js'
 import { TracePage } from './pages/trace.js'
 import { DeadCodePage } from './pages/dead-code.js'
+import { WikiPage } from './pages/wiki.js'
 
 function PlaceholderPage({ name }: { name: string }) {
 	return (
@@ -25,9 +26,7 @@ function App() {
 				<Route path="/graph" component={GraphPage} />
 				<Route path="/trace" component={TracePage} />
 				<Route path="/dead-code" component={DeadCodePage} />
-				<Route path="/wiki">
-					<PlaceholderPage name="wiki" />
-				</Route>
+				<Route path="/wiki" component={WikiPage} />
 				<Route>
 					<PlaceholderPage name="not found" />
 				</Route>
