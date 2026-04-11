@@ -5,14 +5,35 @@ export function findDeadCode(
 	store: AtlasStore,
 	opts?: { path?: string; kind?: SymbolKind },
 ): DeadCodeResult {
-	// pure SQL: symbols with no inbound edges (excluding 'contains' edges),
-	// that are not exported and not module-level
-	const pathFilter = opts?.path
-		? `AND f.path LIKE '%${opts.path.replace(/%/g, '\\%').replace(/_/g, '\\_')}%' ESCAPE '\\'`
-		: ''
-	const kindFilter = opts?.kind ? `AND s.kind = '${opts.kind}'` : ''
+	// build parameterized query to avoid SQL injection
+	let sql = `SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
+		f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
+		s.is_exported as isExported, s.doc_comment as docComment
+		FROM symbols s
+		JOIN files f ON f.id = s.file_id
+		WHERE s.is_exported = 0
+			AND s.kind IN ('function', 'class', 'method', 'interface', 'type', 'enum')
+			AND s.name != 'constructor'
+			AND s.stable_id NOT IN (
+				SELECT DISTINCT target_id FROM edges WHERE kind != 'contains'
+			)`
 
-	const rows = store.queryRaw<{
+	const params: (string | number)[] = []
+
+	if (opts?.path) {
+		const escapedPath = opts.path.replace(/%/g, '\\%').replace(/_/g, '\\_')
+		sql += ` AND f.path LIKE ? ESCAPE '\\'`
+		params.push(`%${escapedPath}%`)
+	}
+
+	if (opts?.kind) {
+		sql += ' AND s.kind = ?'
+		params.push(opts.kind)
+	}
+
+	sql += ' ORDER BY f.path, s.line_start'
+
+	const rows = store.queryRawWithParams<{
 		name: string
 		qualifiedName: string
 		kind: string
@@ -22,21 +43,7 @@ export function findDeadCode(
 		lineEnd: number
 		isExported: number
 		docComment: string | null
-	}>(
-		`SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
-		f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
-		s.is_exported as isExported, s.doc_comment as docComment
-		FROM symbols s
-		JOIN files f ON f.id = s.file_id
-		WHERE s.is_exported = 0
-			AND s.kind IN ('function', 'class', 'method', 'interface', 'type', 'enum')
-			AND s.stable_id NOT IN (
-				SELECT DISTINCT target_id FROM edges WHERE kind != 'contains'
-			)
-			${pathFilter}
-			${kindFilter}
-		ORDER BY f.path, s.line_start`,
-	)
+	}>(sql, ...params)
 
 	const symbols: SymbolResult[] = rows.map((r) => ({
 		name: r.name,
@@ -52,7 +59,6 @@ export function findDeadCode(
 		dependentCount: 0,
 	}))
 
-	// build stats
 	const byKind: Record<string, number> = {}
 	const byFile: Record<string, number> = {}
 	for (const sym of symbols) {

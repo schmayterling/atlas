@@ -43,7 +43,7 @@ program
 		await indexCommand(opts.project, opts.json, {
 			force: cmdOpts.full,
 			dryRun: cmdOpts.dryRun,
-			noEmbed: cmdOpts.noEmbed ?? !cmdOpts.embed,
+			noEmbed: !cmdOpts.embed,
 		})
 	})
 

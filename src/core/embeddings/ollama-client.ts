@@ -29,7 +29,12 @@ export class OllamaClient {
 		// check if ollama is installed
 		const which = Bun.spawnSync(['which', 'ollama'], { stdout: 'pipe', stderr: 'pipe' })
 		if (which.exitCode !== 0) {
-			await this.installOllama()
+			throw new Error(
+				'ollama is not installed. install it first:\n' +
+					'  macOS: brew install ollama\n' +
+					'  linux: curl -fsSL https://ollama.com/install.sh | sh\n' +
+					'  all:   https://ollama.com/download',
+			)
 		}
 
 		log.info('starting ollama...')
@@ -45,41 +50,6 @@ export class OllamaClient {
 
 		throw new Error(
 			`ollama failed to start within ${(HEALTH_POLL_INTERVAL * HEALTH_POLL_MAX) / 1000}s`,
-		)
-	}
-
-	private async installOllama(): Promise<void> {
-		log.info('ollama not found, installing...')
-
-		if (process.platform === 'darwin') {
-			// macOS: try brew first, fall back to curl installer
-			const brew = Bun.spawnSync(['which', 'brew'], { stdout: 'pipe', stderr: 'pipe' })
-			if (brew.exitCode === 0) {
-				log.info('installing ollama via homebrew...')
-				const result = Bun.spawnSync(['brew', 'install', 'ollama'], {
-					stdout: 'inherit',
-					stderr: 'inherit',
-				})
-				if (result.exitCode === 0) return
-			}
-			// fall through to curl installer
-			log.info('installing ollama via curl...')
-			const result = Bun.spawnSync(['bash', '-c', 'curl -fsSL https://ollama.com/install.sh | sh'], {
-				stdout: 'inherit',
-				stderr: 'inherit',
-			})
-			if (result.exitCode === 0) return
-		} else if (process.platform === 'linux') {
-			log.info('installing ollama via curl...')
-			const result = Bun.spawnSync(['bash', '-c', 'curl -fsSL https://ollama.com/install.sh | sh'], {
-				stdout: 'inherit',
-				stderr: 'inherit',
-			})
-			if (result.exitCode === 0) return
-		}
-
-		throw new Error(
-			'failed to install ollama automatically. install manually from https://ollama.com',
 		)
 	}
 

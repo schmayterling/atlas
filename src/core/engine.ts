@@ -186,6 +186,15 @@ export class AtlasEngine {
 		return traceFlow(store, source.stableId, target.stableId, opts)
 	}
 
+	// --- resolve symbol ---
+
+	resolveSymbol(query: string): import('../shared/types.js').SymbolResult | null {
+		const store = this.getStore()
+		const sym = store.resolveSymbol(query)
+		if (!sym) return null
+		return store.symbolToResult(sym)
+	}
+
 	// --- dead code ---
 
 	deadCode(opts?: { path?: string; kind?: SymbolKind }): DeadCodeResult {

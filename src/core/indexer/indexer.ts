@@ -36,15 +36,13 @@ export class Indexer {
 		let changes = detectChanges(this.projectRoot, discovered, this.store)
 
 		if (opts?.force) {
-			// compute stale files that exist in DB but not on disk
-			const existingPaths = new Set(this.store.getAllFiles().map((f) => f.path))
-			const discoveredPaths = new Set(discovered.map((f) => f.path))
-			const stale = [...existingPaths].filter((p) => !discoveredPaths.has(p))
+			// delete ALL existing files (cascade cleans symbols/edges), then re-add everything
+			const existingPaths = this.store.getAllFiles().map((f) => f.path)
 
 			changes = {
 				added: discovered.map((f) => f.path),
 				modified: [],
-				deleted: stale,
+				deleted: existingPaths,
 				configChanged: false,
 				branchChanged: false,
 				isFullReindex: true,
@@ -241,7 +239,7 @@ export class Indexer {
 					log.info(`embedded ${embedResult.embedded} symbols (${embedResult.skipped} cached)`)
 				}
 			} catch (e) {
-				log.debug(`embedding pipeline skipped: ${e}`)
+				log.warn(`embedding pipeline failed: ${e}`)
 			}
 		}
 

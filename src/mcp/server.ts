@@ -4,6 +4,26 @@ import { z } from 'zod'
 import { AtlasEngine } from '../core/engine.js'
 import { formatBlast, formatDeadCode, formatDeps, formatSearch, formatStatus, formatTrace } from './formatters.js'
 
+type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
+
+function safe(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> {
+	try {
+		const result = fn()
+		if (result instanceof Promise) {
+			return result.catch((e) => ({
+				content: [{ type: 'text' as const, text: `error: ${e}` }],
+				isError: true,
+			}))
+		}
+		return Promise.resolve(result)
+	} catch (e) {
+		return Promise.resolve({
+			content: [{ type: 'text' as const, text: `error: ${e}` }],
+			isError: true,
+		})
+	}
+}
+
 export async function startMcpServer(projectRoot: string) {
 	const engine = new AtlasEngine(projectRoot)
 
@@ -16,10 +36,9 @@ export async function startMcpServer(projectRoot: string) {
 	)
 
 	// --- atlas_status ---
-	server.tool('atlas_status', 'check index health, freshness, and statistics', {}, async () => {
-		const result = engine.status()
-		return { content: [{ type: 'text' as const, text: formatStatus(result) }] }
-	})
+	server.tool('atlas_status', 'check index health, freshness, and statistics', {}, () =>
+		safe(() => ({ content: [{ type: 'text' as const, text: formatStatus(engine.status()) }] })),
+	)
 
 	// --- atlas_search ---
 	server.tool(
@@ -33,10 +52,10 @@ export async function startMcpServer(projectRoot: string) {
 				.describe('filter by symbol kind'),
 			limit: z.number().optional().describe('max results (default 20)'),
 		},
-		async ({ query, kind, limit }) => {
+		({ query, kind, limit }) => safe(() => {
 			const result = engine.search(query, { kind, limit })
 			return { content: [{ type: 'text' as const, text: formatSearch(result) }] }
-		},
+		}),
 	)
 
 	// --- atlas_semantic_search ---
@@ -47,20 +66,13 @@ export async function startMcpServer(projectRoot: string) {
 			query: z.string().describe('natural language description of what to find'),
 			limit: z.number().optional().describe('max results (default 10)'),
 		},
-		async ({ query, limit }) => {
+		({ query, limit }) => safe(async () => {
 			const result = await engine.semanticSearch(query, { limit })
 			if (!result.embeddingsAvailable) {
-				return {
-					content: [
-						{
-							type: 'text' as const,
-							text: 'embeddings not available. run `atlas index` with Ollama running to generate embeddings.',
-						},
-					],
-				}
+				return { content: [{ type: 'text' as const, text: 'embeddings not available. run `atlas index` with Ollama running.' }] }
 			}
 			return { content: [{ type: 'text' as const, text: formatSearch({ query, total: result.results.length, results: result.results }) }] }
-		},
+		}),
 	)
 
 	// --- atlas_resolve_symbol ---
@@ -70,16 +82,12 @@ export async function startMcpServer(projectRoot: string) {
 		{
 			symbol: z.string().describe('symbol name or file:name reference'),
 		},
-		async ({ symbol }) => {
-			const store = (engine as any).getStore()
-			const sym = store.resolveSymbol(symbol)
-			if (!sym) {
-				return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
-			}
-			const result = store.symbolToResult(sym)
+		({ symbol }) => safe(() => {
+			const result = engine.resolveSymbol(symbol)
+			if (!result) return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
 			const text = `${result.kind} ${result.name}\n  file: ${result.filePath}:${result.lineStart}\n  signature: ${result.signature ?? 'none'}\n  exported: ${result.isExported}\n  usages: ${result.usageCount}, dependents: ${result.dependentCount}`
 			return { content: [{ type: 'text' as const, text }] }
-		},
+		}),
 	)
 
 	// --- atlas_deps ---
@@ -91,13 +99,11 @@ export async function startMcpServer(projectRoot: string) {
 			direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('dependency direction (default: both)'),
 			depth: z.number().optional().describe('max traversal depth (default 3)'),
 		},
-		async ({ symbol, direction, depth }) => {
+		({ symbol, direction, depth }) => safe(() => {
 			const result = engine.deps(symbol, { direction, depth })
-			if (!result) {
-				return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
-			}
+			if (!result) return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
 			return { content: [{ type: 'text' as const, text: formatDeps(result) }] }
-		},
+		}),
 	)
 
 	// --- atlas_blast_radius ---
@@ -108,13 +114,11 @@ export async function startMcpServer(projectRoot: string) {
 			target: z.string().describe('symbol name, file path, or file:line'),
 			depth: z.number().optional().describe('max propagation depth (default 5)'),
 		},
-		async ({ target, depth }) => {
+		({ target, depth }) => safe(() => {
 			const result = engine.blast(target, { depth })
-			if (!result) {
-				return { content: [{ type: 'text' as const, text: `symbol not found: ${target}` }], isError: true }
-			}
+			if (!result) return { content: [{ type: 'text' as const, text: `symbol not found: ${target}` }], isError: true }
 			return { content: [{ type: 'text' as const, text: formatBlast(result) }] }
-		},
+		}),
 	)
 
 	// --- atlas_trace ---
@@ -127,13 +131,11 @@ export async function startMcpServer(projectRoot: string) {
 			maxPaths: z.number().optional().describe('max paths to return (default 5)'),
 			maxDepth: z.number().optional().describe('max path depth (default 10)'),
 		},
-		async ({ from, to, maxPaths, maxDepth }) => {
+		({ from, to, maxPaths, maxDepth }) => safe(() => {
 			const result = engine.trace(from, to, { maxPaths, maxDepth })
-			if (!result) {
-				return { content: [{ type: 'text' as const, text: `could not resolve both symbols: "${from}" and "${to}"` }], isError: true }
-			}
+			if (!result) return { content: [{ type: 'text' as const, text: `could not resolve both symbols: "${from}" and "${to}"` }], isError: true }
 			return { content: [{ type: 'text' as const, text: formatTrace(result) }] }
-		},
+		}),
 	)
 
 	// --- atlas_dead_code ---
@@ -147,10 +149,10 @@ export async function startMcpServer(projectRoot: string) {
 				.optional()
 				.describe('filter by symbol kind'),
 		},
-		async ({ path, kind }) => {
+		({ path, kind }) => safe(() => {
 			const result = engine.deadCode({ path, kind })
 			return { content: [{ type: 'text' as const, text: formatDeadCode(result) }] }
-		},
+		}),
 	)
 
 	const transport = new StdioServerTransport()

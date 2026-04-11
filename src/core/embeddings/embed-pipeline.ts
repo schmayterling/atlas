@@ -36,16 +36,6 @@ export async function runEmbeddingPipeline(
 		return { embedded: 0, skipped: 0 }
 	}
 
-	// check if the embedding tables exist
-	try {
-		store.queryRaw<{ name: string }>(
-			"SELECT name FROM sqlite_master WHERE type='table' AND name='embedding_meta'",
-		)
-	} catch {
-		log.debug('embedding tables not created, skipping')
-		return { embedded: 0, skipped: 0 }
-	}
-
 	const tables = store.queryRaw<{ name: string }>(
 		"SELECT name FROM sqlite_master WHERE type='table' AND name='embedding_meta'",
 	)
@@ -118,7 +108,7 @@ export async function runEmbeddingPipeline(
 
 			// upsert into symbol_embeddings (vec0)
 			try {
-				store.queryRaw(`DELETE FROM symbol_embeddings WHERE rowid = ${candidate.symbolId}`)
+				store.runRaw('DELETE FROM symbol_embeddings WHERE rowid = ?', candidate.symbolId)
 			} catch {
 				// may not exist yet
 			}
