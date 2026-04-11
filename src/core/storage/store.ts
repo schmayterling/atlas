@@ -187,6 +187,30 @@ export class AtlasStore {
 		)
 	}
 
+	getSymbolCountByFile(): Map<number, number> {
+		const rows = this.db
+			.query<{ fileId: number; count: number }, []>(
+				'SELECT file_id as fileId, COUNT(*) as count FROM symbols GROUP BY file_id',
+			)
+			.all()
+		const result = new Map<number, number>()
+		for (const r of rows) result.set(r.fileId, r.count)
+		return result
+	}
+
+	getSymbolsByFilePath(filePath: string): SymbolResult[] {
+		return this.db
+			.query<SymbolResult, [string]>(
+				`SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
+				f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
+				s.is_exported as isExported, s.doc_comment as docComment,
+				0 as usageCount, 0 as dependentCount
+				FROM symbols s JOIN files f ON s.file_id = f.id
+				WHERE f.path = ? ORDER BY s.line_start`,
+			)
+			.all(filePath)
+	}
+
 	// --- symbols ---
 
 	getSymbolByStableId(stableId: string): SymbolRecord | null {

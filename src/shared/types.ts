@@ -230,3 +230,20 @@ export interface SemanticSearchResult {
 	results: (SymbolResult & { distance: number })[]
 	embeddingsAvailable: boolean
 }
+
+// file info for web UI
+export interface FileInfo {
+	path: string
+	language: string
+	symbolCount: number
+	sizeBytes: number
+	indexedAt: number
+}
+
+// symbol detail for web UI
+export interface SymbolDetail {
+	symbol: SymbolResult
+	upstream: DependencyNode[]
+	downstream: DependencyNode[]
+	sourceCode?: string
+}

@@ -6,6 +6,7 @@ import { depsCommand } from './commands/deps.js'
 import { indexCommand } from './commands/index-cmd.js'
 import { initCommand } from './commands/init.js'
 import { mcpCommand } from './commands/mcp.js'
+import { serveCommand } from './commands/serve.js'
 import { searchCommand } from './commands/search.js'
 import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
@@ -129,6 +130,19 @@ program
 		deadCodeCommand(opts.project, opts.json, {
 			kind: cmdOpts.kind,
 			path: cmdOpts.path,
+		})
+	})
+
+program
+	.command('serve')
+	.description('start web UI server')
+	.option('--port <port>', 'server port', '3000')
+	.option('--no-open', 'do not auto-open browser')
+	.action(async (cmdOpts) => {
+		const opts = program.opts()
+		await serveCommand(opts.project, {
+			port: Number(cmdOpts.port),
+			open: cmdOpts.open !== false,
 		})
 	})
 

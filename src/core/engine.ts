@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type AtlasConfig, getDbPath, loadConfig } from '../shared/config.js'
 import type {
@@ -6,11 +6,13 @@ import type {
 	DeadCodeResult,
 	DependencyResult,
 	EdgeKind,
+	FileInfo,
 	FlowTraceResult,
 	IndexResult,
 	SearchResult,
 	SemanticSearchResult,
 	StatusResult,
+	SymbolDetail,
 	SymbolKind,
 } from '../shared/types.js'
 import { Indexer } from './indexer/indexer.js'
@@ -210,5 +212,49 @@ export class AtlasEngine {
 	): Promise<SemanticSearchResult> {
 		const store = this.getStore()
 		return semanticSearch(store, query, opts)
+	}
+
+	// --- file browsing ---
+
+	files(): FileInfo[] {
+		const store = this.getStore()
+		const allFiles = store.getAllFiles()
+		const counts = store.getSymbolCountByFile()
+		return allFiles.map((f) => ({
+			path: f.path,
+			language: f.language,
+			symbolCount: counts.get(f.id) ?? 0,
+			sizeBytes: f.sizeBytes,
+			indexedAt: f.indexedAt,
+		}))
+	}
+
+	fileSymbols(path: string): import('../shared/types.js').SymbolResult[] {
+		const store = this.getStore()
+		return store.getSymbolsByFilePath(path)
+	}
+
+	// --- symbol detail ---
+
+	symbolDetail(query: string): SymbolDetail | null {
+		const store = this.getStore()
+		const sym = store.resolveSymbol(query)
+		if (!sym) return null
+		const symbol = store.symbolToResult(sym)
+		const depsResult = getDependencies(store, sym.stableId, { direction: 'both', depth: 1 })
+		let sourceCode: string | undefined
+		try {
+			const fullPath = join(this.projectRoot, symbol.filePath)
+			const lines = readFileSync(fullPath, 'utf-8').split('\n')
+			sourceCode = lines.slice(symbol.lineStart - 1, symbol.lineEnd).join('\n')
+		} catch {
+			// file may not exist
+		}
+		return {
+			symbol,
+			upstream: depsResult?.upstream ?? [],
+			downstream: depsResult?.downstream ?? [],
+			sourceCode,
+		}
 	}
 }
