@@ -5,6 +5,7 @@ import { deadCodeCommand } from './commands/dead-code.js'
 import { depsCommand } from './commands/deps.js'
 import { indexCommand } from './commands/index-cmd.js'
 import { initCommand } from './commands/init.js'
+import { mcpCommand } from './commands/mcp.js'
 import { searchCommand } from './commands/search.js'
 import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
@@ -93,6 +94,14 @@ program
 			depth: Number(cmdOpts.depth),
 			tests: cmdOpts.tests,
 		})
+	})
+
+program
+	.command('mcp')
+	.description('start MCP server (stdio transport, for AI agent integration)')
+	.action(async () => {
+		const opts = program.opts()
+		await mcpCommand(opts.project)
 	})
 
 program
