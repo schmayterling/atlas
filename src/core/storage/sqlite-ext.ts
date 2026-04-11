@@ -40,6 +40,11 @@ export function isVectorSearchAvailable(): boolean {
 	return vectorsEnabled
 }
 
+export function resetForTesting() {
+	vectorsEnabled = false
+	initialized = false
+}
+
 // load sqlite-vec into a database connection
 export function loadVecExtension(db: Database) {
 	if (!vectorsEnabled) return

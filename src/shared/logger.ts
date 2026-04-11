@@ -15,6 +15,10 @@ export function setLogLevel(level: LogLevel) {
 	currentLevel = level
 }
 
+export function resetLogLevel() {
+	currentLevel = 'info'
+}
+
 function shouldLog(level: LogLevel): boolean {
 	return LEVEL_ORDER[level] >= LEVEL_ORDER[currentLevel]
 }
