@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type AtlasConfig, getDbPath, loadConfig } from '../shared/config.js'
+import { log } from '../shared/logger.js'
 import type {
 	BlastRadiusResult,
 	DeadCodeResult,
@@ -84,7 +85,11 @@ export class AtlasEngine {
 
 	// --- index ---
 
-	async index(opts?: { force?: boolean; dryRun?: boolean; noEmbed?: boolean }): Promise<IndexResult> {
+	async index(opts?: {
+		force?: boolean
+		dryRun?: boolean
+		noEmbed?: boolean
+	}): Promise<IndexResult> {
 		const store = this.getStore()
 		const indexer = new Indexer(this.projectRoot, this.config, store)
 		return indexer.index(opts)
@@ -206,10 +211,7 @@ export class AtlasEngine {
 
 	// --- semantic search ---
 
-	async semanticSearch(
-		query: string,
-		opts?: { limit?: number },
-	): Promise<SemanticSearchResult> {
+	async semanticSearch(query: string, opts?: { limit?: number }): Promise<SemanticSearchResult> {
 		const store = this.getStore()
 		return semanticSearch(store, query, opts)
 	}
@@ -236,7 +238,7 @@ export class AtlasEngine {
 
 	// --- symbol detail ---
 
-	symbolDetail(query: string): SymbolDetail | null {
+	async symbolDetail(query: string): Promise<SymbolDetail | null> {
 		const store = this.getStore()
 		const sym = store.resolveSymbol(query)
 		if (!sym) return null
@@ -245,10 +247,11 @@ export class AtlasEngine {
 		let sourceCode: string | undefined
 		try {
 			const fullPath = join(this.projectRoot, symbol.filePath)
-			const lines = readFileSync(fullPath, 'utf-8').split('\n')
+			const text = await Bun.file(fullPath).text()
+			const lines = text.split('\n')
 			sourceCode = lines.slice(symbol.lineStart - 1, symbol.lineEnd).join('\n')
-		} catch {
-			// file may not exist
+		} catch (e) {
+			log.debug(`symbolDetail: could not read source for ${symbol.filePath}: ${e}`)
 		}
 		return {
 			symbol,

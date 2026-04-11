@@ -1,3 +1,4 @@
+import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { Route, Switch } from 'wouter'
 import { Layout } from './components/layout.js'
@@ -8,29 +9,40 @@ import { TracePage } from './pages/trace.js'
 import { DeadCodePage } from './pages/dead-code.js'
 import { WikiPage } from './pages/wiki.js'
 
-function PlaceholderPage({ name }: { name: string }) {
-	return (
-		<div className="text-text-muted text-sm">
-			<h1 className="text-lg font-bold text-text mb-2">{name}</h1>
-			<p>coming soon</p>
-		</div>
-	)
+class ErrorBoundary extends React.Component<
+	{ children: React.ReactNode },
+	{ error: Error | null }
+> {
+	state: { error: Error | null } = { error: null }
+	static getDerivedStateFromError(error: Error) {
+		return { error }
+	}
+	render() {
+		if (this.state.error) {
+			return <div className="p-6 text-error text-sm">render error: {this.state.error.message}</div>
+		}
+		return this.props.children
+	}
 }
 
 function App() {
 	return (
 		<Layout>
-			<Switch>
-				<Route path="/" component={DashboardPage} />
-				<Route path="/search" component={SearchPage} />
-				<Route path="/graph" component={GraphPage} />
-				<Route path="/trace" component={TracePage} />
-				<Route path="/dead-code" component={DeadCodePage} />
-				<Route path="/wiki" component={WikiPage} />
-				<Route>
-					<PlaceholderPage name="not found" />
-				</Route>
-			</Switch>
+			<ErrorBoundary>
+				<Switch>
+					<Route path="/" component={DashboardPage} />
+					<Route path="/search" component={SearchPage} />
+					<Route path="/graph" component={GraphPage} />
+					<Route path="/trace" component={TracePage} />
+					<Route path="/dead-code" component={DeadCodePage} />
+					<Route path="/wiki" component={WikiPage} />
+					<Route>
+						<div className="text-text-muted text-sm">
+							<h1 className="text-lg font-bold text-text mb-2">not found</h1>
+						</div>
+					</Route>
+				</Switch>
+			</ErrorBoundary>
 		</Layout>
 	)
 }

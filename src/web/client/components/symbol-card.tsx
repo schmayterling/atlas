@@ -15,32 +15,25 @@ const KIND_COLORS: Record<string, string> = {
 export function KindBadge({ kind }: { kind: string }) {
 	const colors = KIND_COLORS[kind] ?? 'text-text-muted bg-surface-hover border-border'
 	return (
-		<span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] border ${colors}`}>
-			{kind}
-		</span>
+		<span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] border ${colors}`}>{kind}</span>
 	)
 }
 
-export function SymbolCard({ symbol, compact }: { symbol: SymbolResult; compact?: boolean }) {
-	if (compact) {
-		return (
-			<div className="flex items-center gap-2 text-sm">
-				<KindBadge kind={symbol.kind} />
-				<span className="font-bold">{symbol.name}</span>
-				<span className="text-text-muted text-xs">{symbol.filePath}:{symbol.lineStart}</span>
-				{symbol.isExported && <span className="text-accent text-[10px]">exported</span>}
-			</div>
-		)
-	}
-
+export function SymbolCard({ symbol }: { symbol: SymbolResult }) {
 	return (
 		<div className="border border-border rounded p-4 bg-surface-raised space-y-2">
 			<div className="flex items-center gap-2">
 				<KindBadge kind={symbol.kind} />
 				<span className="font-bold">{symbol.name}</span>
-				{symbol.isExported && <span className="text-accent text-[10px] border border-accent/30 px-1 rounded">exported</span>}
+				{symbol.isExported && (
+					<span className="text-accent text-[10px] border border-accent/30 px-1 rounded">
+						exported
+					</span>
+				)}
 			</div>
-			<div className="text-xs text-text-muted">{symbol.filePath}:{symbol.lineStart}-{symbol.lineEnd}</div>
+			<div className="text-xs text-text-muted">
+				{symbol.filePath}:{symbol.lineStart}-{symbol.lineEnd}
+			</div>
 			{symbol.signature && (
 				<div className="text-xs font-mono bg-surface p-2 rounded border border-border overflow-x-auto">
 					{symbol.signature}
@@ -49,10 +42,7 @@ export function SymbolCard({ symbol, compact }: { symbol: SymbolResult; compact?
 			{symbol.docComment && (
 				<div className="text-xs text-text-muted italic">{symbol.docComment}</div>
 			)}
-			<div className="flex gap-4 text-xs text-text-muted">
-				<span>usages: {symbol.usageCount}</span>
-				<span>dependents: {symbol.dependentCount}</span>
-			</div>
+			<div className="text-xs text-text-muted">dependents: {symbol.dependentCount}</div>
 		</div>
 	)
 }

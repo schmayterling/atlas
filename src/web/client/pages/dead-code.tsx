@@ -8,16 +8,22 @@ export function DeadCodePage() {
 	const [kindFilter, setKindFilter] = useState('')
 	const [pathFilter, setPathFilter] = useState('')
 	const [loading, setLoading] = useState(true)
+	const [error, setError] = useState<string | null>(null)
 
 	useEffect(() => {
 		setLoading(true)
-		api.deadCode({
-			kind: kindFilter || undefined,
-			path: pathFilter || undefined,
-		})
+		setError(null)
+		api
+			.deadCode({
+				kind: kindFilter || undefined,
+				path: pathFilter || undefined,
+			})
 			.then(setResult)
+			.catch((e) => setError(e.message))
 			.finally(() => setLoading(false))
 	}, [kindFilter, pathFilter])
+
+	if (error) return <div className="text-error text-sm">{error}</div>
 
 	return (
 		<div>
@@ -31,7 +37,9 @@ export function DeadCodePage() {
 				>
 					<option value="">all kinds</option>
 					{['function', 'class', 'method', 'interface', 'type', 'enum'].map((k) => (
-						<option key={k} value={k}>{k}</option>
+						<option key={k} value={k}>
+							{k}
+						</option>
 					))}
 				</select>
 				<input
@@ -68,7 +76,9 @@ export function DeadCodePage() {
 							>
 								<KindBadge kind={sym.kind} />
 								<span className="text-sm font-bold">{sym.name}</span>
-								<span className="text-xs text-text-muted ml-auto">{sym.filePath}:{sym.lineStart}-{sym.lineEnd}</span>
+								<span className="text-xs text-text-muted ml-auto">
+									{sym.filePath}:{sym.lineStart}-{sym.lineEnd}
+								</span>
 							</div>
 						))}
 					</div>

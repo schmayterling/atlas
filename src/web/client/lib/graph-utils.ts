@@ -33,7 +33,13 @@ function nodeId(qualifiedName: string): string {
 	return qualifiedName.replace(/[^a-zA-Z0-9_]/g, '_')
 }
 
-function collectNodes(nodes: DependencyNode[], elements: ElementDefinition[], seen: Set<string>, rootId: string) {
+function collectNodes(
+	nodes: DependencyNode[],
+	elements: ElementDefinition[],
+	seen: Set<string>,
+	rootId: string,
+	isUpstream: boolean,
+) {
 	for (const node of nodes) {
 		const id = nodeId(node.symbol.qualifiedName)
 		if (seen.has(id)) continue
@@ -53,14 +59,14 @@ function collectNodes(nodes: DependencyNode[], elements: ElementDefinition[], se
 		})
 		elements.push({
 			data: {
-				source: node.edgeKind === 'imports' || node.edgeKind === 'calls' ? rootId : id,
-				target: node.edgeKind === 'imports' || node.edgeKind === 'calls' ? id : rootId,
+				source: isUpstream ? id : rootId,
+				target: isUpstream ? rootId : id,
 				kind: node.edgeKind,
 				label: node.edgeKind,
 			},
 		})
 		if (node.children.length > 0) {
-			collectNodes(node.children, elements, seen, id)
+			collectNodes(node.children, elements, seen, id, isUpstream)
 		}
 	}
 }
@@ -85,8 +91,8 @@ export function depsToElements(result: DependencyResult): ElementDefinition[] {
 		},
 	})
 
-	collectNodes(result.upstream, elements, seen, rootId)
-	collectNodes(result.downstream, elements, seen, rootId)
+	collectNodes(result.upstream, elements, seen, rootId, true)
+	collectNodes(result.downstream, elements, seen, rootId, false)
 
 	return elements
 }
@@ -150,9 +156,10 @@ export function getStylesheet(): any[] {
 				color: '#e5e5e5',
 				'background-color': (ele: any) => KIND_COLORS[ele.data('kind')] ?? '#6b7280',
 				width: (ele: any) => Math.max(20, Math.min(40, 20 + (ele.data('dependentCount') ?? 0) * 2)),
-				height: (ele: any) => Math.max(20, Math.min(40, 20 + (ele.data('dependentCount') ?? 0) * 2)),
-				'border-width': (ele: any) => ele.data('isRoot') ? 3 : 1,
-				'border-color': (ele: any) => ele.data('isRoot') ? '#6366f1' : '#333',
+				height: (ele: any) =>
+					Math.max(20, Math.min(40, 20 + (ele.data('dependentCount') ?? 0) * 2)),
+				'border-width': (ele: any) => (ele.data('isRoot') ? 3 : 1),
+				'border-color': (ele: any) => (ele.data('isRoot') ? '#6366f1' : '#333'),
 			} as any,
 		},
 		{

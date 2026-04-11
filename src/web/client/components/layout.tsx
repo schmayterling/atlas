@@ -21,9 +21,7 @@ export function Layout({ children }: { children: ReactNode }) {
 				</div>
 				<div className="flex flex-col gap-0.5 p-2 flex-1">
 					{NAV_ITEMS.map((item) => {
-						const active = item.path === '/'
-							? location === '/'
-							: location.startsWith(item.path)
+						const active = item.path === '/' ? location === '/' : location.startsWith(item.path)
 						return (
 							<Link
 								key={item.path}

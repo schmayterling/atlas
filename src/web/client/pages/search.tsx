@@ -5,7 +5,18 @@ import { api } from '../lib/api.js'
 import { SearchInput } from '../components/search-input.js'
 import { SymbolCard, KindBadge } from '../components/symbol-card.js'
 
-const SYMBOL_KINDS = ['all', 'function', 'class', 'method', 'interface', 'type', 'variable', 'module', 'enum', 'property']
+const SYMBOL_KINDS = [
+	'all',
+	'function',
+	'class',
+	'method',
+	'interface',
+	'type',
+	'variable',
+	'module',
+	'enum',
+	'property',
+]
 
 export function SearchPage() {
 	const [query, setQuery] = useState('')
@@ -23,10 +34,10 @@ export function SearchPage() {
 		}
 		setLoading(true)
 		try {
-			const result = await api.search(q, {
+			const result = (await api.search(q, {
 				kind: k === 'all' ? undefined : k,
 				limit: 50,
-			}) as SearchResult
+			})) as SearchResult
 			setResults(result.results)
 			setTotal(result.total)
 		} catch {
@@ -93,7 +104,9 @@ export function SearchPage() {
 						>
 							<KindBadge kind={sym.kind} />
 							<span className="text-sm font-bold truncate">{sym.name}</span>
-							<span className="text-xs text-text-muted truncate ml-auto">{sym.filePath}:{sym.lineStart}</span>
+							<span className="text-xs text-text-muted truncate ml-auto">
+								{sym.filePath}:{sym.lineStart}
+							</span>
 							{sym.isExported && <span className="text-[10px] text-accent">exp</span>}
 						</button>
 					))}
@@ -126,7 +139,9 @@ export function SearchPage() {
 					)}
 					{selected.upstream.length > 0 && (
 						<div className="mt-3">
-							<div className="text-xs text-text-muted mb-1">depends on ({selected.upstream.length})</div>
+							<div className="text-xs text-text-muted mb-1">
+								depends on ({selected.upstream.length})
+							</div>
 							<div className="space-y-1">
 								{selected.upstream.map((dep) => (
 									<div key={dep.symbol.qualifiedName} className="text-xs flex items-center gap-1.5">
@@ -140,7 +155,9 @@ export function SearchPage() {
 					)}
 					{selected.downstream.length > 0 && (
 						<div className="mt-3">
-							<div className="text-xs text-text-muted mb-1">depended on by ({selected.downstream.length})</div>
+							<div className="text-xs text-text-muted mb-1">
+								depended on by ({selected.downstream.length})
+							</div>
 							<div className="space-y-1">
 								{selected.downstream.map((dep) => (
 									<div key={dep.symbol.qualifiedName} className="text-xs flex items-center gap-1.5">

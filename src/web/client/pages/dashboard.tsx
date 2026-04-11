@@ -19,7 +19,9 @@ function HealthBadge({ health }: { health: string }) {
 		missing: 'text-error border-error/30 bg-error/10',
 	}
 	return (
-		<span className={`inline-flex px-2 py-0.5 rounded text-xs border ${colors[health] ?? 'text-text-muted border-border'}`}>
+		<span
+			className={`inline-flex px-2 py-0.5 rounded text-xs border ${colors[health] ?? 'text-text-muted border-border'}`}
+		>
 			{health}
 		</span>
 	)
@@ -45,7 +47,10 @@ export function DashboardPage() {
 	const [error, setError] = useState<string | null>(null)
 
 	useEffect(() => {
-		api.status().then(setStatus).catch((e) => setError(e.message))
+		api
+			.status()
+			.then(setStatus)
+			.catch((e) => setError(e.message))
 	}, [])
 
 	if (error) return <div className="text-error text-sm">{error}</div>
@@ -57,6 +62,14 @@ export function DashboardPage() {
 				<h1 className="text-lg font-bold">dashboard</h1>
 				<HealthBadge health={status.health} />
 			</div>
+
+			{status.stats.files === 0 && (
+				<div className="border border-border rounded p-4 bg-surface-raised mb-6 text-sm text-text-muted">
+					no files indexed yet. run{' '}
+					<code className="text-accent bg-surface px-1 rounded">atlas index</code> to index this
+					project.
+				</div>
+			)}
 
 			<div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
 				<StatCard label="files" value={status.stats.files} />
@@ -89,7 +102,9 @@ export function DashboardPage() {
 						</div>
 						<div className="flex justify-between">
 							<span className="text-text-muted">commit</span>
-							<span className="font-mono text-xs">{status.lastCommit?.substring(0, 8) ?? 'unknown'}</span>
+							<span className="font-mono text-xs">
+								{status.lastCommit?.substring(0, 8) ?? 'unknown'}
+							</span>
 						</div>
 						<div className="flex justify-between">
 							<span className="text-text-muted">references</span>

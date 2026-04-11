@@ -2,7 +2,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { AtlasEngine } from '../core/engine.js'
-import { formatBlast, formatDeadCode, formatDeps, formatSearch, formatStatus, formatTrace } from './formatters.js'
+import { log } from '../shared/logger.js'
+import {
+	formatBlast,
+	formatDeadCode,
+	formatDeps,
+	formatSearch,
+	formatStatus,
+	formatTrace,
+} from './formatters.js'
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
 
@@ -10,6 +18,7 @@ async function safe(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolRes
 	try {
 		return await fn()
 	} catch (e) {
+		log.error(`mcp tool: ${e instanceof Error ? e.stack : e}`)
 		return { content: [{ type: 'text' as const, text: `error: ${e}` }], isError: true }
 	}
 }
@@ -37,15 +46,26 @@ export async function startMcpServer(projectRoot: string) {
 		{
 			query: z.string().describe('symbol name or pattern to search for'),
 			kind: z
-				.enum(['function', 'class', 'method', 'interface', 'type', 'variable', 'module', 'enum', 'property'])
+				.enum([
+					'function',
+					'class',
+					'method',
+					'interface',
+					'type',
+					'variable',
+					'module',
+					'enum',
+					'property',
+				])
 				.optional()
 				.describe('filter by symbol kind'),
 			limit: z.number().optional().describe('max results (default 20)'),
 		},
-		({ query, kind, limit }) => safe(() => {
-			const result = engine.search(query, { kind, limit })
-			return { content: [{ type: 'text' as const, text: formatSearch(result) }] }
-		}),
+		({ query, kind, limit }) =>
+			safe(() => {
+				const result = engine.search(query, { kind, limit })
+				return { content: [{ type: 'text' as const, text: formatSearch(result) }] }
+			}),
 	)
 
 	// --- atlas_semantic_search ---
@@ -56,13 +76,28 @@ export async function startMcpServer(projectRoot: string) {
 			query: z.string().describe('natural language description of what to find'),
 			limit: z.number().optional().describe('max results (default 10)'),
 		},
-		({ query, limit }) => safe(async () => {
-			const result = await engine.semanticSearch(query, { limit })
-			if (!result.embeddingsAvailable) {
-				return { content: [{ type: 'text' as const, text: 'embeddings not available. run `atlas index` with Ollama running.' }] }
-			}
-			return { content: [{ type: 'text' as const, text: formatSearch({ query, total: result.results.length, results: result.results }) }] }
-		}),
+		({ query, limit }) =>
+			safe(async () => {
+				const result = await engine.semanticSearch(query, { limit })
+				if (!result.embeddingsAvailable) {
+					return {
+						content: [
+							{
+								type: 'text' as const,
+								text: 'embeddings not available. run `atlas index` with Ollama running.',
+							},
+						],
+					}
+				}
+				return {
+					content: [
+						{
+							type: 'text' as const,
+							text: formatSearch({ query, total: result.results.length, results: result.results }),
+						},
+					],
+				}
+			}),
 	)
 
 	// --- atlas_resolve_symbol ---
@@ -72,12 +107,17 @@ export async function startMcpServer(projectRoot: string) {
 		{
 			symbol: z.string().describe('symbol name or file:name reference'),
 		},
-		({ symbol }) => safe(() => {
-			const result = engine.resolveSymbol(symbol)
-			if (!result) return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
-			const text = `${result.kind} ${result.name}\n  file: ${result.filePath}:${result.lineStart}\n  signature: ${result.signature ?? 'none'}\n  exported: ${result.isExported}\n  usages: ${result.usageCount}, dependents: ${result.dependentCount}`
-			return { content: [{ type: 'text' as const, text }] }
-		}),
+		({ symbol }) =>
+			safe(() => {
+				const result = engine.resolveSymbol(symbol)
+				if (!result)
+					return {
+						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
+						isError: true,
+					}
+				const text = `${result.kind} ${result.name}\n  file: ${result.filePath}:${result.lineStart}\n  signature: ${result.signature ?? 'none'}\n  exported: ${result.isExported}\n  usages: ${result.usageCount}, dependents: ${result.dependentCount}`
+				return { content: [{ type: 'text' as const, text }] }
+			}),
 	)
 
 	// --- atlas_deps ---
@@ -86,14 +126,22 @@ export async function startMcpServer(projectRoot: string) {
 		'get dependency graph for a symbol (what it depends on and what depends on it)',
 		{
 			symbol: z.string().describe('symbol name or file:name reference'),
-			direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('dependency direction (default: both)'),
+			direction: z
+				.enum(['upstream', 'downstream', 'both'])
+				.optional()
+				.describe('dependency direction (default: both)'),
 			depth: z.number().optional().describe('max traversal depth (default 3)'),
 		},
-		({ symbol, direction, depth }) => safe(() => {
-			const result = engine.deps(symbol, { direction, depth })
-			if (!result) return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
-			return { content: [{ type: 'text' as const, text: formatDeps(result) }] }
-		}),
+		({ symbol, direction, depth }) =>
+			safe(() => {
+				const result = engine.deps(symbol, { direction, depth })
+				if (!result)
+					return {
+						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
+						isError: true,
+					}
+				return { content: [{ type: 'text' as const, text: formatDeps(result) }] }
+			}),
 	)
 
 	// --- atlas_blast_radius ---
@@ -104,11 +152,16 @@ export async function startMcpServer(projectRoot: string) {
 			target: z.string().describe('symbol name, file path, or file:line'),
 			depth: z.number().optional().describe('max propagation depth (default 5)'),
 		},
-		({ target, depth }) => safe(() => {
-			const result = engine.blast(target, { depth })
-			if (!result) return { content: [{ type: 'text' as const, text: `symbol not found: ${target}` }], isError: true }
-			return { content: [{ type: 'text' as const, text: formatBlast(result) }] }
-		}),
+		({ target, depth }) =>
+			safe(() => {
+				const result = engine.blast(target, { depth })
+				if (!result)
+					return {
+						content: [{ type: 'text' as const, text: `symbol not found: ${target}` }],
+						isError: true,
+					}
+				return { content: [{ type: 'text' as const, text: formatBlast(result) }] }
+			}),
 	)
 
 	// --- atlas_trace ---
@@ -121,11 +174,21 @@ export async function startMcpServer(projectRoot: string) {
 			maxPaths: z.number().optional().describe('max paths to return (default 5)'),
 			maxDepth: z.number().optional().describe('max path depth (default 10)'),
 		},
-		({ from, to, maxPaths, maxDepth }) => safe(() => {
-			const result = engine.trace(from, to, { maxPaths, maxDepth })
-			if (!result) return { content: [{ type: 'text' as const, text: `could not resolve both symbols: "${from}" and "${to}"` }], isError: true }
-			return { content: [{ type: 'text' as const, text: formatTrace(result) }] }
-		}),
+		({ from, to, maxPaths, maxDepth }) =>
+			safe(() => {
+				const result = engine.trace(from, to, { maxPaths, maxDepth })
+				if (!result)
+					return {
+						content: [
+							{
+								type: 'text' as const,
+								text: `could not resolve both symbols: "${from}" and "${to}"`,
+							},
+						],
+						isError: true,
+					}
+				return { content: [{ type: 'text' as const, text: formatTrace(result) }] }
+			}),
 	)
 
 	// --- atlas_dead_code ---
@@ -135,14 +198,25 @@ export async function startMcpServer(projectRoot: string) {
 		{
 			path: z.string().optional().describe('filter by file path'),
 			kind: z
-				.enum(['function', 'class', 'method', 'interface', 'type', 'variable', 'module', 'enum', 'property'])
+				.enum([
+					'function',
+					'class',
+					'method',
+					'interface',
+					'type',
+					'variable',
+					'module',
+					'enum',
+					'property',
+				])
 				.optional()
 				.describe('filter by symbol kind'),
 		},
-		({ path, kind }) => safe(() => {
-			const result = engine.deadCode({ path, kind })
-			return { content: [{ type: 'text' as const, text: formatDeadCode(result) }] }
-		}),
+		({ path, kind }) =>
+			safe(() => {
+				const result = engine.deadCode({ path, kind })
+				return { content: [{ type: 'text' as const, text: formatDeadCode(result) }] }
+			}),
 	)
 
 	const transport = new StdioServerTransport()

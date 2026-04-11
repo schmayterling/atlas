@@ -21,29 +21,36 @@ export function GraphPage() {
 	const [info, setInfo] = useState('')
 	const [loading, setLoading] = useState(false)
 
-	const loadGraph = useCallback(async (q: string) => {
-		if (!q.trim()) return
-		setLoading(true)
-		setInfo('')
-		try {
-			if (mode === 'deps') {
-				const result = await api.deps(q, { direction, depth })
-				const els = depsToElements(result)
-				setElements(els)
-				setInfo(`${result.stats.totalNodes} nodes, ${result.stats.totalEdges} edges${result.truncated ? ' (truncated)' : ''}`)
-			} else {
-				const result = await api.blast(q, { depth })
-				const els = blastToElements(result)
-				setElements(els)
-				setInfo(`${result.summary.totalSymbols} affected symbols across ${result.summary.totalFiles} files${result.truncated ? ' (truncated)' : ''}`)
+	const loadGraph = useCallback(
+		async (q: string) => {
+			if (!q.trim()) return
+			setLoading(true)
+			setInfo('')
+			try {
+				if (mode === 'deps') {
+					const result = await api.deps(q, { direction, depth })
+					const els = depsToElements(result)
+					setElements(els)
+					setInfo(
+						`${result.stats.totalNodes} nodes, ${result.stats.totalEdges} edges${result.truncated ? ' (truncated)' : ''}`,
+					)
+				} else {
+					const result = await api.blast(q, { depth })
+					const els = blastToElements(result)
+					setElements(els)
+					setInfo(
+						`${result.summary.totalSymbols} affected symbols across ${result.summary.totalFiles} files${result.truncated ? ' (truncated)' : ''}`,
+					)
+				}
+			} catch (e: any) {
+				setInfo(e.message || 'error loading graph')
+				setElements([])
+			} finally {
+				setLoading(false)
 			}
-		} catch (e: any) {
-			setInfo(e.message || 'error loading graph')
-			setElements([])
-		} finally {
-			setLoading(false)
-		}
-	}, [mode, direction, depth])
+		},
+		[mode, direction, depth],
+	)
 
 	const handleNodeClick = (data: any) => {
 		setSelected({
@@ -76,15 +83,26 @@ export function GraphPage() {
 			<div className="flex gap-3 mb-4 items-end flex-wrap">
 				<div className="flex-1 min-w-[200px]">
 					<label className="text-xs text-text-muted mb-1 block">symbol</label>
-					<SearchInput value={query} onChange={setQuery} placeholder="enter symbol name..." debounceMs={0} />
+					<SearchInput
+						value={query}
+						onChange={setQuery}
+						placeholder="enter symbol name..."
+						debounceMs={0}
+					/>
 				</div>
 
 				<Tabs.Root value={mode} onValueChange={(v) => setMode(v as Mode)}>
 					<Tabs.List className="flex border border-border rounded overflow-hidden">
-						<Tabs.Trigger value="deps" className="px-3 py-2 text-xs data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text transition-colors">
+						<Tabs.Trigger
+							value="deps"
+							className="px-3 py-2 text-xs data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text transition-colors"
+						>
 							dependencies
 						</Tabs.Trigger>
-						<Tabs.Trigger value="blast" className="px-3 py-2 text-xs data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text transition-colors border-l border-border">
+						<Tabs.Trigger
+							value="blast"
+							className="px-3 py-2 text-xs data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text transition-colors border-l border-border"
+						>
 							blast radius
 						</Tabs.Trigger>
 					</Tabs.List>
@@ -140,7 +158,10 @@ export function GraphPage() {
 					<div className="w-64 shrink-0 overflow-auto">
 						<div className="flex items-center justify-between mb-2">
 							<span className="text-xs text-text-muted">selected</span>
-							<button className="text-xs text-text-muted hover:text-text cursor-pointer" onClick={() => setSelected(null)}>
+							<button
+								className="text-xs text-text-muted hover:text-text cursor-pointer"
+								onClick={() => setSelected(null)}
+							>
 								close
 							</button>
 						</div>

@@ -10,9 +10,13 @@ export function WikiPage() {
 	const [fileSymbols, setFileSymbols] = useState<any[]>([])
 	const [searchFilter, setSearchFilter] = useState('')
 	const [loading, setLoading] = useState(false)
+	const [error, setError] = useState<string | null>(null)
 
 	useEffect(() => {
-		api.files().then(setFiles)
+		api
+			.files()
+			.then(setFiles)
+			.catch((e) => setError(e.message))
 	}, [])
 
 	useEffect(() => {
@@ -20,7 +24,10 @@ export function WikiPage() {
 			setFileSymbols([])
 			return
 		}
-		api.fileSymbols(selectedFile).then(setFileSymbols)
+		api
+			.fileSymbols(selectedFile)
+			.then(setFileSymbols)
+			.catch((e) => setError(e.message))
 	}, [selectedFile])
 
 	useEffect(() => {
@@ -29,17 +36,20 @@ export function WikiPage() {
 			return
 		}
 		setLoading(true)
-		api.wiki(selectedSymbol)
+		setError(null)
+		api
+			.wiki(selectedSymbol)
 			.then((r) => {
 				if (r.type === 'symbol' && 'html' in r) {
 					setWikiContent(r.html as string)
 				}
 			})
+			.catch((e) => setError(e.message))
 			.finally(() => setLoading(false))
 	}, [selectedSymbol])
 
-	const filteredFiles = files.filter((f) =>
-		!searchFilter || f.path.toLowerCase().includes(searchFilter.toLowerCase())
+	const filteredFiles = files.filter(
+		(f) => !searchFilter || f.path.toLowerCase().includes(searchFilter.toLowerCase()),
 	)
 
 	// group files by directory
@@ -63,90 +73,137 @@ export function WikiPage() {
 						className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text placeholder:text-text-muted focus:outline-none focus:border-accent"
 					/>
 				</div>
-				{[...dirs.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([dir, dirFiles]) => (
-					<div key={dir} className="mb-2">
-						<div className="text-[10px] text-text-muted mb-0.5 uppercase tracking-wider">{dir}/</div>
-						{dirFiles.sort((a, b) => a.path.localeCompare(b.path)).map((f) => {
-							const fileName = f.path.split('/').pop()
-							const active = selectedFile === f.path
-							return (
-								<button
-									key={f.path}
-									onClick={() => {
-										setSelectedFile(f.path)
-										setSelectedSymbol(null)
-									}}
-									className={`w-full text-left px-2 py-1 text-xs rounded cursor-pointer flex items-center justify-between ${
-										active ? 'bg-accent/10 text-accent' : 'text-text-muted hover:text-text hover:bg-surface-hover'
-									}`}
-								>
-									<span className="truncate">{fileName}</span>
-									<span className="text-[10px] opacity-50">{f.symbolCount}</span>
-								</button>
-							)
-						})}
-					</div>
-				))}
+				{[...dirs.entries()]
+					.sort(([a], [b]) => a.localeCompare(b))
+					.map(([dir, dirFiles]) => (
+						<div key={dir} className="mb-2">
+							<div className="text-[10px] text-text-muted mb-0.5 uppercase tracking-wider">
+								{dir}/
+							</div>
+							{dirFiles
+								.sort((a, b) => a.path.localeCompare(b.path))
+								.map((f) => {
+									const fileName = f.path.split('/').pop()
+									const active = selectedFile === f.path
+									return (
+										<button
+											key={f.path}
+											onClick={() => {
+												setSelectedFile(f.path)
+												setSelectedSymbol(null)
+											}}
+											className={`w-full text-left px-2 py-1 text-xs rounded cursor-pointer flex items-center justify-between ${
+												active
+													? 'bg-accent/10 text-accent'
+													: 'text-text-muted hover:text-text hover:bg-surface-hover'
+											}`}
+										>
+											<span className="truncate">{fileName}</span>
+											<span className="text-[10px] opacity-50">{f.symbolCount}</span>
+										</button>
+									)
+								})}
+						</div>
+					))}
 			</div>
 
 			<div className="flex-1 overflow-auto">
 				{!selectedFile && !selectedSymbol && (
 					<div>
 						<h1 className="text-lg font-bold mb-4">wiki</h1>
-						<p className="text-sm text-text-muted mb-4">select a file from the sidebar to browse symbols, or click a symbol to see its documentation.</p>
+						<p className="text-sm text-text-muted mb-4">
+							select a file from the sidebar to browse symbols, or click a symbol to see its
+							documentation.
+						</p>
 						<div className="text-xs text-text-muted">
-							{files.length} files, {files.reduce((sum, f) => sum + f.symbolCount, 0)} symbols indexed
+							{files.length} files, {files.reduce((sum, f) => sum + f.symbolCount, 0)} symbols
+							indexed
 						</div>
 					</div>
 				)}
 
-				{selectedFile && !selectedSymbol && (
-					<div>
-						<div className="text-xs text-text-muted mb-1">
-							<button onClick={() => { setSelectedFile(null); setSelectedSymbol(null) }} className="hover:text-text cursor-pointer">wiki</button>
-							<span className="mx-1">/</span>
-							<span>{selectedFile}</span>
-						</div>
-						<h1 className="text-lg font-bold mb-4">{selectedFile.split('/').pop()}</h1>
-						<div className="space-y-1">
-							{fileSymbols.filter((s) => s.isExported).map((sym) => (
-								<button
-									key={sym.qualifiedName}
-									onClick={() => setSelectedSymbol(sym.qualifiedName)}
-									className="w-full text-left px-3 py-2 rounded hover:bg-surface-hover transition-colors cursor-pointer flex items-center gap-2"
-								>
-									<span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-muted">{sym.kind}</span>
-									<span className="text-sm font-bold">{sym.name}</span>
-									{sym.signature && <span className="text-xs text-text-muted truncate">{sym.signature}</span>}
-								</button>
-							))}
-							{fileSymbols.filter((s) => !s.isExported).length > 0 && (
-								<>
-									<div className="text-xs text-text-muted mt-3 mb-1">internal</div>
-									{fileSymbols.filter((s) => !s.isExported).map((sym) => (
+				{error && <div className="text-error text-sm mb-4">{error}</div>}
+
+				{selectedFile &&
+					!selectedSymbol &&
+					(() => {
+						const exported = fileSymbols.filter((s: any) => s.isExported)
+						const internal = fileSymbols.filter((s: any) => !s.isExported)
+						return (
+							<div>
+								<div className="text-xs text-text-muted mb-1">
+									<button
+										onClick={() => {
+											setSelectedFile(null)
+											setSelectedSymbol(null)
+										}}
+										className="hover:text-text cursor-pointer"
+									>
+										wiki
+									</button>
+									<span className="mx-1">/</span>
+									<span>{selectedFile}</span>
+								</div>
+								<h1 className="text-lg font-bold mb-4">{selectedFile.split('/').pop()}</h1>
+								<div className="space-y-1">
+									{exported.map((sym: any) => (
 										<button
 											key={sym.qualifiedName}
 											onClick={() => setSelectedSymbol(sym.qualifiedName)}
-											className="w-full text-left px-3 py-2 rounded hover:bg-surface-hover transition-colors cursor-pointer flex items-center gap-2 opacity-60"
+											className="w-full text-left px-3 py-2 rounded hover:bg-surface-hover transition-colors cursor-pointer flex items-center gap-2"
 										>
-											<span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-muted">{sym.kind}</span>
-											<span className="text-sm">{sym.name}</span>
+											<span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-muted">
+												{sym.kind}
+											</span>
+											<span className="text-sm font-bold">{sym.name}</span>
+											{sym.signature && (
+												<span className="text-xs text-text-muted truncate">{sym.signature}</span>
+											)}
 										</button>
 									))}
-								</>
-							)}
-						</div>
-					</div>
-				)}
+									{internal.length > 0 && (
+										<>
+											<div className="text-xs text-text-muted mt-3 mb-1">internal</div>
+											{internal.map((sym: any) => (
+												<button
+													key={sym.qualifiedName}
+													onClick={() => setSelectedSymbol(sym.qualifiedName)}
+													className="w-full text-left px-3 py-2 rounded hover:bg-surface-hover transition-colors cursor-pointer flex items-center gap-2 opacity-60"
+												>
+													<span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-muted">
+														{sym.kind}
+													</span>
+													<span className="text-sm">{sym.name}</span>
+												</button>
+											))}
+										</>
+									)}
+								</div>
+							</div>
+						)
+					})()}
 
 				{selectedSymbol && (
 					<div>
 						<div className="text-xs text-text-muted mb-1">
-							<button onClick={() => { setSelectedFile(null); setSelectedSymbol(null) }} className="hover:text-text cursor-pointer">wiki</button>
+							<button
+								onClick={() => {
+									setSelectedFile(null)
+									setSelectedSymbol(null)
+								}}
+								className="hover:text-text cursor-pointer"
+							>
+								wiki
+							</button>
 							{selectedFile && (
 								<>
 									<span className="mx-1">/</span>
-									<button onClick={() => setSelectedSymbol(null)} className="hover:text-text cursor-pointer">{selectedFile.split('/').pop()}</button>
+									<button
+										onClick={() => setSelectedSymbol(null)}
+										className="hover:text-text cursor-pointer"
+									>
+										{selectedFile.split('/').pop()}
+									</button>
 								</>
 							)}
 							<span className="mx-1">/</span>
@@ -166,8 +223,7 @@ export function WikiPage() {
 	)
 }
 
-// wiki HTML is generated server-side by marked from our own codebase
-// docstrings, not external user input. local-only tool (127.0.0.1).
+// server-side marked output with HTML-escaped inputs. local-only tool (127.0.0.1).
 function WikiContent({ html }: { html: string }) {
 	return (
 		<div

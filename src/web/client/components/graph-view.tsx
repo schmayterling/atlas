@@ -18,6 +18,15 @@ export function GraphView({
 }) {
 	const containerRef = useRef<HTMLDivElement>(null)
 	const cyRef = useRef<cytoscape.Core | null>(null)
+	const onNodeClickRef = useRef(onNodeClick)
+	const onNodeDoubleClickRef = useRef(onNodeDoubleClick)
+
+	useEffect(() => {
+		onNodeClickRef.current = onNodeClick
+	}, [onNodeClick])
+	useEffect(() => {
+		onNodeDoubleClickRef.current = onNodeDoubleClick
+	}, [onNodeDoubleClick])
 
 	useEffect(() => {
 		if (!containerRef.current || elements.length === 0) return
@@ -30,14 +39,16 @@ export function GraphView({
 				name: layout,
 				animate: false,
 				...(layout === 'cose' ? { nodeOverlap: 20, idealEdgeLength: 80, gravity: 0.5 } : {}),
-				...(layout === 'concentric' ? {
-					concentric: (node: any) => {
-						const depth = node.data('depth') ?? 0
-						return depth === 0 ? 100 : 100 - depth * 20
-					},
-					levelWidth: () => 1,
-					minNodeSpacing: 50,
-				} : {}),
+				...(layout === 'concentric'
+					? {
+							concentric: (node: any) => {
+								const depth = node.data('depth') ?? 0
+								return depth === 0 ? 100 : 100 - depth * 20
+							},
+							levelWidth: () => 1,
+							minNodeSpacing: 50,
+						}
+					: {}),
 				...(layout === 'breadthfirst' ? { directed: true, spacingFactor: 1.2 } : {}),
 			} as any,
 			minZoom: 0.2,
@@ -46,17 +57,13 @@ export function GraphView({
 
 		cyRef.current = cy
 
-		if (onNodeClick) {
-			cy.on('tap', 'node', (evt) => {
-				onNodeClick(evt.target.data())
-			})
-		}
+		cy.on('tap', 'node', (evt) => {
+			onNodeClickRef.current?.(evt.target.data())
+		})
 
-		if (onNodeDoubleClick) {
-			cy.on('dbltap', 'node', (evt) => {
-				onNodeDoubleClick(evt.target.data())
-			})
-		}
+		cy.on('dbltap', 'node', (evt) => {
+			onNodeDoubleClickRef.current?.(evt.target.data())
+		})
 
 		return () => {
 			cy.destroy()

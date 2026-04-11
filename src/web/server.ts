@@ -14,15 +14,19 @@ import { deadCodeRoutes } from './routes/dead-code.js'
 import { symbolRoutes } from './routes/symbol.js'
 import { wikiRoutes } from './routes/wiki.js'
 
+export function parseIntParam(val: string | undefined, max = 100): number | undefined {
+	if (!val) return undefined
+	const n = Number(val)
+	return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), max) : undefined
+}
+
 export async function startWebServer(projectRoot: string, opts: { port: number; open: boolean }) {
 	const engine = new AtlasEngine(projectRoot)
 
-	// build frontend
 	const outDir = await buildClient(projectRoot)
 
 	const app = new Hono()
 
-	// API routes
 	app.route('/api/status', statusRoutes(engine))
 	app.route('/api/search', searchRoutes(engine))
 	app.route('/api/files', filesRoutes(engine))
@@ -39,16 +43,18 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 		const indexHtml = await Bun.file(indexPath).text()
 
 		app.get('*', async (c) => {
-			// try to serve static file from outDir
 			const urlPath = new URL(c.req.url).pathname
 			if (urlPath !== '/') {
 				const filePath = join(outDir, urlPath)
+				// prevent path traversal: resolved path must stay inside outDir
+				if (!filePath.startsWith(outDir + '/')) {
+					return c.html(indexHtml)
+				}
 				const file = Bun.file(filePath)
 				if (await file.exists()) {
 					return new Response(file)
 				}
 			}
-			// SPA fallback
 			return c.html(indexHtml)
 		})
 	}
@@ -62,16 +68,21 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 	log.info(`atlas web UI: http://localhost:${server.port}`)
 
 	if (opts.open) {
-		// auto-open browser
 		const url = `http://localhost:${server.port}`
 		try {
 			if (process.platform === 'darwin') Bun.spawn(['open', url])
 			else if (process.platform === 'linux') Bun.spawn(['xdg-open', url])
 		} catch {
-			// ignore, user can open manually
+			// user can open manually
 		}
 	}
 
-	// keep process alive
+	const shutdown = () => {
+		engine.close()
+		process.exit(0)
+	}
+	process.on('SIGINT', shutdown)
+	process.on('SIGTERM', shutdown)
+
 	await new Promise(() => {})
 }

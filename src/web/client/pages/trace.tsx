@@ -36,7 +36,12 @@ export function TracePage() {
 			<div className="flex gap-3 mb-4 items-end flex-wrap">
 				<div className="flex-1 min-w-[150px]">
 					<label className="text-xs text-text-muted mb-1 block">from</label>
-					<SearchInput value={from} onChange={setFrom} placeholder="source symbol..." debounceMs={0} />
+					<SearchInput
+						value={from}
+						onChange={setFrom}
+						placeholder="source symbol..."
+						debounceMs={0}
+					/>
 				</div>
 				<span className="text-text-muted text-sm pb-2">→</span>
 				<div className="flex-1 min-w-[150px]">
@@ -45,7 +50,14 @@ export function TracePage() {
 				</div>
 				<div className="flex items-center gap-2">
 					<label className="text-xs text-text-muted">paths</label>
-					<input type="range" min={1} max={10} value={maxPaths} onChange={(e) => setMaxPaths(Number(e.target.value))} className="w-16" />
+					<input
+						type="range"
+						min={1}
+						max={10}
+						value={maxPaths}
+						onChange={(e) => setMaxPaths(Number(e.target.value))}
+						className="w-16"
+					/>
 					<span className="text-xs text-text-muted w-4">{maxPaths}</span>
 				</div>
 				<button
@@ -77,7 +89,9 @@ export function TracePage() {
 									key={i}
 									onClick={() => setSelectedPath(i)}
 									className={`px-2 py-1 text-xs rounded cursor-pointer ${
-										selectedPath === i ? 'bg-accent text-white' : 'bg-surface-raised text-text-muted hover:text-text border border-border'
+										selectedPath === i
+											? 'bg-accent text-white'
+											: 'bg-surface-raised text-text-muted hover:text-text border border-border'
 									}`}
 								>
 									path {i + 1}
@@ -86,9 +100,7 @@ export function TracePage() {
 						</div>
 					)}
 
-					{result.paths[selectedPath] && (
-						<PathView path={result.paths[selectedPath]} />
-					)}
+					{result.paths[selectedPath] && <PathView path={result.paths[selectedPath]} />}
 				</div>
 			)}
 		</div>
@@ -98,7 +110,9 @@ export function TracePage() {
 function PathView({ path }: { path: FlowPath }) {
 	return (
 		<div className="border border-border rounded bg-surface-raised p-4">
-			<div className="text-xs text-text-muted mb-3">{path.length} hop{path.length !== 1 ? 's' : ''}</div>
+			<div className="text-xs text-text-muted mb-3">
+				{path.length} hop{path.length !== 1 ? 's' : ''}
+			</div>
 			<div className="space-y-0">
 				{path.nodes.map((node, i) => (
 					<div key={node.qualifiedName}>
@@ -106,7 +120,9 @@ function PathView({ path }: { path: FlowPath }) {
 							<div className="w-6 text-center text-xs text-text-muted">{i + 1}</div>
 							<KindBadge kind={node.kind} />
 							<span className="text-sm font-bold">{node.name}</span>
-							<span className="text-xs text-text-muted">{node.filePath}:{node.lineStart}</span>
+							<span className="text-xs text-text-muted">
+								{node.filePath}:{node.lineStart}
+							</span>
 						</div>
 						{i < path.edges.length && (
 							<div className="flex items-center gap-2 py-1 pl-8">
