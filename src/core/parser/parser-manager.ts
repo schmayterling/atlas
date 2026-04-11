@@ -1,7 +1,10 @@
 import Parser from 'tree-sitter'
 // @ts-ignore: tree-sitter-typescript has no type declarations
 import TypeScript from 'tree-sitter-typescript'
+// @ts-ignore: tree-sitter-python has no type declarations
+import Python from 'tree-sitter-python'
 import { extractTypeScript } from './extractors/typescript.js'
+import { extractPython } from './extractors/python.js'
 import { registerExtractor } from './extractor-registry.js'
 
 const languageMap = new Map<string, Parser.Language>()
@@ -20,6 +23,10 @@ function registerBuiltins() {
 	registerExtractor('tsx', tsExtractor)
 	registerExtractor('javascript', tsExtractor)
 	registerExtractor('jsx', tsExtractor)
+
+	// register Python support
+	registerLanguage('python', Python as Parser.Language, ['.py'])
+	registerExtractor('python', { extract: extractPython })
 }
 
 export function registerLanguage(language: string, grammar: Parser.Language, extensions: string[]) {
