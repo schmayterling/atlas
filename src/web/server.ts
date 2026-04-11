@@ -4,7 +4,8 @@ import { Hono } from 'hono'
 import { log } from '../shared/logger.js'
 import { buildClient } from './build.js'
 import { getOrCreateEngine, closeAll } from '../core/engine-pool.js'
-import { addProject } from '../core/registry.js'
+import { addProject, getLinkedProjects, getProject } from '../core/registry.js'
+import { buildCrossProjectEdges } from '../core/queries/api-trace.js'
 import { projectsRoutes } from './routes/projects.js'
 import { createMcpServer } from '../mcp/server.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
@@ -125,6 +126,35 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 			if (downstream.length > 0) { md += `## depended on by\n\n`; for (const d of downstream) md += `- \`${esc(d.symbol.name)}\` (${d.edgeKind})\n`; md += '\n' }
 			return c.json({ type: 'symbol', symbol, html: await marked(md) })
 		} catch (e) { log.error(`wiki: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/cross-edges', (c) => {
+		const symbol = c.req.query('symbol')
+		const projectId = c.req.query('project')
+		if (!symbol || !projectId) return c.json({ error: 'symbol and project required' }, 400)
+		try { return c.json(eng(c).getCrossProjectEdges(projectId, symbol)) }
+		catch (e) { log.error(`cross-edges: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.post('/api/build-cross-edges', async (c) => {
+		try {
+			const body = await c.req.json()
+			const { projectId } = body
+			if (!projectId) return c.json({ error: 'projectId required' }, 400)
+			const project = getProject(projectId)
+			if (!project) return c.json({ error: 'project not found' }, 404)
+			const linked = getLinkedProjects(projectId)
+			const engine = getOrCreateEngine(projectId, projectRoot)
+			const localStore = engine.getStoreForCrossProject()
+			let totalEdges = 0
+			for (const link of linked) {
+				const remoteEngine = getOrCreateEngine(link.id)
+				if (!remoteEngine) continue
+				const remoteStore = remoteEngine.getStoreForCrossProject()
+				totalEdges += buildCrossProjectEdges(localStore, projectId, remoteStore, link.id)
+			}
+			return c.json({ edges: totalEdges, linkedProjects: linked.length })
+		} catch (e) { log.error(`build-cross-edges: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
 	app.get('/api/summarize', async (c) => {

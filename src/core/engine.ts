@@ -22,7 +22,7 @@ import { findDeadCode } from './queries/dead-code.js'
 import { getDependencies } from './queries/dependencies.js'
 import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
-import { traceApi, type ApiTraceResult } from './queries/api-trace.js'
+import { traceApi, buildCrossProjectEdges, type ApiTraceResult } from './queries/api-trace.js'
 import { summarizeSymbol, type SummaryResult } from './llm/summarizer.js'
 import { semanticSearch } from './queries/semantic-search.js'
 import { AtlasStore } from './storage/store.js'
@@ -243,6 +243,25 @@ export class AtlasEngine {
 	traceApi(pathPattern: string): ApiTraceResult {
 		const store = this.getStore()
 		return traceApi(store, pathPattern)
+	}
+
+	// get cross-project edges for a symbol
+	getCrossProjectEdges(projectId: string, symbolQuery: string): {
+		outbound: { targetProject: string; targetStableId: string; kind: string }[]
+		inbound: { sourceProject: string; sourceStableId: string; kind: string }[]
+	} {
+		const store = this.getStore()
+		const sym = store.resolveSymbol(symbolQuery)
+		if (!sym) return { outbound: [], inbound: [] }
+		return {
+			outbound: store.getCrossProjectEdgesFrom(projectId, sym.stableId),
+			inbound: store.getCrossProjectEdgesTo(projectId, sym.stableId),
+		}
+	}
+
+	// get the store for cross-project operations (used by engine-pool)
+	getStoreForCrossProject(): AtlasStore {
+		return this.getStore()
 	}
 
 	// --- LLM summaries ---

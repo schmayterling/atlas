@@ -500,6 +500,50 @@ export class AtlasStore {
 		this.db.run(sql, params as any[])
 	}
 
+	// --- cross-project edges ---
+
+	insertCrossProjectEdge(edge: {
+		sourceProject: string
+		sourceStableId: string
+		targetProject: string
+		targetStableId: string
+		kind: string
+		confidence?: string
+	}) {
+		this.db.run(
+			'INSERT OR IGNORE INTO cross_project_edges (source_project, source_stable_id, target_project, target_stable_id, kind, confidence) VALUES (?, ?, ?, ?, ?, ?)',
+			[edge.sourceProject, edge.sourceStableId, edge.targetProject, edge.targetStableId, edge.kind, edge.confidence ?? 'heuristic'],
+		)
+	}
+
+	getCrossProjectEdgesFrom(project: string, stableId: string): {
+		sourceProject: string
+		sourceStableId: string
+		targetProject: string
+		targetStableId: string
+		kind: string
+	}[] {
+		return this.db
+			.query('SELECT source_project as sourceProject, source_stable_id as sourceStableId, target_project as targetProject, target_stable_id as targetStableId, kind FROM cross_project_edges WHERE source_project = ? AND source_stable_id = ?')
+			.all(project, stableId) as any[]
+	}
+
+	getCrossProjectEdgesTo(project: string, stableId: string): {
+		sourceProject: string
+		sourceStableId: string
+		targetProject: string
+		targetStableId: string
+		kind: string
+	}[] {
+		return this.db
+			.query('SELECT source_project as sourceProject, source_stable_id as sourceStableId, target_project as targetProject, target_stable_id as targetStableId, kind FROM cross_project_edges WHERE target_project = ? AND target_stable_id = ?')
+			.all(project, stableId) as any[]
+	}
+
+	deleteCrossProjectEdgesForProject(project: string) {
+		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
+	}
+
 	// --- api endpoints ---
 
 	insertApiEndpoint(endpoint: {

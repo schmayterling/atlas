@@ -186,6 +186,24 @@ export const MIGRATIONS: Migration[] = [
 	},
 	{
 		version: 4,
+		description: 'add cross_project_edges for federated queries',
+		up: `
+			CREATE TABLE IF NOT EXISTS cross_project_edges (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				source_project TEXT NOT NULL,
+				source_stable_id TEXT NOT NULL,
+				target_project TEXT NOT NULL,
+				target_stable_id TEXT NOT NULL,
+				kind TEXT NOT NULL,
+				confidence TEXT NOT NULL DEFAULT 'heuristic',
+				metadata TEXT
+			);
+			CREATE INDEX IF NOT EXISTS idx_xedge_source ON cross_project_edges(source_project, source_stable_id);
+			CREATE INDEX IF NOT EXISTS idx_xedge_target ON cross_project_edges(target_project, target_stable_id);
+		`,
+	},
+	{
+		version: 5,
 		description: 'add symbol_summaries for LLM-generated explanations',
 		up: `
 			CREATE TABLE IF NOT EXISTS symbol_summaries (

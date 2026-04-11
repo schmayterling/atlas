@@ -46,3 +46,46 @@ export function traceApi(
 
 	return { query: pathPattern, clients, servers }
 }
+
+// build cross-project edges by matching client and server API endpoints across projects
+export function buildCrossProjectEdges(
+	localStore: AtlasStore,
+	localProjectId: string,
+	remoteStore: AtlasStore,
+	remoteProjectId: string,
+): number {
+	const localEndpoints = localStore.findApiEndpoints()
+	const remoteEndpoints = remoteStore.findApiEndpoints()
+	let count = 0
+
+	for (const local of localEndpoints) {
+		for (const remote of remoteEndpoints) {
+			// match client -> server or server -> client across projects
+			if (local.role === remote.role) continue
+			if (!pathsMatch(local.pathPattern, remote.pathPattern)) continue
+
+			const client = local.role === 'client' ? local : remote
+			const server = local.role === 'server' ? local : remote
+			const clientProject = local.role === 'client' ? localProjectId : remoteProjectId
+			const serverProject = local.role === 'server' ? localProjectId : remoteProjectId
+
+			localStore.insertCrossProjectEdge({
+				sourceProject: clientProject,
+				sourceStableId: client.symbolStableId,
+				targetProject: serverProject,
+				targetStableId: server.symbolStableId,
+				kind: 'calls',
+			})
+			count++
+		}
+	}
+
+	return count
+}
+
+function pathsMatch(a: string, b: string): boolean {
+	// normalize and compare: strip trailing slashes, compare case-insensitive
+	const na = a.replace(/\/+$/, '').toLowerCase()
+	const nb = b.replace(/\/+$/, '').toLowerCase()
+	return na === nb
+}
