@@ -77,15 +77,7 @@ export async function runSummaryPipeline(
 	let cached = 0
 	let skipped = 0
 
-	// limit batch size to avoid long-running index. summarize up to 20 new symbols per run.
-	const maxPerRun = 20
-	let remaining = maxPerRun
-
 	for (const sym of symbols) {
-		if (remaining <= 0) {
-			log.debug(`summary batch limit reached (${maxPerRun}), remaining symbols will be summarized on next index`)
-			break
-		}
 		// read source code for content hash
 		let sourceCode: string | undefined
 		try {
@@ -137,8 +129,7 @@ export async function runSummaryPipeline(
 				hash,
 			)
 			generated++
-			remaining--
-			log.debug(`summarized ${sym.name} (${generated}/${maxPerRun})`)
+			if (generated % 10 === 0) log.info(`summarized ${generated} symbols...`)
 		} catch (e) {
 			log.debug(`failed to summarize ${sym.name}: ${e}`)
 			skipped++
