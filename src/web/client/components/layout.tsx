@@ -74,13 +74,15 @@ export function Layout({ children }: { children: ReactNode }) {
 					collapsed ? 'w-12 sidebar-collapsed' : 'w-48'
 				}`}
 			>
-				<div className="flex items-center h-11 border-b border-border px-3 gap-2">
-					<button
-						onClick={toggleCollapsed}
-						className="shrink-0 p-1 rounded-[var(--radius-default)] text-text-muted hover:text-text hover:bg-surface-hover cursor-pointer"
-					>
-						{collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
-					</button>
+				<div className="flex items-center h-11 border-b border-border px-0 gap-0">
+					<span className="w-9 flex items-center justify-center shrink-0">
+						<button
+							onClick={toggleCollapsed}
+							className="p-1 rounded-[var(--radius-default)] text-text-muted hover:text-text hover:bg-surface-hover cursor-pointer"
+						>
+							{collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+						</button>
+					</span>
 					<span className="text-xs font-semibold tracking-wide text-accent sidebar-label">atlas</span>
 				</div>
 
@@ -108,16 +110,16 @@ export function Layout({ children }: { children: ReactNode }) {
 							<Link
 								key={item.path}
 								href={item.path}
-								className={`flex items-center gap-2.5 rounded-[var(--radius-default)] py-[7px] ${
-									collapsed ? 'justify-center px-0' : 'px-2.5'
-								} ${
+								className={`flex items-center gap-0 rounded-[var(--radius-default)] py-[7px] px-0 ${
 									active
 										? 'bg-accent/10 text-accent'
 										: 'text-text-muted hover:text-text hover:bg-surface-hover'
 								}`}
 								title={collapsed ? item.label : undefined}
 							>
-								<Icon size={15} strokeWidth={1.8} className="shrink-0" />
+								<span className="w-9 flex items-center justify-center shrink-0">
+									<Icon size={15} strokeWidth={1.8} />
+								</span>
 								<span className="text-[12px] sidebar-label">{item.label}</span>
 							</Link>
 						)
