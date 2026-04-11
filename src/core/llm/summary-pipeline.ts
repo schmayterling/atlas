@@ -77,8 +77,9 @@ export async function runSummaryPipeline(
 	let cached = 0
 	let skipped = 0
 
+	// build work items (filter cached/unreadable first)
+	const work: { sym: typeof symbols[0]; sourceCode: string; hash: string; prompt: string }[] = []
 	for (const sym of symbols) {
-		// read source code for content hash
 		let sourceCode: string | undefined
 		try {
 			const fullPath = join(projectRoot, sym.filePath)
@@ -91,14 +92,11 @@ export async function runSummaryPipeline(
 		}
 
 		const hash = contentHash(sourceCode ?? sym.qualifiedName)
-
-		// skip if already cached and source hasn't changed
 		if (existing.has(sym.stableId) && existing.get(sym.stableId) === hash) {
 			cached++
 			continue
 		}
 
-		// generate summary
 		const prompt = buildSummaryPrompt(
 			{
 				name: sym.name,
@@ -117,22 +115,43 @@ export async function runSummaryPipeline(
 			[],
 			[],
 		)
+		work.push({ sym, sourceCode, hash, prompt })
+	}
 
-		try {
-			const summary = await client.generate(prompt, chatModel)
-			store.runRaw(
-				'INSERT OR REPLACE INTO symbol_summaries (symbol_stable_id, summary, model, generated_at, source_hash) VALUES (?, ?, ?, ?, ?)',
-				sym.stableId,
-				summary.trim(),
-				chatModel,
-				Date.now(),
-				hash,
-			)
-			generated++
-			if (generated % 10 === 0) log.info(`summarized ${generated} symbols...`)
-		} catch (e) {
-			log.debug(`failed to summarize ${sym.name}: ${e}`)
-			skipped++
+	if (work.length > 0) {
+		log.info(`summarizing ${work.length} symbols (${cached} cached)...`)
+	}
+
+	// process in parallel batches of 4 (Ollama handles concurrent requests)
+	const batchSize = 4
+	for (let i = 0; i < work.length; i += batchSize) {
+		const batch = work.slice(i, i + batchSize)
+		const results = await Promise.allSettled(
+			batch.map(async (item) => {
+				const summary = await client.generate(item.prompt, chatModel)
+				return { stableId: item.sym.stableId, name: item.sym.name, summary: summary.trim(), hash: item.hash }
+			}),
+		)
+
+		for (const result of results) {
+			if (result.status === 'fulfilled') {
+				const { stableId, summary, hash } = result.value
+				store.runRaw(
+					'INSERT OR REPLACE INTO symbol_summaries (symbol_stable_id, summary, model, generated_at, source_hash) VALUES (?, ?, ?, ?, ?)',
+					stableId,
+					summary,
+					chatModel,
+					Date.now(),
+					hash,
+				)
+				generated++
+			} else {
+				skipped++
+			}
+		}
+
+		if (generated > 0 && (i + batchSize) % 20 < batchSize) {
+			log.info(`summarized ${generated}/${work.length} symbols...`)
 		}
 	}
 
