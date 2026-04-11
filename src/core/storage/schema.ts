@@ -1,5 +1,6 @@
 // all SQL DDL, indexes, triggers, and migrations for the atlas database.
 
+// base schema version (CREATE_TABLES). migrations layer on top of this.
 export const SCHEMA_VERSION = 1
 
 export const CREATE_TABLES = `

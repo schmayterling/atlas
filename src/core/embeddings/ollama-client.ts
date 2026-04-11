@@ -79,6 +79,7 @@ export class OllamaClient {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ model: this.model, input: texts }),
+			signal: AbortSignal.timeout(30_000),
 		})
 
 		if (!res.ok) {
@@ -108,6 +109,7 @@ export class OllamaClient {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ model: useModel, prompt, stream: false }),
+			signal: AbortSignal.timeout(60_000),
 		})
 
 		if (!res.ok) {

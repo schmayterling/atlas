@@ -18,6 +18,10 @@ export function SearchInput({
 		setLocal(value)
 	}, [value])
 
+	useEffect(() => {
+		return () => { if (timer.current) clearTimeout(timer.current) }
+	}, [])
+
 	const handleChange = (v: string) => {
 		setLocal(v)
 		if (timer.current) clearTimeout(timer.current)
