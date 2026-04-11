@@ -4,10 +4,8 @@ import type {
 	EdgeKind,
 	SubgraphBudget,
 	SymbolResult,
-	DEFAULT_BUDGET,
 } from '../../shared/types.js'
 import { loadSubgraph, reachableNodes } from '../graph/graph-index.js'
-import type { GraphNode } from '../graph/graph-index.js'
 import type { AtlasStore } from '../storage/store.js'
 
 export function getDependencies(
@@ -67,8 +65,9 @@ export function getDependencies(
 		const { graph, truncated: t, reason } = loadSubgraph(store, [symbolStableId], budget, 'inbound')
 		if (t) { truncated = true; truncationReason = reason }
 		const distances = reachableNodes(graph, symbolStableId, 'inbound', maxDepth)
-		upstream = buildDependencyTree(store, graph, symbolStableId, distances, 'inbound', edgeKinds)
+		upstream = buildDependencyTree(store, graph, symbolStableId, distances, 'inbound')
 		totalNodes += distances.size
+		totalEdges += graph.size
 		for (const d of distances.values()) {
 			if (d > maxDepthReached) maxDepthReached = d
 		}
@@ -78,8 +77,9 @@ export function getDependencies(
 		const { graph, truncated: t, reason } = loadSubgraph(store, [symbolStableId], budget, 'outbound')
 		if (t) { truncated = true; truncationReason = reason }
 		const distances = reachableNodes(graph, symbolStableId, 'outbound', maxDepth)
-		downstream = buildDependencyTree(store, graph, symbolStableId, distances, 'outbound', edgeKinds)
+		downstream = buildDependencyTree(store, graph, symbolStableId, distances, 'outbound')
 		totalNodes += distances.size
+		totalEdges += graph.size
 		for (const d of distances.values()) {
 			if (d > maxDepthReached) maxDepthReached = d
 		}
@@ -101,7 +101,6 @@ function buildDependencyTree(
 	rootId: string,
 	distances: Map<string, number>,
 	direction: 'inbound' | 'outbound',
-	edgeKinds: EdgeKind[],
 ): DependencyNode[] {
 	// get direct neighbors at depth 1
 	const directIds = [...distances.entries()]
@@ -138,10 +137,6 @@ function buildDependencyTree(
 				edgeKind = attrs.kind as EdgeKind
 			}
 		}
-
-		// recursively get children (depth 2+)
-		const childDistances = [...distances.entries()]
-			.filter(([_, d]) => d === (distances.get(id) ?? 0) + 1)
 
 		return {
 			symbol: symResult,

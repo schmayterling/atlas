@@ -28,8 +28,12 @@ export type AtlasConfig = z.infer<typeof ConfigSchema>
 export function loadConfig(projectRoot: string): AtlasConfig {
 	const configPath = join(projectRoot, '.atlas', 'config.json')
 	if (existsSync(configPath)) {
-		const raw = JSON.parse(readFileSync(configPath, 'utf-8'))
-		return ConfigSchema.parse(raw)
+		try {
+			const raw = JSON.parse(readFileSync(configPath, 'utf-8'))
+			return ConfigSchema.parse(raw)
+		} catch (e) {
+			throw new Error(`invalid atlas config at ${configPath}: ${e}`)
+		}
 	}
 	return ConfigSchema.parse({})
 }

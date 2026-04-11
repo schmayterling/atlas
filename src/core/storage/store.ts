@@ -368,14 +368,11 @@ export class AtlasStore {
 		sizeBytes: number,
 	): number {
 		const now = Date.now()
-		this.db.run(
+		const result = this.db.run(
 			'INSERT INTO files (path, content_hash, language, indexed_at, size_bytes) VALUES (?, ?, ?, ?, ?)',
 			[path, contentHash, language, now, sizeBytes],
 		)
-		const row = this.db
-			.query<{ id: number }, [string]>('SELECT id FROM files WHERE path = ?')
-			.get(path)
-		return row!.id
+		return Number(result.lastInsertRowid)
 	}
 
 	insertSymbol(sym: {
@@ -493,9 +490,13 @@ export class AtlasStore {
 
 	// resolve a symbol query (name or file:name) to a SymbolRecord
 	resolveSymbol(query: string): SymbolRecord | null {
-		// try "file:name" format
-		if (query.includes(':')) {
-			const [filePart, namePart] = query.split(':')
+		// try "file:name" format (split on first single colon, skip :: which is a qualified name separator)
+		const colonIdx = query.indexOf(':')
+		if (colonIdx > 0 && query[colonIdx + 1] !== ':') {
+			const filePart = query.slice(0, colonIdx)
+			const namePart = query.slice(colonIdx + 1)
+			// escape LIKE wildcards in user input
+			const escapedFile = filePart.replace(/%/g, '\\%').replace(/_/g, '\\_')
 			const results = this.db
 				.query<SymbolRecord, [string, string]>(
 					`SELECT s.id, s.stable_id as stableId, s.file_id as fileId, s.name,
@@ -506,10 +507,10 @@ export class AtlasStore {
 					s.doc_comment as docComment, s.metadata
 					FROM symbols s
 					JOIN files f ON f.id = s.file_id
-					WHERE f.path LIKE ? AND s.name = ?
+					WHERE f.path LIKE ? ESCAPE '\\' AND s.name = ?
 					LIMIT 1`,
 				)
-				.all(`%${filePart}%`, namePart)
+				.all(`%${escapedFile}%`, namePart)
 			if (results.length > 0) return results[0]
 		}
 
@@ -517,17 +518,18 @@ export class AtlasStore {
 		const byName = this.findSymbolsByName(query)
 		if (byName.length > 0) return byName[0]
 
-		// try qualified name match
+		// try qualified name match (escape LIKE wildcards)
+		const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_')
 		const byQual = this.db
 			.query<SymbolRecord, [string]>(
 				`SELECT id, stable_id as stableId, file_id as fileId, name, qualified_name as qualifiedName,
 				kind, visibility, is_exported as isExported, line_start as lineStart, line_end as lineEnd,
 				col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
 				parent_id as parentId, signature, doc_comment as docComment, metadata
-				FROM symbols WHERE qualified_name LIKE ?
+				FROM symbols WHERE qualified_name LIKE ? ESCAPE '\\'
 				LIMIT 1`,
 			)
-			.get(`%${query}%`)
+			.get(`%${escapedQuery}%`)
 		return byQual ?? null
 	}
 

@@ -15,8 +15,8 @@ const program = new Command()
 	.option('--json', 'output as JSON')
 	.option('-v, --verbose', 'verbose logging')
 
-program.hook('preAction', (cmd) => {
-	if (cmd.opts().verbose) {
+program.hook('preAction', () => {
+	if (program.opts().verbose) {
 		setLogLevel('debug')
 	}
 })

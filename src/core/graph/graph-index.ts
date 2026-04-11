@@ -27,19 +27,18 @@ export function loadSubgraph(
 	const graph = new MultiDirectedGraph()
 	const visited = new Set<string>()
 	const queue: { id: string; depth: number }[] = []
+	let queueHead = 0
 	let truncated = false
 	let reason: string | undefined
 
 	const startTime = Date.now()
 
-	// seed the queue
 	for (const id of rootIds) {
 		queue.push({ id, depth: 0 })
 	}
 
 	// BFS expansion from SQLite
-	while (queue.length > 0) {
-		// check budget
+	while (queueHead < queue.length) {
 		if (Date.now() - startTime > budget.timeoutMs) {
 			truncated = true
 			reason = `timeout (${budget.timeoutMs}ms)`
@@ -56,7 +55,7 @@ export function loadSubgraph(
 			break
 		}
 
-		const { id, depth } = queue.shift()!
+		const { id, depth } = queue[queueHead++]
 		if (visited.has(id)) continue
 		if (depth > budget.maxDepth) continue
 		visited.add(id)
@@ -162,12 +161,12 @@ export function reachableNodes(
 
 	if (!graph.hasNode(rootId)) return distances
 
-	// BFS
 	const queue: { id: string; depth: number }[] = [{ id: rootId, depth: 0 }]
+	let head = 0
 	const visited = new Set<string>()
 
-	while (queue.length > 0) {
-		const { id, depth } = queue.shift()!
+	while (head < queue.length) {
+		const { id, depth } = queue[head++]
 		if (visited.has(id)) continue
 		if (depth > maxDepth) continue
 		visited.add(id)

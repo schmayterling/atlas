@@ -115,7 +115,6 @@ export class Indexer {
 					const source = readFileSync(fileInfo.absolutePath, 'utf-8')
 					const hash = contentHash(source)
 
-					// determine parser language from extension
 					const ext = extname(filePath)
 					const parserLang = getLanguageForExtension(ext)
 					if (!parserLang) {
@@ -123,20 +122,21 @@ export class Indexer {
 						continue
 					}
 
-					// parse with tree-sitter
 					const tree = parseSource(source, parserLang)
 					const result = extractTypeScript(tree, filePath, source)
-
-					// insert file
 					const fileId = this.store.insertFile(filePath, hash, fileInfo.language, fileInfo.sizeBytes)
 
-					// insert symbols
+					// build a lookup map for O(1) kind resolution instead of O(n) per symbol
+					const kindByQName = new Map(
+						result.symbols.map((s) => [s.qualifiedName, s.kind]),
+					)
+
 					for (const sym of result.symbols) {
 						const sid = stableSymbolId(filePath, sym.kind, sym.qualifiedName)
 						const parentId = sym.parentQualifiedName
 							? stableSymbolId(
 									filePath,
-									resolveParentKind(sym.parentQualifiedName, result.symbols),
+									kindByQName.get(sym.parentQualifiedName) ?? 'variable',
 									sym.parentQualifiedName,
 								)
 							: null
@@ -165,14 +165,8 @@ export class Indexer {
 
 					// insert intra-file edges (contains, etc.)
 					for (const edge of result.edges) {
-						const sourceKind = resolveParentKind(
-							edge.sourceQualifiedName,
-							result.symbols,
-						)
-						const targetKind = resolveParentKind(
-							edge.targetName,
-							result.symbols,
-						)
+						const sourceKind = kindByQName.get(edge.sourceQualifiedName) ?? 'variable'
+						const targetKind = kindByQName.get(edge.targetName) ?? 'variable'
 						const sourceId = stableSymbolId(filePath, sourceKind, edge.sourceQualifiedName)
 						const targetId = stableSymbolId(filePath, targetKind, edge.targetName)
 
