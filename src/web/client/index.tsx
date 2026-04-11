@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { Route, Switch } from 'wouter'
 import { Layout } from './components/layout.js'
 import { DashboardPage } from './pages/dashboard.js'
+import { SearchPage } from './pages/search.js'
 
 function PlaceholderPage({ name }: { name: string }) {
 	return (
@@ -17,9 +18,7 @@ function App() {
 		<Layout>
 			<Switch>
 				<Route path="/" component={DashboardPage} />
-				<Route path="/search">
-					<PlaceholderPage name="search" />
-				</Route>
+				<Route path="/search" component={SearchPage} />
 				<Route path="/graph">
 					<PlaceholderPage name="graph" />
 				</Route>
