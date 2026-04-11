@@ -1,25 +1,65 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @theme {
 	--color-surface: #0a0a0a;
-	--color-surface-raised: #141414;
-	--color-surface-hover: #1a1a1a;
-	--color-border: #262626;
-	--color-border-light: #333333;
-	--color-text: #e5e5e5;
-	--color-text-muted: #737373;
-	--color-accent: #6366f1;
-	--color-accent-hover: #818cf8;
-	--color-success: #22c55e;
-	--color-warning: #f59e0b;
-	--color-error: #ef4444;
-	--font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+	--color-surface-raised: #111111;
+	--color-surface-hover: #191919;
+	--color-surface-active: #1f1f1f;
+	--color-border: #1e1e1e;
+	--color-border-light: #2a2a2a;
+	--color-text: #f5f5f5;
+	--color-text-secondary: #a1a1a1;
+	--color-text-muted: #636363;
+	--color-accent: #0a84ff;
+	--color-accent-hover: #409cff;
+	--color-success: #30d158;
+	--color-warning: #ffd60a;
+	--color-error: #ff453a;
+	--font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+	--font-mono: "GeistMono", "SF Mono", ui-monospace, monospace;
+	--radius-default: 8px;
 }
 
 body {
 	background-color: var(--color-surface);
 	color: var(--color-text);
-	font-family: var(--font-mono);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+/* spring animation curves */
+.spring {
+	transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ease-spring {
+	transition-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* smooth transitions */
+* {
+	transition-duration: 150ms;
+}
+
+/* sidebar collapse animation */
+.sidebar-transition {
+	transition: width 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-label {
+	transition: opacity 150ms ease;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.sidebar-collapsed .sidebar-label {
+	opacity: 0;
+	pointer-events: none;
+	width: 0;
 }
 
 ::-webkit-scrollbar {
@@ -28,10 +68,25 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-	background: var(--color-surface);
+	background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-	background: var(--color-border);
+	background: var(--color-border-light);
 	border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-text-muted);
+}
+
+/* code blocks */
+code, pre {
+	font-family: var(--font-mono);
+	font-size: 12px;
+}
+
+/* selection */
+::selection {
+	background: color-mix(in oklab, var(--color-accent) 30%, transparent);
 }
