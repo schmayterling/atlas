@@ -295,23 +295,21 @@ export class Indexer {
 		}
 
 		// step 9: flow detection
+		t = performance.now()
 		try {
 			const { runFlowPipeline } = await import('../llm/flow-pipeline.js')
 			const flowResult = await runFlowPipeline(this.store)
-			if (flowResult.detected > 0) {
-				log.info(`detected ${flowResult.detected} flows (${flowResult.named} named by LLM)`)
-			}
+			log.info(`flow detection: ${flowResult.detected} flows (${flowResult.named} named) in ${(performance.now() - t).toFixed(0)}ms`)
 		} catch (e) {
 			log.debug(`flow detection skipped: ${e}`)
 		}
 
 		// step 10: duplicate detection
+		t = performance.now()
 		try {
 			const { detectDuplicatesFromEmbeddings } = await import('../queries/duplicate-detection.js')
 			const dupCount = detectDuplicatesFromEmbeddings(this.store)
-			if (dupCount > 0) {
-				log.info(`found ${dupCount} potential duplicate pairs`)
-			}
+			log.info(`duplicate detection: ${dupCount} pairs in ${(performance.now() - t).toFixed(0)}ms`)
 		} catch (e) {
 			log.debug(`duplicate detection skipped: ${e}`)
 		}
