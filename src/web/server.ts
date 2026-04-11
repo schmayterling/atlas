@@ -128,6 +128,16 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 		} catch (e) { log.error(`wiki: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
+	app.get('/api/flows', (c) => {
+		try { return c.json(eng(c).flows()) }
+		catch (e) { log.error(`flows: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/duplicates', (c) => {
+		try { return c.json(eng(c).duplicates()) }
+		catch (e) { log.error(`duplicates: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
 	app.get('/api/cross-edges', (c) => {
 		const symbol = c.req.query('symbol')
 		const projectId = c.req.query('project')

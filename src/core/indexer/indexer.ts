@@ -294,7 +294,29 @@ export class Indexer {
 			}
 		}
 
-		// step 9: update metadata
+		// step 9: flow detection
+		try {
+			const { runFlowPipeline } = await import('../llm/flow-pipeline.js')
+			const flowResult = await runFlowPipeline(this.store)
+			if (flowResult.detected > 0) {
+				log.info(`detected ${flowResult.detected} flows (${flowResult.named} named by LLM)`)
+			}
+		} catch (e) {
+			log.debug(`flow detection skipped: ${e}`)
+		}
+
+		// step 10: duplicate detection
+		try {
+			const { detectDuplicatesFromEmbeddings } = await import('../queries/duplicate-detection.js')
+			const dupCount = detectDuplicatesFromEmbeddings(this.store)
+			if (dupCount > 0) {
+				log.info(`found ${dupCount} potential duplicate pairs`)
+			}
+		} catch (e) {
+			log.debug(`duplicate detection skipped: ${e}`)
+		}
+
+		// step 11: update metadata
 		const commit = getCurrentCommit(this.projectRoot)
 		const branch = getCurrentBranch(this.projectRoot)
 		const configHash = computeConfigHash(this.projectRoot)

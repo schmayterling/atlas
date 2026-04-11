@@ -136,6 +136,47 @@ program
 	})
 
 program
+	.command('flows')
+	.description('show detected execution flows')
+	.action(() => {
+		const opts = program.opts()
+		const { AtlasEngine } = require('../core/engine.js')
+		const engine = new AtlasEngine(opts.project)
+		const flows = engine.flows()
+		if (opts.json) { console.log(JSON.stringify(flows, null, 2)); engine.close(); return }
+		if (flows.length === 0) { console.log('no flows detected. run `atlas index` with Ollama to detect flows.'); engine.close(); return }
+		const pc = require('picocolors')
+		console.log(pc.bold(`${flows.length} flow${flows.length > 1 ? 's' : ''} detected\n`))
+		for (const f of flows) {
+			console.log(`  ${pc.cyan(f.name)}${f.description ? ` — ${f.description}` : ''}`)
+			console.log(`    ${f.symbols.map((s: any) => s.name).join(' → ')}`)
+			console.log()
+		}
+		engine.close()
+	})
+
+program
+	.command('duplicates')
+	.description('show potential duplicate code')
+	.action(() => {
+		const opts = program.opts()
+		const { AtlasEngine } = require('../core/engine.js')
+		const engine = new AtlasEngine(opts.project)
+		const dups = engine.duplicates()
+		if (opts.json) { console.log(JSON.stringify(dups, null, 2)); engine.close(); return }
+		if (dups.length === 0) { console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.'); engine.close(); return }
+		const pc = require('picocolors')
+		console.log(pc.bold(`${dups.length} potential duplicate${dups.length > 1 ? 's' : ''}\n`))
+		for (const d of dups) {
+			console.log(`  ${pc.yellow((d.similarity * 100).toFixed(0) + '%')} ${d.symbolA.name} ↔ ${d.symbolB.name}`)
+			console.log(`    ${d.symbolA.filePath}:${d.symbolA.lineStart}  ↔  ${d.symbolB.filePath}:${d.symbolB.lineStart}`)
+			if (d.description) console.log(`    ${d.description}`)
+			console.log()
+		}
+		engine.close()
+	})
+
+program
 	.command('serve')
 	.description('start web UI server')
 	.option('--port <port>', 'server port', '3000')

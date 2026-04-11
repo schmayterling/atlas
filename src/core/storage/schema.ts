@@ -204,6 +204,33 @@ export const MIGRATIONS: Migration[] = [
 	},
 	{
 		version: 5,
+		description: 'add flows and duplicates tables',
+		up: `
+			CREATE TABLE IF NOT EXISTS flows (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				description TEXT,
+				root_stable_id TEXT NOT NULL,
+				symbol_ids TEXT NOT NULL,
+				model TEXT,
+				generated_at INTEGER NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_flows_root ON flows(root_stable_id);
+			CREATE TABLE IF NOT EXISTS duplicates (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				symbol_a_id TEXT NOT NULL,
+				symbol_b_id TEXT NOT NULL,
+				similarity REAL NOT NULL,
+				confirmed INTEGER DEFAULT 0,
+				description TEXT,
+				UNIQUE(symbol_a_id, symbol_b_id)
+			);
+			CREATE INDEX IF NOT EXISTS idx_dup_a ON duplicates(symbol_a_id);
+			CREATE INDEX IF NOT EXISTS idx_dup_b ON duplicates(symbol_b_id);
+		`,
+	},
+	{
+		version: 6,
 		description: 'add symbol_summaries for LLM-generated explanations',
 		up: `
 			CREATE TABLE IF NOT EXISTS symbol_summaries (

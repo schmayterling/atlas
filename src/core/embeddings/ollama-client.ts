@@ -103,7 +103,7 @@ export class OllamaClient {
 
 	async generate(prompt: string, model?: string): Promise<string> {
 		await this.ensureRunning()
-		const useModel = model ?? 'llama3.2'
+		const useModel = model ?? 'qwen2.5-coder:1.5b'
 		const res = await fetch(`${this.baseUrl}/api/generate`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },

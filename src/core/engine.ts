@@ -24,6 +24,8 @@ import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
 import { traceApi, buildCrossProjectEdges, type ApiTraceResult } from './queries/api-trace.js'
 import { summarizeSymbol, type SummaryResult } from './llm/summarizer.js'
+import { getFlows, type DetectedFlow } from './queries/flow-detection.js'
+import { findDuplicates, type DuplicatePair } from './queries/duplicate-detection.js'
 import { semanticSearch } from './queries/semantic-search.js'
 import { AtlasStore } from './storage/store.js'
 
@@ -262,6 +264,22 @@ export class AtlasEngine {
 	// get the store for cross-project operations (used by engine-pool)
 	getStoreForCrossProject(): AtlasStore {
 		return this.getStore()
+	}
+
+	// --- LLM summaries ---
+
+	// --- flows ---
+
+	flows(): DetectedFlow[] {
+		const store = this.getStore()
+		return getFlows(store)
+	}
+
+	// --- duplicates ---
+
+	duplicates(): DuplicatePair[] {
+		const store = this.getStore()
+		return findDuplicates(store)
 	}
 
 	// --- LLM summaries ---

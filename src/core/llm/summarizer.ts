@@ -41,7 +41,7 @@ export async function summarizeSymbol(
 	}
 
 	// generate summary via Ollama
-	const model = opts?.model ?? 'llama3.2'
+	const model = opts?.model ?? 'qwen2.5-coder:1.5b'
 	const prompt = buildSummaryPrompt(detail.symbol, detail.sourceCode, detail.upstream, detail.downstream)
 
 	let summary: string

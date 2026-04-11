@@ -25,23 +25,25 @@ export async function runSummaryPipeline(
 		return { generated: 0, cached: 0, skipped: 0 }
 	}
 
-	// check available models for a chat model (not just embedding)
-	let chatModel: string | null = null
+	// use qwen2.5-coder:1.5b (fast, code-specialized, ~1GB)
+	const chatModel = 'qwen2.5-coder:1.5b'
+
+	// auto-pull if not available
 	try {
 		const res = await fetch('http://127.0.0.1:11434/api/tags')
 		if (res.ok) {
 			const data = (await res.json()) as { models: { name: string }[] }
-			const chatModels = data.models
-				.map((m) => m.name)
-				.filter((n) => !n.includes('minilm') && !n.includes('embed'))
-			if (chatModels.length > 0) chatModel = chatModels[0]
+			const hasModel = data.models.some((m) => m.name.startsWith('qwen2.5-coder'))
+			if (!hasModel) {
+				log.info(`pulling ${chatModel} for summaries (~1GB, first time only)...`)
+				const pull = Bun.spawnSync(['ollama', 'pull', chatModel], { stdout: 'inherit', stderr: 'inherit' })
+				if (pull.exitCode !== 0) {
+					log.warn(`failed to pull ${chatModel}`)
+					return { generated: 0, cached: 0, skipped: 0 }
+				}
+			}
 		}
 	} catch {
-		return { generated: 0, cached: 0, skipped: 0 }
-	}
-
-	if (!chatModel) {
-		log.debug('no chat model available for summaries')
 		return { generated: 0, cached: 0, skipped: 0 }
 	}
 
