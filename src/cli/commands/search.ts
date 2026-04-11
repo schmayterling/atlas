@@ -3,15 +3,50 @@ import { AtlasEngine } from '../../core/engine.js'
 import type { SymbolKind } from '../../shared/types.js'
 import { badge, fileRef, outputJson } from '../formatters/common.js'
 
-export function searchCommand(
+export async function searchCommand(
 	projectRoot: string,
 	query: string,
 	json: boolean,
-	opts: { kind?: string; exact?: boolean; limit?: number },
+	opts: { kind?: string; exact?: boolean; limit?: number; semantic?: boolean },
 ) {
 	const engine = new AtlasEngine(projectRoot)
 
 	try {
+		if (opts.semantic) {
+			const result = await engine.semanticSearch(query, { limit: opts.limit })
+
+			if (json) {
+				outputJson(result)
+				return
+			}
+
+			if (!result.embeddingsAvailable) {
+				console.log(pc.yellow('embeddings not available. run `atlas index` with Ollama running.'))
+				return
+			}
+
+			if (result.results.length === 0) {
+				console.log(pc.dim(`no semantic results for "${query}"`))
+				return
+			}
+
+			console.log(
+				`${pc.bold(String(result.results.length))} semantic results for "${query}"`,
+			)
+			console.log()
+
+			for (const sym of result.results) {
+				const kindBadge = badge(sym.kind)
+				const name = pc.bold(sym.name)
+				const ref = fileRef(sym.filePath, sym.lineStart)
+				const dist = pc.dim(`distance: ${sym.distance.toFixed(3)}`)
+				console.log(`  ${kindBadge} ${name}`)
+				console.log(`  ${' '.repeat(12)} ${ref}  ${dist}`)
+				console.log()
+			}
+			return
+		}
+
 		const result = engine.search(query, {
 			kind: opts.kind as SymbolKind | undefined,
 			exact: opts.exact,

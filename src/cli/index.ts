@@ -57,15 +57,17 @@ program
 
 program
 	.command('search <query>')
-	.description('search for symbols by name')
+	.description('search for symbols by name or meaning')
 	.option('-k, --kind <kind>', 'filter by symbol kind')
 	.option('-e, --exact', 'exact match only')
+	.option('-s, --semantic', 'semantic search (natural language, requires embeddings)')
 	.option('-n, --limit <n>', 'max results', '20')
-	.action((query, cmdOpts) => {
+	.action(async (query, cmdOpts) => {
 		const opts = program.opts()
-		searchCommand(opts.project, query, opts.json, {
+		await searchCommand(opts.project, query, opts.json, {
 			kind: cmdOpts.kind,
 			exact: cmdOpts.exact,
+			semantic: cmdOpts.semantic,
 			limit: Number(cmdOpts.limit),
 		})
 	})

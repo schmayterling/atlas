@@ -52,7 +52,7 @@ export class AtlasStore {
 		this.db.run(CREATE_FTS)
 		this.db.run(CREATE_TRIGGERS)
 
-		// set schema version if not exists
+		// set initial schema version if new DB, then apply any pending migrations
 		const existing = this.db
 			.query<{ value: string }, []>("SELECT value FROM atlas_meta WHERE key = 'schema_version'")
 			.get()
@@ -60,9 +60,8 @@ export class AtlasStore {
 			this.db.run("INSERT INTO atlas_meta (key, value) VALUES ('schema_version', ?)", [
 				String(SCHEMA_VERSION),
 			])
-		} else {
-			this.applyMigrations(Number(existing.value))
 		}
+		this.applyMigrations(Number(existing?.value ?? SCHEMA_VERSION))
 	}
 
 	private applyMigrations(currentVersion: number) {
@@ -73,13 +72,23 @@ export class AtlasStore {
 
 		for (const m of pending) {
 			try {
-				this.db.transaction(() => {
-					log.info(`applying migration v${m.version}: ${m.description}`)
-					this.db.run(m.up)
+				log.info(`applying migration v${m.version}: ${m.description}`)
+				// use db.exec for multi-statement SQL; not transactional
+				// because CREATE VIRTUAL TABLE can't run inside transactions
+				this.db.run('BEGIN')
+				try {
+					// split and run statements individually
+					for (const stmt of m.up.split(';').map((s) => s.trim()).filter(Boolean)) {
+						this.db.run(stmt)
+					}
 					this.db.run("UPDATE atlas_meta SET value = ? WHERE key = 'schema_version'", [
 						String(m.version),
 					])
-				})()
+					this.db.run('COMMIT')
+				} catch (innerErr) {
+					this.db.run('ROLLBACK')
+					throw innerErr
+				}
 			} catch (e) {
 				// vec0 migration fails if sqlite-vec extension isn't loaded; skip gracefully
 				log.debug(`migration v${m.version} failed (non-fatal): ${e}`)
