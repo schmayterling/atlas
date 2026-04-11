@@ -388,7 +388,7 @@ export class AtlasStore {
 	): number {
 		const now = Date.now()
 		const result = this.db.run(
-			'INSERT INTO files (path, content_hash, language, indexed_at, size_bytes) VALUES (?, ?, ?, ?, ?)',
+			'INSERT OR REPLACE INTO files (path, content_hash, language, indexed_at, size_bytes) VALUES (?, ?, ?, ?, ?)',
 			[path, contentHash, language, now, sizeBytes],
 		)
 		return Number(result.lastInsertRowid)
