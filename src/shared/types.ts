@@ -243,6 +243,7 @@ export interface FileInfo {
 // symbol detail for web UI
 export interface SymbolDetail {
 	symbol: SymbolResult
+	summary?: string
 	upstream: DependencyNode[]
 	downstream: DependencyNode[]
 	sourceCode?: string

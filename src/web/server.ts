@@ -113,13 +113,29 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 			if (!symbolQuery) {
 				return c.json({ type: 'index', files: eng(c).files().map((f) => ({ path: f.path, language: f.language, symbolCount: f.symbolCount })) })
 			}
-			const detail = await eng(c).symbolDetail(symbolQuery)
+			const engine = eng(c)
+			const detail = await engine.symbolDetail(symbolQuery)
 			if (!detail) return c.json({ error: 'symbol not found' }, 404)
 			const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 			const { symbol, upstream, downstream, sourceCode } = detail
+
+			// look up cached LLM summary
+			let llmSummary: string | null = null
+			try {
+				const store = engine.getStoreForCrossProject()
+				const sym = store.resolveSymbol(symbolQuery)
+				if (sym) {
+					const cached = store.queryRawWithParams<{ summary: string }>(
+						'SELECT summary FROM symbol_summaries WHERE symbol_stable_id = ?', sym.stableId,
+					)
+					if (cached.length > 0) llmSummary = cached[0].summary
+				}
+			} catch { /* no summaries table yet */ }
+
 			let md = `# ${symbol.kind} \`${esc(symbol.name)}\`\n\n**File:** \`${symbol.filePath}:${symbol.lineStart}\`\n\n`
 			if (symbol.signature) md += `**Signature:** \`${esc(symbol.signature)}\`\n\n`
 			if (symbol.isExported) md += `*exported*\n\n`
+			if (llmSummary) md += `> ${esc(llmSummary)}\n\n`
 			if (symbol.docComment) md += `${esc(symbol.docComment)}\n\n`
 			if (sourceCode) md += `\`\`\`typescript\n${esc(sourceCode)}\n\`\`\`\n\n`
 			if (upstream.length > 0) { md += `## depends on\n\n`; for (const d of upstream) md += `- \`${esc(d.symbol.name)}\` (${d.edgeKind})\n`; md += '\n' }

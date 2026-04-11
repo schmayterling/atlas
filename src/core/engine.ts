@@ -308,8 +308,18 @@ export class AtlasEngine {
 		} catch (e) {
 			log.debug(`symbolDetail: could not read source for ${symbol.filePath}: ${e}`)
 		}
+		// look up cached LLM summary
+		let summary: string | undefined
+		try {
+			const cached = store.queryRawWithParams<{ summary: string }>(
+				'SELECT summary FROM symbol_summaries WHERE symbol_stable_id = ?', sym.stableId,
+			)
+			if (cached.length > 0) summary = cached[0].summary
+		} catch { /* table may not exist */ }
+
 		return {
 			symbol,
+			summary,
 			upstream: depsResult?.upstream ?? [],
 			downstream: depsResult?.downstream ?? [],
 			sourceCode,

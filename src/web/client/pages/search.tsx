@@ -129,6 +129,12 @@ export function SearchPage() {
 						</button>
 					</div>
 					<SymbolCard symbol={selected.symbol} />
+					{selected.summary && (
+						<div className="mt-3 p-2 rounded border border-accent/20 bg-surface text-xs text-text-muted">
+							<div className="text-[10px] text-accent mb-1">LLM summary</div>
+							{selected.summary}
+						</div>
+					)}
 					{selected.sourceCode && (
 						<div className="mt-3">
 							<div className="text-xs text-text-muted mb-1">source</div>
