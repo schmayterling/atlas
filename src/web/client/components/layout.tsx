@@ -71,8 +71,8 @@ export function Layout({ children }: { children: ReactNode }) {
 		<div className="flex h-screen overflow-hidden">
 			{/* sidebar */}
 			<nav
-				className={`shrink-0 border-r border-border bg-surface-raised flex flex-col sidebar-transition ${
-					collapsed ? 'w-12 sidebar-collapsed' : 'w-48'
+				className={`shrink-0 border-r border-border bg-surface-raised flex flex-col overflow-hidden ${
+					collapsed ? 'w-12' : 'w-48'
 				}`}
 			>
 				{/* logo + collapse */}

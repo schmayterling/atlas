@@ -45,21 +45,10 @@ body {
 	transition-duration: 150ms;
 }
 
-/* sidebar collapse animation */
-.sidebar-transition {
-	transition: width 250ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
+/* sidebar: no width animation, instant switch to prevent CLS */
 .sidebar-label {
-	transition: opacity 150ms ease;
 	white-space: nowrap;
 	overflow: hidden;
-}
-
-.sidebar-collapsed .sidebar-label {
-	opacity: 0;
-	pointer-events: none;
-	width: 0;
 }
 
 ::-webkit-scrollbar {
