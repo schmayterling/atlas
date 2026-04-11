@@ -1,21 +1,32 @@
 import Parser from 'tree-sitter'
 // @ts-ignore: tree-sitter-typescript has no type declarations
 import TypeScript from 'tree-sitter-typescript'
+import { extractTypeScript } from './extractors/typescript.js'
+import { registerExtractor } from './extractor-registry.js'
 
-const LANGUAGE_MAP: Record<string, Parser.Language> = {
-	typescript: TypeScript.typescript as Parser.Language,
-	tsx: TypeScript.tsx as Parser.Language,
-	javascript: TypeScript.typescript as Parser.Language,
-	jsx: TypeScript.tsx as Parser.Language,
+const languageMap = new Map<string, Parser.Language>()
+const extensionMap = new Map<string, string>()
+
+// register built-in TypeScript/JavaScript support
+function registerBuiltins() {
+	registerLanguage('typescript', TypeScript.typescript as Parser.Language, ['.ts'])
+	registerLanguage('tsx', TypeScript.tsx as Parser.Language, ['.tsx'])
+	registerLanguage('javascript', TypeScript.typescript as Parser.Language, ['.js', '.mjs', '.cjs'])
+	registerLanguage('jsx', TypeScript.tsx as Parser.Language, ['.jsx'])
+
+	// register the TypeScript extractor for all JS/TS variants
+	const tsExtractor = { extract: extractTypeScript }
+	registerExtractor('typescript', tsExtractor)
+	registerExtractor('tsx', tsExtractor)
+	registerExtractor('javascript', tsExtractor)
+	registerExtractor('jsx', tsExtractor)
 }
 
-const EXTENSION_LANGUAGE: Record<string, string> = {
-	'.ts': 'typescript',
-	'.tsx': 'tsx',
-	'.js': 'javascript',
-	'.jsx': 'jsx',
-	'.mjs': 'javascript',
-	'.cjs': 'javascript',
+export function registerLanguage(language: string, grammar: Parser.Language, extensions: string[]) {
+	languageMap.set(language, grammar)
+	for (const ext of extensions) {
+		extensionMap.set(ext, language)
+	}
 }
 
 // cache one parser per language to avoid repeated construction
@@ -24,20 +35,25 @@ const parserCache = new Map<string, Parser>()
 function getParser(language: string): Parser {
 	let parser = parserCache.get(language)
 	if (!parser) {
+		const grammar = languageMap.get(language)
+		if (!grammar) throw new Error(`no grammar registered for language: ${language}`)
 		parser = new Parser()
-		parser.setLanguage(LANGUAGE_MAP[language])
+		parser.setLanguage(grammar)
 		parserCache.set(language, parser)
 	}
 	return parser
 }
 
 export function getLanguageForExtension(ext: string): string | null {
-	return EXTENSION_LANGUAGE[ext] ?? null
+	return extensionMap.get(ext) ?? null
 }
 
 export function parseSource(source: string, language: string): Parser.Tree {
-	if (!LANGUAGE_MAP[language]) {
+	if (!languageMap.has(language)) {
 		throw new Error(`unsupported language: ${language}`)
 	}
 	return getParser(language).parse(source)
 }
+
+// initialize on import
+registerBuiltins()

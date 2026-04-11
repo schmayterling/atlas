@@ -5,7 +5,7 @@ import { contentHash, stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
 import type { IndexResult } from '../../shared/types.js'
 import { getLanguageForExtension, parseSource } from '../parser/parser-manager.js'
-import { extractTypeScript } from '../parser/extractors/typescript.js'
+import { getExtractor } from '../parser/extractor-registry.js'
 import type { AtlasStore } from '../storage/store.js'
 import {
 	computeConfigHash,
@@ -124,8 +124,14 @@ export class Indexer {
 						continue
 					}
 
+					const extractor = getExtractor(parserLang)
+					if (!extractor) {
+						warnings.push(`no extractor for language: ${parserLang} (${filePath})`)
+						continue
+					}
+
 					const tree = parseSource(source, parserLang)
-					const result = extractTypeScript(tree, filePath, source)
+					const result = extractor.extract(tree, filePath, source)
 					const fileId = this.store.insertFile(filePath, hash, fileInfo.language, fileInfo.sizeBytes)
 
 					// build a lookup map for O(1) kind resolution instead of O(n) per symbol
@@ -186,7 +192,11 @@ export class Indexer {
 						edgeCount++
 					}
 
-					absolutePaths.push(fileInfo.absolutePath)
+					// only TypeScript/JavaScript files go through TS compiler resolution
+					const tsLangs = ['typescript', 'tsx', 'javascript', 'jsx']
+					if (tsLangs.includes(parserLang)) {
+						absolutePaths.push(fileInfo.absolutePath)
+					}
 				} catch (e) {
 					warnings.push(`failed to index ${filePath}: ${e}`)
 					log.warn(`failed to index ${filePath}: ${e}`)
