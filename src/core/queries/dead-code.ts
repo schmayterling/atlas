@@ -29,7 +29,7 @@ export function findDeadCode(
 		FROM symbols s
 		JOIN files f ON f.id = s.file_id
 		WHERE s.is_exported = 0
-			AND s.kind != 'module'
+			AND s.kind IN ('function', 'class', 'method', 'interface', 'type', 'enum')
 			AND s.stable_id NOT IN (
 				SELECT DISTINCT target_id FROM edges WHERE kind != 'contains'
 			)
