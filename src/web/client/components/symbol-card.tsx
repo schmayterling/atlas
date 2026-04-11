@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { SymbolResult } from '../../../shared/types.js'
+import { api } from '../lib/api.js'
 
 const KIND_COLORS: Record<string, string> = {
 	function: 'text-indigo-400 bg-indigo-400/10 border-indigo-400/30',
@@ -15,11 +17,30 @@ const KIND_COLORS: Record<string, string> = {
 export function KindBadge({ kind }: { kind: string }) {
 	const colors = KIND_COLORS[kind] ?? 'text-text-muted bg-surface-hover border-border'
 	return (
-		<span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] border ${colors}`}>{kind}</span>
+		<span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] border ${colors}`}>
+			{kind}
+		</span>
 	)
 }
 
 export function SymbolCard({ symbol }: { symbol: SymbolResult }) {
+	const [summary, setSummary] = useState<string | null>(null)
+	const [summarizing, setSummarizing] = useState(false)
+	const [summaryError, setSummaryError] = useState<string | null>(null)
+
+	const handleSummarize = async () => {
+		setSummarizing(true)
+		setSummaryError(null)
+		try {
+			const result = await api.summarize(symbol.qualifiedName)
+			setSummary(result.summary)
+		} catch (e: any) {
+			setSummaryError(e.message || 'failed to summarize')
+		} finally {
+			setSummarizing(false)
+		}
+	}
+
 	return (
 		<div className="border border-border rounded p-4 bg-surface-raised space-y-2">
 			<div className="flex items-center gap-2">
@@ -42,7 +63,30 @@ export function SymbolCard({ symbol }: { symbol: SymbolResult }) {
 			{symbol.docComment && (
 				<div className="text-xs text-text-muted italic">{symbol.docComment}</div>
 			)}
-			<div className="text-xs text-text-muted">dependents: {symbol.dependentCount}</div>
+			<div className="text-xs text-text-muted">
+				dependents: {symbol.dependentCount}
+			</div>
+
+			{!summary && !summarizing && (
+				<button
+					onClick={handleSummarize}
+					className="text-[10px] text-accent hover:text-accent-hover cursor-pointer border border-accent/30 px-2 py-0.5 rounded transition-colors"
+				>
+					summarize with LLM
+				</button>
+			)}
+			{summarizing && (
+				<div className="text-[10px] text-text-muted">summarizing...</div>
+			)}
+			{summaryError && (
+				<div className="text-[10px] text-error">{summaryError}</div>
+			)}
+			{summary && (
+				<div className="text-xs bg-surface p-2 rounded border border-accent/20 text-text-muted">
+					<div className="text-[10px] text-accent mb-1">LLM summary</div>
+					{summary}
+				</div>
+			)}
 		</div>
 	)
 }

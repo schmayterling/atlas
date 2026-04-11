@@ -2,6 +2,47 @@ import { useEffect, useState } from 'react'
 import type { FileInfo } from '../../../shared/types.js'
 import { api } from '../lib/api.js'
 
+function SummarizeButton({ symbolQuery }: { symbolQuery: string }) {
+	const [summary, setSummary] = useState<string | null>(null)
+	const [loading, setLoading] = useState(false)
+	const [error, setError] = useState<string | null>(null)
+
+	const handleClick = async () => {
+		setLoading(true)
+		setError(null)
+		try {
+			const result = await api.summarize(symbolQuery)
+			setSummary(result.summary)
+		} catch (e: any) {
+			setError(e.message || 'failed')
+		} finally {
+			setLoading(false)
+		}
+	}
+
+	if (summary) {
+		return (
+			<div className="mt-4 p-3 rounded border border-accent/20 bg-surface text-sm text-text-muted">
+				<div className="text-[10px] text-accent mb-1">LLM summary</div>
+				{summary}
+			</div>
+		)
+	}
+
+	return (
+		<div className="mt-4">
+			{error && <div className="text-[10px] text-error mb-1">{error}</div>}
+			<button
+				onClick={handleClick}
+				disabled={loading}
+				className="text-[10px] text-accent hover:text-accent-hover cursor-pointer border border-accent/30 px-2 py-0.5 rounded transition-colors disabled:opacity-50"
+			>
+				{loading ? 'summarizing...' : 'summarize with LLM'}
+			</button>
+		</div>
+	)
+}
+
 export function WikiPage() {
 	const [files, setFiles] = useState<FileInfo[]>([])
 	const [selectedFile, setSelectedFile] = useState<string | null>(null)
@@ -212,7 +253,10 @@ export function WikiPage() {
 						{loading ? (
 							<div className="text-sm text-text-muted">loading...</div>
 						) : wikiContent ? (
-							<WikiContent html={wikiContent} />
+							<>
+								<WikiContent html={wikiContent} />
+								<SummarizeButton symbolQuery={selectedSymbol} />
+							</>
 						) : (
 							<div className="text-sm text-text-muted">no documentation available</div>
 						)}

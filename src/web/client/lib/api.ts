@@ -76,4 +76,6 @@ export const api = {
 		get<{ type: string; files?: any[]; symbol?: SymbolResult; html?: string }>('/wiki', { symbol }),
 	projects: () =>
 		get<{ projects: { id: string; name: string; root: string }[]; links: any[] }>('/projects'),
+	summarize: (q: string, model?: string) =>
+		get<{ summary: string; model: string; cached: boolean }>('/summarize', { q, model }),
 }
