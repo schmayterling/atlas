@@ -415,7 +415,7 @@ export class AtlasStore {
 		sourceId: string
 		targetId: string
 		kind: EdgeKind
-		fileId: number
+		fileId: number | null
 		line: number | null
 		col: number | null
 		confidence: Confidence

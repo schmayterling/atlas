@@ -1,0 +1,94 @@
+import { Command } from 'commander'
+import { setLogLevel } from '../shared/logger.js'
+import { blastCommand } from './commands/blast.js'
+import { depsCommand } from './commands/deps.js'
+import { indexCommand } from './commands/index-cmd.js'
+import { initCommand } from './commands/init.js'
+import { searchCommand } from './commands/search.js'
+import { statusCommand } from './commands/status.js'
+
+const program = new Command()
+	.name('atlas')
+	.description('code intelligence for developers and agents')
+	.version('0.1.0')
+	.option('-p, --project <path>', 'project root directory', process.cwd())
+	.option('--json', 'output as JSON')
+	.option('-v, --verbose', 'verbose logging')
+
+program.hook('preAction', (cmd) => {
+	if (cmd.opts().verbose) {
+		setLogLevel('debug')
+	}
+})
+
+program
+	.command('init')
+	.description('initialize atlas for a project')
+	.action(() => {
+		const opts = program.opts()
+		initCommand(opts.project, opts.json)
+	})
+
+program
+	.command('index')
+	.description('index the codebase (incremental by default)')
+	.option('--full', 'force full re-index')
+	.option('--dry-run', 'show what would be indexed without changes')
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		indexCommand(opts.project, opts.json, {
+			force: cmdOpts.full,
+			dryRun: cmdOpts.dryRun,
+		})
+	})
+
+program
+	.command('status')
+	.description('show index health and statistics')
+	.action(() => {
+		const opts = program.opts()
+		statusCommand(opts.project, opts.json)
+	})
+
+program
+	.command('search <query>')
+	.description('search for symbols by name')
+	.option('-k, --kind <kind>', 'filter by symbol kind')
+	.option('-e, --exact', 'exact match only')
+	.option('-n, --limit <n>', 'max results', '20')
+	.action((query, cmdOpts) => {
+		const opts = program.opts()
+		searchCommand(opts.project, query, opts.json, {
+			kind: cmdOpts.kind,
+			exact: cmdOpts.exact,
+			limit: Number(cmdOpts.limit),
+		})
+	})
+
+program
+	.command('deps <symbol>')
+	.description('show dependency graph for a symbol')
+	.option('-d, --direction <dir>', 'upstream, downstream, or both', 'both')
+	.option('--depth <n>', 'max traversal depth', '3')
+	.action((symbol, cmdOpts) => {
+		const opts = program.opts()
+		depsCommand(opts.project, symbol, opts.json, {
+			direction: cmdOpts.direction,
+			depth: Number(cmdOpts.depth),
+		})
+	})
+
+program
+	.command('blast <target>')
+	.description('show blast radius for a file or symbol')
+	.option('--depth <n>', 'max propagation depth', '5')
+	.option('--tests', 'include affected test files', true)
+	.action((target, cmdOpts) => {
+		const opts = program.opts()
+		blastCommand(opts.project, target, opts.json, {
+			depth: Number(cmdOpts.depth),
+			tests: cmdOpts.tests,
+		})
+	})
+
+export { program }
