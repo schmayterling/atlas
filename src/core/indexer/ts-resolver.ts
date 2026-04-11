@@ -193,8 +193,8 @@ function resolveCallExpression(
 			col: pos.character,
 			confidence: 'resolved',
 		})
-	} catch {
-		// skip unresolvable calls
+	} catch (e) {
+		log.debug(`skipped call resolution at ${relPath}: ${e}`)
 	}
 }
 
@@ -240,8 +240,8 @@ function resolveTypeReference(
 			col: pos.character,
 			confidence: 'resolved',
 		})
-	} catch {
-		// skip
+	} catch (e) {
+		log.debug(`skipped resolution at ${relPath}: ${e}`)
 	}
 }
 

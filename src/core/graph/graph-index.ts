@@ -83,11 +83,17 @@ export function loadSubgraph(
 			}
 		}
 
-		// expand edges
+		// expand edges (check budget inside loop to prevent overshoot on high-degree nodes)
 		if (direction === 'outbound' || direction === 'both') {
 			for (const kind of budget.edgeKinds) {
+				if (graph.size >= budget.maxEdges) break
 				const edges = store.getDirectEdgesFrom(id, kind)
 				for (const edge of edges) {
+					if (graph.size >= budget.maxEdges || graph.order >= budget.maxNodes) {
+						truncated = true
+						reason = reason ?? `budget exceeded during expansion`
+						break
+					}
 					ensureNode(graph, store, edge.targetId)
 					if (!visited.has(edge.targetId)) {
 						queue.push({ id: edge.targetId, depth: depth + 1 })
@@ -103,8 +109,14 @@ export function loadSubgraph(
 
 		if (direction === 'inbound' || direction === 'both') {
 			for (const kind of budget.edgeKinds) {
+				if (graph.size >= budget.maxEdges) break
 				const edges = store.getDirectEdgesTo(id, kind)
 				for (const edge of edges) {
+					if (graph.size >= budget.maxEdges || graph.order >= budget.maxNodes) {
+						truncated = true
+						reason = reason ?? `budget exceeded during expansion`
+						break
+					}
 					ensureNode(graph, store, edge.sourceId)
 					if (!visited.has(edge.sourceId)) {
 						queue.push({ id: edge.sourceId, depth: depth + 1 })

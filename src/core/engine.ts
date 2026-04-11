@@ -3,8 +3,10 @@ import { join } from 'node:path'
 import { type AtlasConfig, getDbPath, loadConfig } from '../shared/config.js'
 import type {
 	BlastRadiusResult,
+	DeadCodeResult,
 	DependencyResult,
 	EdgeKind,
+	FlowTraceResult,
 	IndexResult,
 	SearchResult,
 	StatusResult,
@@ -12,7 +14,9 @@ import type {
 } from '../shared/types.js'
 import { Indexer } from './indexer/indexer.js'
 import { getBlastRadius } from './queries/blast-radius.js'
+import { findDeadCode } from './queries/dead-code.js'
 import { getDependencies } from './queries/dependencies.js'
+import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
 import { AtlasStore } from './storage/store.js'
 
@@ -164,5 +168,26 @@ export class AtlasEngine {
 		const symbol = store.resolveSymbol(targetQuery)
 		if (!symbol) return null
 		return getBlastRadius(store, symbol.stableId, opts)
+	}
+
+	// --- flow tracing ---
+
+	trace(
+		fromQuery: string,
+		toQuery: string,
+		opts?: { maxPaths?: number; maxDepth?: number },
+	): FlowTraceResult | null {
+		const store = this.getStore()
+		const source = store.resolveSymbol(fromQuery)
+		const target = store.resolveSymbol(toQuery)
+		if (!source || !target) return null
+		return traceFlow(store, source.stableId, target.stableId, opts)
+	}
+
+	// --- dead code ---
+
+	deadCode(opts?: { path?: string; kind?: SymbolKind }): DeadCodeResult {
+		const store = this.getStore()
+		return findDeadCode(store, opts)
 	}
 }

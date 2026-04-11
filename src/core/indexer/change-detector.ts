@@ -69,7 +69,7 @@ function tryGitDiff(
 	store: AtlasStore,
 ): { added: string[]; modified: string[]; deleted: string[] } | null {
 	const lastCommit = store.getMeta('last_indexed_commit')
-	if (!lastCommit) return null
+	if (!lastCommit || !/^[0-9a-f]{40}$/.test(lastCommit)) return null
 
 	try {
 		const result = Bun.spawnSync(

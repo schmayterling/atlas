@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import type { AtlasConfig } from '../../shared/config.js'
+import { log } from '../../shared/logger.js'
 
 export interface DiscoveredFile {
 	path: string
@@ -44,7 +45,8 @@ function walk(
 	let names: string[]
 	try {
 		names = readdirSync(dir, { encoding: 'utf-8' }) as string[]
-	} catch {
+	} catch (e) {
+		log.debug(`skipped directory ${dir}: ${e}`)
 		return
 	}
 
@@ -55,7 +57,8 @@ function walk(
 		let stat: ReturnType<typeof statSync>
 		try {
 			stat = statSync(fullPath)
-		} catch {
+		} catch (e) {
+			log.debug(`skipped ${fullPath}: ${e}`)
 			continue
 		}
 

@@ -478,6 +478,11 @@ export class AtlasStore {
 		this.db.transaction(operations)()
 	}
 
+	// run an arbitrary read query (for queries that don't fit a typed method)
+	queryRaw<T>(sql: string): T[] {
+		return this.db.query<T, []>(sql).all()
+	}
+
 	// get database size
 	getDbSize(dbPath: string): number {
 		try {

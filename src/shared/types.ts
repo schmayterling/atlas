@@ -210,3 +210,38 @@ export const DEFAULT_BUDGET: SubgraphBudget = {
 	edgeKinds: [...EDGE_KINDS],
 	timeoutMs: 5000,
 }
+
+// flow tracing
+export interface FlowTraceResult {
+	source: SymbolResult
+	target: SymbolResult
+	paths: FlowPath[]
+	stats: {
+		totalPaths: number
+		maxLength: number
+		truncated: boolean
+	}
+}
+
+export interface FlowPath {
+	nodes: SymbolResult[]
+	edges: { from: string; to: string; kind: EdgeKind; line: number | null }[]
+	length: number
+}
+
+// dead code detection
+export interface DeadCodeResult {
+	symbols: SymbolResult[]
+	stats: {
+		total: number
+		byKind: Record<string, number>
+		byFile: Record<string, number>
+	}
+}
+
+// semantic search
+export interface SemanticSearchResult {
+	query: string
+	results: (SymbolResult & { distance: number })[]
+	embeddingsAvailable: boolean
+}

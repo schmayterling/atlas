@@ -51,14 +51,18 @@ export function getBlastRadius(
 		const result = store.symbolToResult(sym)
 		affectedFiles.add(result.filePath)
 
-		// determine the relationship (edge kind from the graph)
+		// determine the relationship by finding the edge that connects this node
+		// for direct items: look at edges from nodeId to the target
+		// for transitive items: look at any edge from nodeId to any visited node
 		let relationship: EdgeKind = 'calls'
-		if (graph.hasNode(symbolStableId) && graph.hasNode(nodeId)) {
-			const edges = graph.inEdges(symbolStableId).filter(
-				(e) => graph.source(e) === nodeId,
-			)
-			if (edges.length > 0) {
-				relationship = graph.getEdgeAttributes(edges[0]).kind as EdgeKind
+		if (graph.hasNode(nodeId)) {
+			const outEdges = graph.outEdges(nodeId)
+			for (const e of outEdges) {
+				const target = graph.target(e)
+				if (distances.has(target) || target === symbolStableId) {
+					relationship = graph.getEdgeAttributes(e).kind as EdgeKind
+					break
+				}
 			}
 		}
 

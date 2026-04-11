@@ -1,11 +1,13 @@
 import { Command } from 'commander'
 import { setLogLevel } from '../shared/logger.js'
 import { blastCommand } from './commands/blast.js'
+import { deadCodeCommand } from './commands/dead-code.js'
 import { depsCommand } from './commands/deps.js'
 import { indexCommand } from './commands/index-cmd.js'
 import { initCommand } from './commands/init.js'
 import { searchCommand } from './commands/search.js'
 import { statusCommand } from './commands/status.js'
+import { traceCommand } from './commands/trace.js'
 
 const program = new Command()
 	.name('atlas')
@@ -88,6 +90,32 @@ program
 		blastCommand(opts.project, target, opts.json, {
 			depth: Number(cmdOpts.depth),
 			tests: cmdOpts.tests,
+		})
+	})
+
+program
+	.command('trace <from> <to>')
+	.description('trace execution paths between two symbols')
+	.option('--max-paths <n>', 'max paths to show', '5')
+	.option('--depth <n>', 'max path depth', '10')
+	.action((from, to, cmdOpts) => {
+		const opts = program.opts()
+		traceCommand(opts.project, from, to, opts.json, {
+			maxPaths: Number(cmdOpts.maxPaths),
+			depth: Number(cmdOpts.depth),
+		})
+	})
+
+program
+	.command('dead-code')
+	.description('find unreferenced symbols')
+	.option('-k, --kind <kind>', 'filter by symbol kind')
+	.option('--path <path>', 'filter by file path')
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		deadCodeCommand(opts.project, opts.json, {
+			kind: cmdOpts.kind,
+			path: cmdOpts.path,
 		})
 	})
 
