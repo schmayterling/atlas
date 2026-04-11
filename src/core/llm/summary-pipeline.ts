@@ -138,7 +138,7 @@ export async function runSummaryPipeline(
 	}
 
 	// process in parallel batches of 4 (Ollama handles concurrent requests)
-	const batchSize = 10
+	const batchSize = 20
 	for (let i = 0; i < work.length; i += batchSize) {
 		const batch = work.slice(i, i + batchSize)
 		const results = await Promise.allSettled(
