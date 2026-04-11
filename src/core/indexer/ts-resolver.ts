@@ -160,29 +160,28 @@ function resolveCallExpression(
 	edges: ResolvedEdge[],
 ) {
 	try {
-		const symbol = checker.getSymbolAtLocation(node.expression)
-		if (!symbol) return
+		const sym = checker.getSymbolAtLocation(node.expression)
+		if (!sym) return
 
-		const decl = symbol.valueDeclaration ?? symbol.declarations?.[0]
-		if (!decl) return
+		const resolved = resolveOriginalSymbol(sym, checker)
+		if (!resolved) return
 
-		const declFile = decl.getSourceFile()
+		const declFile = resolved.decl.getSourceFile()
 		const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
 
-		// skip calls to external libraries
 		if (declRelPath.includes('node_modules')) return
 
-		// find the containing function at the call site
 		const containingFn = findContainingFunction(node, sourceFile, relPath)
 		if (!containingFn) return
 
-		// find the target symbol name
-		const targetName = symbol.getName()
-		const targetKind = getSymbolKind(decl)
-		const targetQName = buildQualifiedName(declRelPath, decl, targetName)
+		const targetName = resolved.symbol.getName()
+		const targetKind = getSymbolKind(resolved.decl)
+		const existing = store.findSymbolInFile(declRelPath, targetName, targetKind)
+		const targetId = existing
+			? existing.stableId
+			: stableSymbolId(declRelPath, targetKind, buildQualifiedName(declRelPath, resolved.decl, targetName))
 
 		const sourceId = stableSymbolId(relPath, containingFn.kind, containingFn.qname)
-		const targetId = stableSymbolId(declRelPath, targetKind, targetQName)
 
 		const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart())
 
@@ -209,27 +208,28 @@ function resolveTypeReference(
 	edges: ResolvedEdge[],
 ) {
 	try {
-		const symbol = checker.getSymbolAtLocation(node.typeName)
-		if (!symbol) return
+		const sym = checker.getSymbolAtLocation(node.typeName)
+		if (!sym) return
 
-		const decl = symbol.declarations?.[0]
-		if (!decl) return
+		const resolved = resolveOriginalSymbol(sym, checker)
+		if (!resolved) return
 
-		const declFile = decl.getSourceFile()
+		const declFile = resolved.decl.getSourceFile()
 		const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
 
-		// skip references to node_modules
 		if (declRelPath.includes('node_modules')) return
 
 		const containingDecl = findContainingDeclaration(node, sourceFile, relPath)
 		if (!containingDecl) return
 
-		const targetName = symbol.getName()
-		const targetKind = getSymbolKind(decl)
-		const targetQName = buildQualifiedName(declRelPath, decl, targetName)
+		const targetName = resolved.symbol.getName()
+		const targetKind = getSymbolKind(resolved.decl)
+		const existing = store.findSymbolInFile(declRelPath, targetName, targetKind)
+		const targetId = existing
+			? existing.stableId
+			: stableSymbolId(declRelPath, targetKind, buildQualifiedName(declRelPath, resolved.decl, targetName))
 
 		const sourceId = stableSymbolId(relPath, containingDecl.kind, containingDecl.qname)
-		const targetId = stableSymbolId(declRelPath, targetKind, targetQName)
 
 		const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart())
 
@@ -260,17 +260,16 @@ function resolveHeritageClause(
 
 	for (const expr of node.types) {
 		try {
-			const symbol = checker.getSymbolAtLocation(expr.expression)
-			if (!symbol) continue
+			const sym = checker.getSymbolAtLocation(expr.expression)
+			if (!sym) continue
 
-			const decl = symbol.declarations?.[0]
-			if (!decl) continue
+			const resolved = resolveOriginalSymbol(sym, checker)
+			if (!resolved) continue
 
-			const declFile = decl.getSourceFile()
+			const declFile = resolved.decl.getSourceFile()
 			const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
 			if (declRelPath.includes('node_modules')) continue
 
-			// find the class/interface being declared
 			const parentDecl = node.parent
 			if (!parentDecl) continue
 
@@ -281,10 +280,12 @@ function resolveHeritageClause(
 			const parentQName = `${relPath}::${parentName}`
 			const sourceId = stableSymbolId(relPath, parentKind as 'class' | 'interface', parentQName)
 
-			const targetName = symbol.getName()
-			const targetKind = getSymbolKind(decl)
-			const targetQName = buildQualifiedName(declRelPath, decl, targetName)
-			const targetId = stableSymbolId(declRelPath, targetKind, targetQName)
+			const targetName = resolved.symbol.getName()
+			const targetKind = getSymbolKind(resolved.decl)
+			const existing = store.findSymbolInFile(declRelPath, targetName, targetKind)
+			const targetId = existing
+				? existing.stableId
+				: stableSymbolId(declRelPath, targetKind, buildQualifiedName(declRelPath, resolved.decl, targetName))
 
 			const pos = sourceFile.getLineAndCharacterOfPosition(expr.getStart())
 
@@ -404,14 +405,43 @@ function getSymbolKind(decl: ts.Declaration): SymbolKind {
 }
 
 function buildQualifiedName(relPath: string, decl: ts.Declaration, name: string): string {
-	// check if it's a class member
-	const parent = decl.parent
-	if (parent && ts.isClassDeclaration(parent) && parent.name) {
-		return `${relPath}::${parent.name.getText()}.${name}`
+	// walk the full parent chain to match tree-sitter's qualifiedName format
+	const parents: string[] = []
+	let current = decl.parent
+	while (current) {
+		if (ts.isClassDeclaration(current) && current.name) {
+			parents.unshift(current.name.getText())
+		} else if (ts.isInterfaceDeclaration(current) && current.name) {
+			parents.unshift(current.name.getText())
+		} else if (ts.isModuleDeclaration(current) && current.name) {
+			parents.unshift(current.name.getText())
+		}
+		current = current.parent
 	}
-	if (parent && ts.isInterfaceDeclaration(parent) && parent.name) {
-		return `${relPath}::${parent.name.getText()}.${name}`
+	if (parents.length > 0) {
+		return `${relPath}::${parents.join('.')}.${name}`
 	}
 	return `${relPath}::${name}`
+}
+
+// follow import aliases to the original declaration.
+// the TS compiler resolves imported names to their import specifier,
+// not the original declaration. this follows aliases through to the source.
+function resolveOriginalSymbol(
+	symbol: ts.Symbol,
+	checker: ts.TypeChecker,
+): { symbol: ts.Symbol; decl: ts.Declaration } | null {
+	let resolved = symbol
+	// follow aliases (import specifiers -> original declarations)
+	try {
+		if (resolved.flags & ts.SymbolFlags.Alias) {
+			resolved = checker.getAliasedSymbol(resolved)
+		}
+	} catch {
+		// getAliasedSymbol can throw for unresolvable imports
+	}
+	const decl = resolved.valueDeclaration ?? resolved.declarations?.[0]
+	if (!decl) return null
+	return { symbol: resolved, decl }
 }
 

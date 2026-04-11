@@ -38,6 +38,8 @@ export class AtlasStore {
 	private stmtEdgesFromKind!: ReturnType<Database['query']>
 	private stmtEdgesTo!: ReturnType<Database['query']>
 	private stmtEdgesToKind!: ReturnType<Database['query']>
+	private stmtFindSymbolInFile!: ReturnType<Database['query']>
+	private stmtFindSymbolInFileKind!: ReturnType<Database['query']>
 
 	constructor(dbPath: string) {
 		const dir = dirname(dbPath)
@@ -73,6 +75,12 @@ export class AtlasStore {
 			`SELECT id, source_id as sourceId, target_id as targetId, kind,
 			file_id as fileId, line, col, confidence, metadata
 			FROM edges WHERE target_id = ? AND kind = ?`,
+		)
+		this.stmtFindSymbolInFile = this.db.query(
+			`${SYMBOL_SELECT} WHERE file_id = (SELECT id FROM files WHERE path = ?) AND name = ? ORDER BY line_start LIMIT 1`,
+		)
+		this.stmtFindSymbolInFileKind = this.db.query(
+			`${SYMBOL_SELECT} WHERE file_id = (SELECT id FROM files WHERE path = ?) AND name = ? AND kind = ? ORDER BY line_start LIMIT 1`,
 		)
 	}
 
@@ -235,6 +243,13 @@ export class AtlasStore {
 		return this.db
 			.query<SymbolRecord, [string]>(`${SYMBOL_SELECT} WHERE name = ?`)
 			.all(name)
+	}
+
+	findSymbolInFile(filePath: string, name: string, kind?: SymbolKind): SymbolRecord | null {
+		if (kind) {
+			return (this.stmtFindSymbolInFileKind as any).get(filePath, name, kind) as SymbolRecord | null
+		}
+		return (this.stmtFindSymbolInFile as any).get(filePath, name) as SymbolRecord | null
 	}
 
 	getSymbolCount(): number {
