@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { log } from '../../shared/logger.js'
 import { contentHash } from '../../shared/identity.js'
@@ -28,19 +27,15 @@ export async function runSummaryPipeline(
 	// use qwen2.5-coder:1.5b (fast, code-specialized, ~1GB)
 	const chatModel = 'qwen2.5-coder:1.5b'
 
-	// auto-pull if not available
+	// check if model is available (don't auto-pull, respect user consent)
 	try {
 		const res = await fetch('http://127.0.0.1:11434/api/tags')
 		if (res.ok) {
 			const data = (await res.json()) as { models: { name: string }[] }
 			const hasModel = data.models.some((m) => m.name.startsWith('qwen2.5-coder'))
 			if (!hasModel) {
-				log.info(`pulling ${chatModel} for summaries (~1GB, first time only)...`)
-				const pull = Bun.spawnSync(['ollama', 'pull', chatModel], { stdout: 'inherit', stderr: 'inherit' })
-				if (pull.exitCode !== 0) {
-					log.warn(`failed to pull ${chatModel}`)
-					return { generated: 0, cached: 0, skipped: 0, fileSummaries: 0 }
-				}
+				log.warn(`${chatModel} not found. run 'ollama pull ${chatModel}' to enable LLM summaries.`)
+				return { generated: 0, cached: 0, skipped: 0, fileSummaries: 0 }
 			}
 		}
 	} catch {
@@ -96,7 +91,7 @@ export async function runSummaryPipeline(
 		let sourceCode: string | undefined
 		try {
 			const fullPath = join(projectRoot, sym.filePath)
-			const text = readFileSync(fullPath, 'utf-8')
+			const text = await Bun.file(fullPath).text()
 			const lines = text.split('\n')
 			sourceCode = lines.slice(sym.lineStart - 1, sym.lineEnd).join('\n')
 		} catch {

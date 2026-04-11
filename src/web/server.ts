@@ -117,12 +117,8 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 					const engine = eng(c)
 					let fileSummary: string | null = null
 					try {
-						const store = engine.getStoreForCrossProject()
-						const cached = store.queryRawWithParams<{ summary: string }>(
-							'SELECT summary FROM symbol_summaries WHERE symbol_stable_id = ?', `file:${filePath}`,
-						)
-						if (cached.length > 0) fileSummary = cached[0].summary
-					} catch { /* no table */ }
+						fileSummary = engine.getFileSummary(filePath)
+					} catch { /* no summaries table */ }
 					return c.json({ type: 'file', path: filePath, summary: fileSummary, symbols: engine.fileSymbols(filePath) })
 				}
 				return c.json({ type: 'index', files: eng(c).files().map((f) => ({ path: f.path, language: f.language, symbolCount: f.symbolCount })) })
@@ -131,48 +127,29 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 			const detail = await engine.symbolDetail(symbolQuery)
 			if (!detail) return c.json({ error: 'symbol not found' }, 404)
 			const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-			const { symbol, upstream, downstream, sourceCode } = detail
+			const { symbol, summary, upstream, downstream, sourceCode } = detail
 
-			// look up cached LLM summary
-			let llmSummary: string | null = null
-			try {
-				const store = engine.getStoreForCrossProject()
-				const sym = store.resolveSymbol(symbolQuery)
-				if (sym) {
-					const cached = store.queryRawWithParams<{ summary: string }>(
-						'SELECT summary FROM symbol_summaries WHERE symbol_stable_id = ?', sym.stableId,
-					)
-					if (cached.length > 0) llmSummary = cached[0].summary
-				}
-			} catch { /* no summaries table yet */ }
-
-			let md = `# ${symbol.kind} \`${esc(symbol.name)}\`\n\n**File:** \`${symbol.filePath}:${symbol.lineStart}\`\n\n`
+			let md = `# ${esc(symbol.kind)} \`${esc(symbol.name)}\`\n\n**File:** \`${esc(symbol.filePath)}:${symbol.lineStart}\`\n\n`
 			if (symbol.signature) md += `**Signature:** \`${esc(symbol.signature)}\`\n\n`
 			if (symbol.isExported) md += `*exported*\n\n`
-			if (llmSummary) md += `> ${esc(llmSummary)}\n\n`
+			if (summary) md += `> ${esc(summary)}\n\n`
 
-			// look up flows this symbol belongs to
+			// look up flows via engine (not store directly)
 			try {
-				const s = engine.getStoreForCrossProject()
-				const resolved = s.resolveSymbol(symbolQuery)
-				if (resolved) {
-					const flows = s.queryRaw<{ name: string; symbolIds: string }>(
-						'SELECT name, symbol_ids as symbolIds FROM flows',
-					)
-					const memberFlows = flows.filter((f: any) => {
-						const ids: string[] = JSON.parse(f.symbolIds)
-						return ids.includes(resolved.stableId)
-					})
+				const allFlows = engine.flows()
+				const sym = engine.resolveSymbol(symbolQuery)
+				if (sym) {
+					const memberFlows = allFlows.filter((f) => f.symbols.some((s) => s.qualifiedName === sym.qualifiedName))
 					if (memberFlows.length > 0) {
-						md += `**Flows:** ${memberFlows.map((f: any) => f.name).join(', ')}\n\n`
+						md += `**Flows:** ${memberFlows.map((f) => esc(f.name)).join(', ')}\n\n`
 					}
 				}
-			} catch { /* flows table may not exist */ }
+			} catch { /* flows not available */ }
 
 			if (symbol.docComment) md += `${esc(symbol.docComment)}\n\n`
 			if (sourceCode) md += `\`\`\`typescript\n${esc(sourceCode)}\n\`\`\`\n\n`
-			if (upstream.length > 0) { md += `## depends on\n\n`; for (const d of upstream) md += `- \`${esc(d.symbol.name)}\` (${d.edgeKind})\n`; md += '\n' }
-			if (downstream.length > 0) { md += `## depended on by\n\n`; for (const d of downstream) md += `- \`${esc(d.symbol.name)}\` (${d.edgeKind})\n`; md += '\n' }
+			if (upstream.length > 0) { md += `## depends on\n\n`; for (const d of upstream) md += `- \`${esc(d.symbol.name)}\` (${esc(d.edgeKind)})\n`; md += '\n' }
+			if (downstream.length > 0) { md += `## depended on by\n\n`; for (const d of downstream) md += `- \`${esc(d.symbol.name)}\` (${esc(d.edgeKind)})\n`; md += '\n' }
 			return c.json({ type: 'symbol', symbol, html: await marked(md) })
 		} catch (e) { log.error(`wiki: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
