@@ -281,7 +281,20 @@ export class Indexer {
 			}
 		}
 
-		// step 8: update metadata
+		// step 8: LLM summaries (optional, requires Ollama chat model)
+		if (!opts?.noEmbed) {
+			try {
+				const { runSummaryPipeline } = await import('../llm/summary-pipeline.js')
+				const summaryResult = await runSummaryPipeline(this.store, this.projectRoot)
+				if (summaryResult.generated > 0) {
+					log.info(`summarized ${summaryResult.generated} symbols (${summaryResult.cached} cached, ${summaryResult.skipped} skipped)`)
+				}
+			} catch (e) {
+				log.debug(`summary pipeline skipped: ${e}`)
+			}
+		}
+
+		// step 9: update metadata
 		const commit = getCurrentCommit(this.projectRoot)
 		const branch = getCurrentBranch(this.projectRoot)
 		const configHash = computeConfigHash(this.projectRoot)
