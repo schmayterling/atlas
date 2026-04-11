@@ -31,7 +31,12 @@ body {
 	line-height: 1.5;
 }
 
-/* sidebar collapse: smooth ease-out, no spring */
+/* smooth default transitions for interactive elements */
+a, button, input, select {
+	transition: color 150ms ease-out, background-color 150ms ease-out, border-color 150ms ease-out, opacity 150ms ease-out;
+}
+
+/* sidebar collapse: smooth ease-out */
 .sidebar-nav {
 	transition: width 250ms ease-out;
 	overflow: hidden;
