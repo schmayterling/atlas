@@ -243,4 +243,15 @@ export const MIGRATIONS: Migration[] = [
 			);
 		`,
 	},
+	{
+		version: 7,
+		description: 'recreate symbol_embeddings at 768 dim for nomic-embed-text',
+		up: `
+			DROP TABLE IF EXISTS symbol_embeddings;
+			CREATE VIRTUAL TABLE symbol_embeddings USING vec0(
+				embedding float[768]
+			);
+			DELETE FROM embedding_meta;
+		`,
+	},
 ]

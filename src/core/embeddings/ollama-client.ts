@@ -1,7 +1,7 @@
 import { log } from '../../shared/logger.js'
 
 const DEFAULT_BASE_URL = 'http://localhost:11434'
-const DEFAULT_MODEL = 'all-minilm'
+const DEFAULT_MODEL = 'nomic-embed-text'
 const HEALTH_POLL_INTERVAL = 500
 const HEALTH_POLL_MAX = 10
 
@@ -78,8 +78,8 @@ export class OllamaClient {
 		const res = await fetch(`${this.baseUrl}/api/embed`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ model: this.model, input: texts }),
-			signal: AbortSignal.timeout(30_000),
+			body: JSON.stringify({ model: this.model, input: texts, truncate: true }),
+			signal: AbortSignal.timeout(60_000),
 		})
 
 		if (!res.ok) {

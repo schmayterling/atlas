@@ -49,7 +49,7 @@ async function run(): Promise<void> {
 	// fresh index
 	if (existsSync(DB_PATH)) unlinkSync(DB_PATH)
 	const engine = new AtlasEngine(ROOT)
-	const indexResult = await engine.index({ noEmbed: true })
+	const indexResult = await engine.index({ noEmbed: true, noSummarize: true })
 
 	// queries
 	const depsResult = engine.deps('blastCommand')

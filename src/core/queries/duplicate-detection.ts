@@ -48,7 +48,12 @@ export function findDuplicates(
 	return []
 }
 
-// detect duplicates from embeddings (run during indexing)
+// detect duplicates from embeddings (run during indexing).
+// only considers function-like and class-like symbols. interface/type
+// property declarations are too small to embed meaningfully and would
+// flood the results with near-identical vectors.
+const DUP_ELIGIBLE_KINDS = ['function', 'method', 'class', 'type', 'interface', 'enum']
+
 export function detectDuplicatesFromEmbeddings(
 	store: AtlasStore,
 	threshold = 0.92,
@@ -67,9 +72,17 @@ export function detectDuplicatesFromEmbeddings(
 	)
 	if (dupTable.length === 0) return 0
 
-	// get all embedded symbols with their embeddings
-	const meta = store.queryRaw<{ stableId: string; symbolId: number }>(
-		'SELECT symbol_stable_id as stableId, symbol_id as symbolId FROM embedding_meta',
+	// only embed-eligible kinds, and only symbols whose source body is
+	// large enough to be meaningful (smallest function/method bodies still
+	// have a few tokens; this skips one-line property accessors).
+	const placeholders = DUP_ELIGIBLE_KINDS.map(() => '?').join(',')
+	const meta = store.queryRawWithParams<{ stableId: string; symbolId: number }>(
+		`SELECT em.symbol_stable_id as stableId, em.symbol_id as symbolId
+		 FROM embedding_meta em
+		 JOIN symbols s ON s.stable_id = em.symbol_stable_id
+		 WHERE s.kind IN (${placeholders})
+		 AND (s.byte_end - s.byte_start) >= 60`,
+		...DUP_ELIGIBLE_KINDS,
 	)
 
 	if (meta.length < 2) return 0

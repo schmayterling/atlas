@@ -272,7 +272,7 @@ export class Indexer {
 		if (!opts?.noEmbed) {
 			try {
 				const { runEmbeddingPipeline } = await import('../embeddings/embed-pipeline.js')
-				const embedResult = await runEmbeddingPipeline(this.store)
+				const embedResult = await runEmbeddingPipeline(this.store, this.projectRoot)
 				if (embedResult.embedded > 0) {
 					log.info(`embedded ${embedResult.embedded} symbols (${embedResult.skipped} cached)`)
 				}

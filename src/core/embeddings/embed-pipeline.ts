@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { AtlasStore } from '../storage/store.js'
 import { isVectorSearchAvailable } from '../storage/sqlite-ext.js'
@@ -11,28 +13,50 @@ interface EmbedCandidate {
 	embedHash: string
 }
 
-// build the text to embed for a symbol. include file path and qualified name
-// for better semantic context (e.g., "class AtlasStore in storage/store.ts")
-function buildEmbedText(row: {
-	kind: string
-	name: string
-	qualifiedName: string
-	filePath: string
-	signature: string | null
-	docComment: string | null
-}): string {
-	const parts = [row.kind, row.name]
-	// add file context (just the filename, not the full path)
+// embed text combines a short metadata header with the actual source body.
+// metadata gives the model file/name context; source body is what makes
+// semantic search and duplicate detection meaningful. ollama 0.20 ignores
+// num_ctx on /api/embed and clamps to the model default (~2048 tokens for
+// nomic-embed-text), so we cap at 4500 chars to stay safely under that
+// even for token-dense code.
+const MAX_EMBED_CHARS = 4500
+
+function buildEmbedText(
+	row: {
+		kind: string
+		name: string
+		qualifiedName: string
+		filePath: string
+		signature: string | null
+		docComment: string | null
+		byteStart: number
+		byteEnd: number
+	},
+	projectRoot: string,
+	sourceCache: Map<string, string>,
+): string {
+	const header: string[] = [`${row.kind} ${row.name}`]
 	const fileName = row.filePath.split('/').pop()
-	if (fileName) parts.push(`in ${fileName}`)
-	if (row.signature) parts.push(row.signature)
-	if (row.docComment) parts.push(row.docComment)
-	// add parent context from qualified name if it's a member
-	if (row.qualifiedName.includes('.')) {
-		const parent = row.qualifiedName.split('::').pop()?.split('.').slice(0, -1).join('.')
-		if (parent) parts.push(`member of ${parent}`)
+	if (fileName) header.push(`in ${fileName}`)
+	if (row.signature) header.push(row.signature)
+	if (row.docComment) header.push(row.docComment.slice(0, 200))
+
+	let body = ''
+	if (row.byteEnd > row.byteStart) {
+		try {
+			let source = sourceCache.get(row.filePath)
+			if (source === undefined) {
+				source = readFileSync(resolve(projectRoot, row.filePath), 'utf-8')
+				sourceCache.set(row.filePath, source)
+			}
+			body = source.slice(row.byteStart, row.byteEnd)
+		} catch {
+			body = ''
+		}
 	}
-	return parts.join(' ').slice(0, 512)
+
+	const text = body ? `${header.join(' ')}\n${body}` : header.join(' ')
+	return text.slice(0, MAX_EMBED_CHARS)
 }
 
 function hashText(text: string): string {
@@ -41,6 +65,7 @@ function hashText(text: string): string {
 
 export async function runEmbeddingPipeline(
 	store: AtlasStore,
+	projectRoot: string,
 ): Promise<{ embedded: number; skipped: number }> {
 	if (!isVectorSearchAvailable()) {
 		log.debug('vector search not available, skipping embeddings')
@@ -64,8 +89,11 @@ export async function runEmbeddingPipeline(
 		filePath: string
 		signature: string | null
 		docComment: string | null
+		byteStart: number
+		byteEnd: number
 	}>(`SELECT s.id, s.stable_id as stableId, s.kind, s.name, s.qualified_name as qualifiedName,
-		f.path as filePath, s.signature, s.doc_comment as docComment
+		f.path as filePath, s.signature, s.doc_comment as docComment,
+		s.byte_start as byteStart, s.byte_end as byteEnd
 		FROM symbols s JOIN files f ON s.file_id = f.id`)
 
 	// get existing embed hashes
@@ -78,9 +106,10 @@ export async function runEmbeddingPipeline(
 	// find candidates that need embedding
 	const candidates: EmbedCandidate[] = []
 	let skipped = 0
+	const sourceCache = new Map<string, string>()
 
 	for (const sym of symbols) {
-		const embedText = buildEmbedText(sym)
+		const embedText = buildEmbedText(sym, projectRoot, sourceCache)
 		const embedHash = hashText(embedText)
 
 		if (existingHashes.get(sym.stableId) === embedHash) {
