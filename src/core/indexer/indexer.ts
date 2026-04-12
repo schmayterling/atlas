@@ -361,11 +361,23 @@ export class Indexer {
 			}
 		}
 
+		// precompute the set of generated / mock files once so flow-detection
+		// and duplicate-detection both skip them. path match short-circuits
+		// before any i/o, so only non-matching files pay the header-read cost.
+		const { findGeneratedFileIds } = await import('../queries/generated-code.js')
+		const generatedFileIds = findGeneratedFileIds(this.store, this.projectRoot)
+		if (generatedFileIds.size > 0) {
+			log.info(`generated-code filter: ${generatedFileIds.size} files flagged (mock/fake/codegen)`)
+		}
+
 		// step 9: flow detection
 		t = performance.now()
 		try {
 			const { runFlowPipeline } = await import('../llm/flow-pipeline.js')
-			const flowResult = await runFlowPipeline(this.store, { skipLLM: opts?.noSummarize })
+			const flowResult = await runFlowPipeline(this.store, {
+				skipLLM: opts?.noSummarize,
+				excludeFileIds: generatedFileIds,
+			})
 			log.info(`flow detection: ${flowResult.detected} flows (${flowResult.named} named) in ${(performance.now() - t).toFixed(0)}ms`)
 		} catch (e) {
 			log.debug(`flow detection skipped: ${e}`)
@@ -375,7 +387,7 @@ export class Indexer {
 		t = performance.now()
 		try {
 			const { detectDuplicatesFromEmbeddings } = await import('../queries/duplicate-detection.js')
-			const dupCount = detectDuplicatesFromEmbeddings(this.store)
+			const dupCount = detectDuplicatesFromEmbeddings(this.store, 0.92, 100, { excludeFileIds: generatedFileIds })
 			log.info(`duplicate detection: ${dupCount} pairs in ${(performance.now() - t).toFixed(0)}ms`)
 		} catch (e) {
 			log.warn(`duplicate detection failed: ${e}`)

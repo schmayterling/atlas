@@ -74,6 +74,7 @@ export function detectDuplicatesFromEmbeddings(
 	store: AtlasStore,
 	threshold = 0.92,
 	maxResults = 100,
+	opts?: { excludeFileIds?: Set<number> },
 ): number {
 	if (!isVectorSearchAvailable()) return 0
 
@@ -92,8 +93,8 @@ export function detectDuplicatesFromEmbeddings(
 	// large enough to be meaningful (smallest function/method bodies still
 	// have a few tokens; this skips one-line property accessors).
 	const placeholders = DUP_ELIGIBLE_KINDS.map(() => '?').join(',')
-	const meta = store.queryRawWithParams<{ stableId: string; symbolId: number }>(
-		`SELECT em.symbol_stable_id as stableId, em.symbol_id as symbolId
+	const metaRaw = store.queryRawWithParams<{ stableId: string; symbolId: number; fileId: number }>(
+		`SELECT em.symbol_stable_id as stableId, em.symbol_id as symbolId, s.file_id as fileId
 		 FROM embedding_meta em
 		 JOIN symbols s ON s.stable_id = em.symbol_stable_id
 		 WHERE s.kind IN (${placeholders})
@@ -101,14 +102,25 @@ export function detectDuplicatesFromEmbeddings(
 		...DUP_ELIGIBLE_KINDS,
 	)
 
+	// filter out generated / mock files before they enter the knn loop. this
+	// drops gomock fakes, protoc output, etc. so real production duplicates
+	// aren't buried under codegen noise.
+	const excluded = opts?.excludeFileIds
+	const meta =
+		excluded && excluded.size > 0
+			? metaRaw.filter((m) => !excluded.has(m.fileId))
+			: metaRaw
+
 	if (meta.length < 2) return 0
 
 	// pre-build lookup map to avoid O(n^2) .find() inside the KNN loop
 	const metaById = new Map(meta.map((m) => [m.symbolId, m]))
 	let count = 0
 
-	// for each symbol, find similar symbols via KNN
+	// for each symbol, find similar symbols via KNN. stop early once we've
+	// inserted maxResults pairs so pathological cases don't run unbounded.
 	for (const entry of meta) {
+		if (count >= maxResults) break
 		try {
 			const results = store.queryRawWithParams<{
 				rowid: number

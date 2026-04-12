@@ -5,14 +5,16 @@ export type { DetectedFlow }
 
 // find flow roots: exported functions/methods with no inbound calls edges.
 // excludes test files by default so detected flows describe production
-// entry points, not test scaffolding.
+// entry points, not test scaffolding. excludeFileIds, when passed, drops
+// symbols whose file_id is in the set; callers use this to filter out
+// generated / mock code.
 export function findFlowRoots(
 	store: AtlasStore,
-	opts?: { includeTests?: boolean },
+	opts?: { includeTests?: boolean; excludeFileIds?: Set<number> },
 ): { stableId: string; name: string; kind: string }[] {
 	const testClause = opts?.includeTests ? '' : 'AND f.is_test = 0'
-	return store.queryRaw<{ stableId: string; name: string; kind: string }>(`
-		SELECT s.stable_id as stableId, s.name, s.kind
+	const roots = store.queryRaw<{ stableId: string; name: string; kind: string; fileId: number }>(`
+		SELECT s.stable_id as stableId, s.name, s.kind, s.file_id as fileId
 		FROM symbols s
 		JOIN files f ON f.id = s.file_id
 		WHERE s.is_exported = 1
@@ -23,6 +25,10 @@ export function findFlowRoots(
 		)
 		ORDER BY s.name
 	`)
+	const excluded = opts?.excludeFileIds
+	return excluded && excluded.size > 0
+		? roots.filter((r) => !excluded.has(r.fileId)).map((r) => ({ stableId: r.stableId, name: r.name, kind: r.kind }))
+		: roots.map((r) => ({ stableId: r.stableId, name: r.name, kind: r.kind }))
 }
 
 // trace a flow: follow outbound calls edges from a root, collect the chain
