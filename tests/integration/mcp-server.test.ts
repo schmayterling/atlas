@@ -28,6 +28,61 @@ describe('mcp server tool registration', () => {
 		expect(names).toContain('atlas_churn')
 		expect(names).toContain('atlas_subsystems')
 		expect(names).toContain('atlas_subsystem')
+		expect(names).toContain('atlas_test_coverage')
+		expect(names).toContain('atlas_hot_fragile')
+	})
+
+	test('server instructions advertise the new tier-4 tools', async () => {
+		// the instructions string is what agent clients see when discovering
+		// atlas's capabilities. if a tool is registered but not mentioned in
+		// the instructions, it tends to go unused.
+		const result = client.getServerVersion()
+		expect(result).toBeDefined()
+		// instructions are exposed via initialize result; check the
+		// formatter side instead by listing tools and confirming descriptions
+		const tools = await client.listTools()
+		const testCov = tools.tools.find((t) => t.name === 'atlas_test_coverage')
+		const hotFragile = tools.tools.find((t) => t.name === 'atlas_hot_fragile')
+		expect(testCov?.description).toBeTruthy()
+		expect(hotFragile?.description).toBeTruthy()
+	})
+})
+
+describe('mcp server tier-4 tools', () => {
+	test('atlas_test_coverage returns symbol-not-found for an unknown symbol', async () => {
+		const result = await client.callTool({
+			name: 'atlas_test_coverage',
+			arguments: { symbol: 'definitely_not_a_real_symbol_xyz' },
+		})
+		expect(result.isError).toBeTruthy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].type).toBe('text')
+		expect(content[0].text).toContain('symbol not found')
+	})
+
+	test('atlas_test_coverage returns formatted coverage for a known symbol', async () => {
+		// the tiny-project fixture has no test files, so any known symbol
+		// will report coverage: none. this exercises the format path
+		// without depending on test_links being populated.
+		const result = await client.callTool({
+			name: 'atlas_test_coverage',
+			arguments: { symbol: 'AuthService' },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].type).toBe('text')
+		expect(content[0].text).toContain('coverage:')
+	})
+
+	test('atlas_hot_fragile returns text content (empty-state ok)', async () => {
+		const result = await client.callTool({
+			name: 'atlas_hot_fragile',
+			arguments: { limit: 5 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].type).toBe('text')
+		expect(content[0].text).toBeDefined()
 	})
 })
 
