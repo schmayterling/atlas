@@ -18,6 +18,10 @@ export interface ProjectLink {
 interface RegistryData {
 	projects: ProjectEntry[]
 	links: ProjectLink[]
+	// id of the active project. resolved by the CLI and MCP when no
+	// explicit project is passed. null or absent means "fall back to
+	// cwd-based default engine resolution".
+	active?: string | null
 }
 
 const REGISTRY_DIR = join(process.env.HOME ?? '~', '.atlas')
@@ -25,13 +29,15 @@ const REGISTRY_PATH = join(REGISTRY_DIR, 'registry.json')
 
 function readRegistry(): RegistryData {
 	if (!existsSync(REGISTRY_PATH)) {
-		return { projects: [], links: [] }
+		return { projects: [], links: [], active: null }
 	}
 	try {
-		return JSON.parse(readFileSync(REGISTRY_PATH, 'utf-8'))
+		const parsed = JSON.parse(readFileSync(REGISTRY_PATH, 'utf-8'))
+		// tolerate older registry files that pre-date the active field
+		return { active: null, ...parsed }
 	} catch (e) {
 		log.warn(`failed to read registry: ${e}`)
-		return { projects: [], links: [] }
+		return { projects: [], links: [], active: null }
 	}
 }
 
@@ -117,4 +123,30 @@ export function getLinkedProjects(id: string): ProjectEntry[] {
 
 export function getProjectLinks(): ProjectLink[] {
 	return readRegistry().links
+}
+
+// returns the id of the currently-active registered project, or null
+// when no active project is set. consumers typically call this with a
+// fallback so a missing active id degrades to cwd resolution.
+export function getActiveProject(): string | null {
+	return readRegistry().active ?? null
+}
+
+// set the active project to the registered id. throws when the id is
+// not a registered project so `atlas use` can surface a clear error
+// instead of silently pointing at nothing.
+export function setActiveProject(id: string | null): ProjectEntry | null {
+	const data = readRegistry()
+	if (id === null) {
+		data.active = null
+		writeRegistry(data)
+		return null
+	}
+	const entry = data.projects.find((p) => p.id === id)
+	if (!entry) {
+		throw new Error(`no project with id "${id}" is registered`)
+	}
+	data.active = id
+	writeRegistry(data)
+	return entry
 }

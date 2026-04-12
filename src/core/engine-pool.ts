@@ -1,5 +1,10 @@
 import { AtlasEngine } from './engine.js'
-import { listProjects, getProject, type ProjectEntry } from './registry.js'
+import {
+	getActiveProject,
+	getProject,
+	listProjects,
+	type ProjectEntry,
+} from './registry.js'
 import { log } from '../shared/logger.js'
 
 const engines = new Map<string, AtlasEngine>()
@@ -17,6 +22,16 @@ export function getEngine(projectId: string): AtlasEngine | null {
 }
 
 export function getDefaultEngine(): { engine: AtlasEngine; projectId: string } | null {
+	// active project set via `atlas use` wins over first-registered. this
+	// keeps the cli, stdio mcp, and web ui all resolving to the same
+	// engine when no explicit project is passed.
+	const activeId = getActiveProject()
+	if (activeId) {
+		const engine = getEngine(activeId)
+		if (engine) return { engine, projectId: activeId }
+		log.warn(`active project "${activeId}" is not registered; falling back to first project`)
+	}
+
 	const projects = listProjects()
 	if (projects.length === 0) return null
 

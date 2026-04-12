@@ -12,6 +12,7 @@ import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
 import { watchCommand } from './commands/watch.js'
 import { projectsCommand } from './commands/projects.js'
+import { useCommand } from './commands/use.js'
 import {
 	churnCommand,
 	historyCommand,
@@ -232,6 +233,15 @@ program
 	.action((action, args) => {
 		const opts = program.opts()
 		projectsCommand(action, args, opts.json)
+	})
+
+program
+	.command('use [id]')
+	.description('set or show the active registered project (cli, mcp, web all follow)')
+	.option('--list', 'list registered projects and mark the active one')
+	.option('--clear', 'unset the active project')
+	.action(async (id: string | undefined, cmdOpts: { list?: boolean; clear?: boolean }) => {
+		await useCommand(id, cmdOpts)
 	})
 
 program
