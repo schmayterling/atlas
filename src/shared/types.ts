@@ -231,6 +231,25 @@ export interface SemanticSearchResult {
 	embeddingsAvailable: boolean
 }
 
+// detected flows (LLM-generated from indexer step 9)
+export interface DetectedFlow {
+	id: number
+	name: string
+	description: string | null
+	rootSymbol: SymbolResult | null
+	symbols: SymbolResult[]
+	generatedAt: number
+}
+
+// duplicate code pairs (embedding similarity)
+export interface DuplicatePair {
+	symbolA: SymbolResult
+	symbolB: SymbolResult
+	similarity: number
+	confirmed: boolean
+	description: string | null
+}
+
 // file info for web UI
 export interface FileInfo {
 	path: string

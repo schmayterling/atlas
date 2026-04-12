@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
+import { api } from '../lib/api.js'
 import { KindBadge } from '../components/symbol-card.js'
-
-interface DuplicatePair {
-	symbolA: any
-	symbolB: any
-	similarity: number
-	confirmed: boolean
-	description: string | null
-}
+import type { DuplicatePair } from '../../../shared/types.js'
 
 export function DuplicatesPage() {
 	const [duplicates, setDuplicates] = useState<DuplicatePair[]>([])
@@ -15,8 +9,7 @@ export function DuplicatesPage() {
 	const [error, setError] = useState<string | null>(null)
 
 	useEffect(() => {
-		fetch('/api/duplicates')
-			.then((r) => r.json())
+		api.duplicates()
 			.then(setDuplicates)
 			.catch((e) => setError(e.message))
 			.finally(() => setLoading(false))

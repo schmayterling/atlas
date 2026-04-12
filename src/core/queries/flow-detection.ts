@@ -1,15 +1,7 @@
 import type { AtlasStore } from '../storage/store.js'
-import type { SymbolResult } from '../../shared/types.js'
-import { log } from '../../shared/logger.js'
+import type { DetectedFlow } from '../../shared/types.js'
 
-export interface DetectedFlow {
-	id: number
-	name: string
-	description: string | null
-	rootSymbol: SymbolResult | null
-	symbols: SymbolResult[]
-	generatedAt: number
-}
+export type { DetectedFlow }
 
 // find flow roots: exported functions/methods with no inbound calls edges
 export function findFlowRoots(store: AtlasStore): { stableId: string; name: string; kind: string }[] {

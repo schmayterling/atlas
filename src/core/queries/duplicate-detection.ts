@@ -1,14 +1,8 @@
 import type { AtlasStore } from '../storage/store.js'
-import type { SymbolResult } from '../../shared/types.js'
+import type { DuplicatePair } from '../../shared/types.js'
 import { isVectorSearchAvailable } from '../storage/sqlite-ext.js'
 
-export interface DuplicatePair {
-	symbolA: SymbolResult
-	symbolB: SymbolResult
-	similarity: number
-	confirmed: boolean
-	description: string | null
-}
+export type { DuplicatePair }
 
 // find duplicate candidates using embedding similarity
 export function findDuplicates(

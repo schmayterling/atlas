@@ -1,25 +1,16 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api.js'
 import { KindBadge } from '../components/symbol-card.js'
-
-interface Flow {
-	id: number
-	name: string
-	description: string | null
-	rootSymbol: any | null
-	symbols: any[]
-	generatedAt: number
-}
+import type { DetectedFlow } from '../../../shared/types.js'
 
 export function FlowsPage() {
-	const [flows, setFlows] = useState<Flow[]>([])
+	const [flows, setFlows] = useState<DetectedFlow[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
-	const [selected, setSelected] = useState<Flow | null>(null)
+	const [selected, setSelected] = useState<DetectedFlow | null>(null)
 
 	useEffect(() => {
-		fetch('/api/flows')
-			.then((r) => r.json())
+		api.flows()
 			.then(setFlows)
 			.catch((e) => setError(e.message))
 			.finally(() => setLoading(false))
