@@ -12,6 +12,14 @@ import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
 import { watchCommand } from './commands/watch.js'
 import { projectsCommand } from './commands/projects.js'
+import {
+	churnCommand,
+	historyCommand,
+	contributorsCommand,
+	coChangeCommand,
+	subsystemsCommand,
+	subsystemCommand,
+} from './commands/git-cmds.js'
 
 const program = new Command()
 	.name('atlas')
@@ -216,6 +224,68 @@ program
 	.action((action, args) => {
 		const opts = program.opts()
 		projectsCommand(action, args, opts.json)
+	})
+
+program
+	.command('churn')
+	.description('show files ranked by commit count')
+	.option('-l, --limit <n>', 'max files to show', (v) => Number.parseInt(v, 10), 20)
+	.option('--path <prefix>', 'only files starting with this path prefix')
+	.option('--since-days <n>', 'only count commits from the last N days', (v) => Number.parseInt(v, 10))
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		churnCommand(opts.project, opts.json, {
+			limit: cmdOpts.limit,
+			path: cmdOpts.path,
+			sinceDays: cmdOpts.sinceDays,
+		})
+	})
+
+program
+	.command('history <file>')
+	.description('show git commit history for a file')
+	.action((file) => {
+		const opts = program.opts()
+		historyCommand(opts.project, opts.json, file)
+	})
+
+program
+	.command('contributors [file]')
+	.description('list top contributors (overall or for one file)')
+	.action((file) => {
+		const opts = program.opts()
+		contributorsCommand(opts.project, opts.json, file)
+	})
+
+program
+	.command('co-change')
+	.description('show file pairs that change together (from git history)')
+	.option('--file <path>', 'only pairs involving this file')
+	.option('-l, --limit <n>', 'max pairs to show', (v) => Number.parseInt(v, 10), 20)
+	.option('--min-count <n>', 'minimum joint commit count', (v) => Number.parseInt(v, 10), 2)
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		coChangeCommand(opts.project, opts.json, {
+			file: cmdOpts.file,
+			limit: cmdOpts.limit,
+			minCount: cmdOpts.minCount,
+		})
+	})
+
+program
+	.command('subsystems')
+	.description('list detected subsystems (high-level modules from graph clustering)')
+	.action(() => {
+		const opts = program.opts()
+		subsystemsCommand(opts.project, opts.json)
+	})
+
+program
+	.command('subsystem <id>')
+	.description('show detail for one subsystem (members, top symbols)')
+	.action((id) => {
+		const opts = program.opts()
+		subsystemCommand(opts.project, opts.json, id)
 	})
 
 export { program }
