@@ -82,4 +82,46 @@ export const api = {
 		get<{ summary: string; model: string; cached: boolean }>('/summarize', { q, model }),
 	flows: () => get<DetectedFlow[]>('/flows'),
 	duplicates: () => get<DuplicatePair[]>('/duplicates'),
+	churn: (opts?: { limit?: number; path?: string; sinceDays?: number }) =>
+		get<ChurnEntry[]>('/git/churn', {
+			limit: opts?.limit?.toString(),
+			path: opts?.path,
+			sinceDays: opts?.sinceDays?.toString(),
+		}),
+	fileHistory: (file: string) => get<FileHistoryEntry[]>('/git/history', { file }),
+	contributors: (file?: string) => get<ContributorEntry[]>('/git/contributors', { file }),
+	coChange: (opts?: { file?: string; limit?: number; minCount?: number }) =>
+		get<CoChangePair[]>('/git/co-change', {
+			file: opts?.file,
+			limit: opts?.limit?.toString(),
+			minCount: opts?.minCount?.toString(),
+		}),
+}
+
+export interface ChurnEntry {
+	filePath: string
+	commits: number
+	contributors: number
+	lastTouchedAt: number
+	topAuthor: string
+}
+export interface FileHistoryEntry {
+	hash: string
+	authorName: string
+	authorEmail: string
+	authoredAt: number
+	subject: string
+	status: 'A' | 'M' | 'D' | 'R'
+	renameFrom: string | null
+}
+export interface ContributorEntry {
+	authorName: string
+	authorEmail: string
+	commits: number
+}
+export interface CoChangePair {
+	fileA: string
+	fileB: string
+	count: number
+	jaccard: number
 }

@@ -149,6 +149,19 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 				}
 			} catch { /* flows not available */ }
 
+			// last changed + top contributors from git history (skipped if no git data)
+			try {
+				const last = engine.lastChanged(symbol.filePath)
+				if (last) {
+					const date = new Date(last.authoredAt).toISOString().slice(0, 10)
+					md += `**Last changed:** ${date} by ${esc(last.authorName)} — ${esc(last.subject)}\n\n`
+				}
+				const contribs = engine.contributors(symbol.filePath).slice(0, 3)
+				if (contribs.length > 0) {
+					md += `**Top contributors:** ${contribs.map((c) => `${esc(c.authorName)} (${c.commits})`).join(', ')}\n\n`
+				}
+			} catch { /* git history not available */ }
+
 			if (symbol.docComment) md += `${esc(symbol.docComment)}\n\n`
 			if (sourceCode) md += `\`\`\`typescript\n${esc(sourceCode)}\n\`\`\`\n\n`
 			if (upstream.length > 0) { md += `## depends on\n\n`; for (const d of upstream) md += `- \`${esc(d.symbol.name)}\` (${esc(d.edgeKind)})\n`; md += '\n' }
@@ -210,6 +223,35 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 		if (!pattern) return c.json({ error: 'pattern required' }, 400)
 		try { return c.json(eng(c).traceApi(pattern)) }
 		catch (e) { log.error(`api-trace: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/git/churn', (c) => {
+		try {
+			const limit = parseIntParam(c.req.query('limit'), 500) ?? 50
+			const sinceDays = parseIntParam(c.req.query('sinceDays'), 3650)
+			const since = sinceDays ? Date.now() - sinceDays * 86400_000 : undefined
+			return c.json(eng(c).churn({ limit, pathPrefix: c.req.query('path'), since }))
+		} catch (e) { log.error(`git/churn: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/git/history', (c) => {
+		const file = c.req.query('file')
+		if (!file) return c.json({ error: 'file required' }, 400)
+		try { return c.json(eng(c).fileHistory(file)) }
+		catch (e) { log.error(`git/history: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/git/contributors', (c) => {
+		try { return c.json(eng(c).contributors(c.req.query('file'))) }
+		catch (e) { log.error(`git/contributors: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/git/co-change', (c) => {
+		try {
+			const limit = parseIntParam(c.req.query('limit'), 500) ?? 50
+			const minCount = parseIntParam(c.req.query('minCount'), 1000) ?? 2
+			return c.json(eng(c).coChange({ filePath: c.req.query('file'), limit, minCount }))
+		} catch (e) { log.error(`git/co-change: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
 	// MCP over HTTP. the streamable transport is stateless

@@ -9,6 +9,7 @@ import {
 	Trash2,
 	Workflow,
 	Copy,
+	History,
 	BookOpen,
 	FolderKanban,
 	PanelLeftClose,
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
 	{ path: '/dead-code', label: 'dead code', icon: Trash2 },
 	{ path: '/flows', label: 'flows', icon: Workflow },
 	{ path: '/duplicates', label: 'duplicates', icon: Copy },
+	{ path: '/history', label: 'history', icon: History },
 	{ path: '/wiki', label: 'wiki', icon: BookOpen },
 	{ path: '/projects', label: 'projects', icon: FolderKanban },
 ]

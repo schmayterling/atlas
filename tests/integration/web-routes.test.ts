@@ -96,3 +96,28 @@ describe('GET /api/flows', () => {
 		expect(Array.isArray(body)).toBe(true)
 	})
 })
+
+describe('GET /api/git/*', () => {
+	test('churn returns an array (empty for fixture without git)', async () => {
+		const { status, body } = await getJson('/api/git/churn?limit=10')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+	})
+
+	test('history requires file param', async () => {
+		const { status } = await getJson('/api/git/history')
+		expect(status).toBe(400)
+	})
+
+	test('contributors returns an array', async () => {
+		const { status, body } = await getJson('/api/git/contributors')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+	})
+
+	test('co-change returns an array', async () => {
+		const { status, body } = await getJson('/api/git/co-change')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+	})
+})
