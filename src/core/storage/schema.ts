@@ -279,6 +279,24 @@ export const MIGRATIONS: Migration[] = [
 		`,
 	},
 	{
+		version: 9,
+		description: 'add subsystems table and files.subsystem_id column',
+		up: `
+			CREATE TABLE IF NOT EXISTS subsystems (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL,
+				description TEXT,
+				member_file_ids TEXT NOT NULL,
+				conductance REAL,
+				generated_at INTEGER NOT NULL,
+				generated_for_commit TEXT
+			);
+			CREATE INDEX IF NOT EXISTS idx_subsystems_generated_at ON subsystems(generated_at);
+			ALTER TABLE files ADD COLUMN subsystem_id TEXT REFERENCES subsystems(id);
+			CREATE INDEX IF NOT EXISTS idx_files_subsystem ON files(subsystem_id);
+		`,
+	},
+	{
 		version: 10,
 		description: 'add co_change_pairs aggregation for subsystem clustering',
 		up: `
