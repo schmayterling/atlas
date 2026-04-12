@@ -21,7 +21,7 @@ interface EmbedCandidate {
 // even for token-dense code.
 const MAX_EMBED_CHARS = 4500
 
-function buildEmbedText(
+export function buildEmbedText(
 	row: {
 		kind: string
 		name: string
