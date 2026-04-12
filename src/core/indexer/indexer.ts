@@ -314,6 +314,17 @@ export class Indexer {
 			log.debug(`cross-file resolution: ${(performance.now() - t).toFixed(0)}ms`)
 		}
 
+		// step 6.5: test ↔ source mapping. depends on imports + edges from
+		// step 6, runs before subsystem detection so per-cluster coverage
+		// stats can read test_links.
+		try {
+			const { runTestMapping } = await import('./test-mapping.js')
+			runTestMapping(this.store)
+		} catch (e) {
+			warnings.push(`test-mapping failed: ${e}`)
+			log.warn(`test-mapping failed: ${e}`)
+		}
+
 		// step 7: embedding pipeline (optional)
 		if (!opts?.noEmbed) {
 			try {

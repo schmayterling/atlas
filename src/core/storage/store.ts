@@ -598,6 +598,64 @@ export class AtlasStore {
 		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
 	}
 
+	// --- test links (test ↔ source mapping) ---
+
+	getImportsByFileId(fileId: number): {
+		sourceFileId: number
+		targetFileId: number | null
+		importPath: string
+		isTypeOnly: boolean
+		line: number | null
+	}[] {
+		return this.db
+			.query<
+				{
+					sourceFileId: number
+					targetFileId: number | null
+					importPath: string
+					isTypeOnly: number
+					line: number | null
+				},
+				[number]
+			>(
+				`SELECT source_file_id as sourceFileId, target_file_id as targetFileId,
+				import_path as importPath, is_type_only as isTypeOnly, line
+				FROM imports WHERE source_file_id = ?`,
+			)
+			.all(fileId)
+			.map((r) => ({
+				sourceFileId: r.sourceFileId,
+				targetFileId: r.targetFileId,
+				importPath: r.importPath,
+				isTypeOnly: r.isTypeOnly === 1,
+				line: r.line,
+			}))
+	}
+
+	insertTestLinks(rows: { testFileId: number; symbolStableId: string; confidence: 'imported' | 'called' }[]) {
+		const stmt = this.db.prepare(
+			'INSERT OR REPLACE INTO test_links (test_file_id, source_symbol_stable_id, confidence) VALUES (?, ?, ?)',
+		)
+		this.bulkInsert(() => {
+			for (const row of rows) {
+				stmt.run(row.testFileId, row.symbolStableId, row.confidence)
+			}
+		})
+	}
+
+	deleteTestLinksByFiles(fileIds: number[]) {
+		if (fileIds.length === 0) return
+		for (let i = 0; i < fileIds.length; i += 500) {
+			const chunk = fileIds.slice(i, i + 500)
+			const placeholders = chunk.map(() => '?').join(',')
+			this.db.run(`DELETE FROM test_links WHERE test_file_id IN (${placeholders})`, chunk)
+		}
+	}
+
+	clearAllTestLinks() {
+		this.db.run('DELETE FROM test_links')
+	}
+
 	// --- api endpoints ---
 
 	insertApiEndpoint(endpoint: {
