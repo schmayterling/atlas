@@ -347,4 +347,49 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_files_module ON files(repo_module_id);
 		`,
 	},
+	{
+		version: 13,
+		description: 'add pull_requests + pr_files + issues for github ingestion',
+		up: `
+			CREATE TABLE IF NOT EXISTS pull_requests (
+				number      INTEGER PRIMARY KEY,
+				title       TEXT NOT NULL,
+				state       TEXT NOT NULL,
+				author      TEXT NOT NULL,
+				body        TEXT,
+				base_ref    TEXT,
+				head_ref    TEXT,
+				created_at  INTEGER NOT NULL,
+				updated_at  INTEGER NOT NULL,
+				merged_at   INTEGER,
+				url         TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_pr_state ON pull_requests(state);
+			CREATE INDEX IF NOT EXISTS idx_pr_updated ON pull_requests(updated_at);
+
+			CREATE TABLE IF NOT EXISTS pr_files (
+				pr_number INTEGER NOT NULL REFERENCES pull_requests(number) ON DELETE CASCADE,
+				file_path TEXT NOT NULL,
+				additions INTEGER NOT NULL DEFAULT 0,
+				deletions INTEGER NOT NULL DEFAULT 0,
+				PRIMARY KEY (pr_number, file_path)
+			);
+			CREATE INDEX IF NOT EXISTS idx_pr_files_path ON pr_files(file_path);
+
+			CREATE TABLE IF NOT EXISTS issues (
+				number      INTEGER PRIMARY KEY,
+				title       TEXT NOT NULL,
+				state       TEXT NOT NULL,
+				author      TEXT NOT NULL,
+				body        TEXT,
+				labels      TEXT,
+				created_at  INTEGER NOT NULL,
+				updated_at  INTEGER NOT NULL,
+				closed_at   INTEGER,
+				url         TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_issues_state ON issues(state);
+			CREATE INDEX IF NOT EXISTS idx_issues_updated ON issues(updated_at);
+		`,
+	},
 ]

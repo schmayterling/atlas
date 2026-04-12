@@ -29,6 +29,7 @@ export interface IndexOptions {
 	noEmbed?: boolean
 	noSummarize?: boolean
 	withCoChange?: boolean
+	withGitHub?: boolean
 }
 
 // mutable state threaded through the pipeline steps. each step reads and
@@ -92,6 +93,7 @@ export class Indexer {
 		await this.stepDetectFlows(state, opts)
 		this.stepDetectDuplicates(state)
 		await this.stepDetectSubsystems(state, opts)
+		await this.stepIngestGitHub(state, opts)
 		this.stepFinalizeMetadata()
 
 		const duration = performance.now() - state.start
@@ -599,6 +601,28 @@ export class Indexer {
 			}
 		} catch (e) {
 			log.warn(`subsystem detection failed: ${e}`)
+		}
+	}
+
+	// optional: github pr + issue ingest, gated behind --with-github.
+	// off by default because it shells out to the gh cli and pings the
+	// github api — neither is wanted during normal local indexing.
+	private async stepIngestGitHub(
+		state: IndexState,
+		opts: IndexOptions | undefined,
+	): Promise<void> {
+		if (!opts?.withGitHub) return
+		try {
+			const { ingestGitHub } = await import('./github-ingest.js')
+			const result = ingestGitHub(this.projectRoot, this.store)
+			if (result.skipped) {
+				log.info(`github ingest: skipped (${result.reason})`)
+			} else {
+				log.info(`github ingest: ${result.prsFetched} prs, ${result.issuesFetched} issues`)
+			}
+		} catch (e) {
+			state.warnings.push(`github ingest failed: ${e}`)
+			log.warn(`github ingest failed: ${e}`)
 		}
 	}
 

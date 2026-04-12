@@ -53,6 +53,7 @@ program
 	.option('--no-embed', 'skip vector embedding generation')
 	.option('--no-summarize', 'skip LLM summary generation')
 	.option('--with-cochange', 'use git co-change as additional weight in subsystem clustering')
+	.option('--with-github', 'ingest github prs + issues (requires gh cli and a github remote)')
 	.option('--db <path>', 'override index db path (relative to project root or absolute)')
 	.action(async (cmdOpts) => {
 		const opts = program.opts()
@@ -62,6 +63,7 @@ program
 			noEmbed: !cmdOpts.embed,
 			noSummarize: !cmdOpts.summarize,
 			withCoChange: cmdOpts.withCochange,
+			withGitHub: cmdOpts.withGithub,
 			db: cmdOpts.db,
 		})
 	})

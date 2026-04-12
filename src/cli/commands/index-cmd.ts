@@ -11,6 +11,7 @@ export async function indexCommand(
 		noEmbed?: boolean
 		noSummarize?: boolean
 		withCoChange?: boolean
+		withGitHub?: boolean
 		db?: string
 	},
 ) {
