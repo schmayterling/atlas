@@ -1,4 +1,54 @@
+import { log } from '../../shared/logger.js'
 import type { AtlasStore } from '../storage/store.js'
+
+// per-invocation cache for branch commit sets. the key is
+// `${projectRoot}::${branch}`; resolves to a Set<hash>. caches live
+// for the lifetime of one CLI invocation via the module singleton —
+// branches move in real repos, so persisting across runs is wrong.
+const branchCommitCache = new Map<string, Set<string>>()
+
+export function clearBranchCommitCache(): void {
+	branchCommitCache.clear()
+}
+
+// returns the set of commit hashes reachable from <branch> along the
+// first-parent chain. follows the git log surface used by most
+// review-ready branch workflows. returns null when branch doesn't
+// exist or git fails, so callers can either skip the filter or
+// surface a clean error.
+export function getBranchCommits(
+	projectRoot: string,
+	branch: string,
+): Set<string> | null {
+	const key = `${projectRoot}::${branch}`
+	const cached = branchCommitCache.get(key)
+	if (cached) return cached
+
+	try {
+		const result = Bun.spawnSync(
+			['git', 'log', '--first-parent', branch, '--format=%H'],
+			{ cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
+		)
+		if (result.exitCode !== 0) {
+			log.warn(
+				`git log --first-parent ${branch} failed: ${result.stderr.toString().trim() || `exit ${result.exitCode}`}`,
+			)
+			return null
+		}
+		const set = new Set<string>(
+			result.stdout
+				.toString()
+				.split('\n')
+				.map((s) => s.trim())
+				.filter((s) => s.length === 40),
+		)
+		branchCommitCache.set(key, set)
+		return set
+	} catch (e) {
+		log.warn(`branch commit lookup failed: ${e}`)
+		return null
+	}
+}
 
 export interface CommitRecord {
 	hash: string
@@ -32,6 +82,11 @@ export interface ChurnOpts {
 	pathPrefix?: string
 	since?: number
 	includeTests?: boolean
+	// narrow counting to commits reachable along the first-parent chain
+	// of the given branch. paired with projectRoot because the branch
+	// lookup needs to shell out to git for the commit set.
+	branch?: string
+	projectRoot?: string
 }
 
 export function churn(store: AtlasStore, opts: ChurnOpts = {}): ChurnEntry[] {
@@ -48,6 +103,18 @@ export function churn(store: AtlasStore, opts: ChurnOpts = {}): ChurnEntry[] {
 	if (opts.since) {
 		where += ' AND c.authored_at >= ?'
 		params.push(opts.since)
+	}
+	if (opts.branch && opts.projectRoot) {
+		const commits = getBranchCommits(opts.projectRoot, opts.branch)
+		if (commits === null) {
+			throw new Error(`branch "${opts.branch}" not found in this repo`)
+		}
+		if (commits.size === 0) {
+			return []
+		}
+		const placeholders = Array.from(commits, () => '?').join(',')
+		where += ` AND c.hash IN (${placeholders})`
+		for (const h of commits) params.push(h)
 	}
 	// LIST surface: hide test files unless opted in. left join keeps churn
 	// rows for files that no longer exist on disk (deleted), but drops files
@@ -77,7 +144,30 @@ export function churn(store: AtlasStore, opts: ChurnOpts = {}): ChurnEntry[] {
 	return store.queryRawWithParams<ChurnEntry>(sql, ...params)
 }
 
-export function fileHistory(store: AtlasStore, filePath: string): FileHistoryEntry[] {
+export function fileHistory(
+	store: AtlasStore,
+	filePath: string,
+	opts?: { branch?: string; projectRoot?: string },
+): FileHistoryEntry[] {
+	if (opts?.branch && opts.projectRoot) {
+		const commits = getBranchCommits(opts.projectRoot, opts.branch)
+		if (commits === null) {
+			throw new Error(`branch "${opts.branch}" not found in this repo`)
+		}
+		if (commits.size === 0) return []
+		const placeholders = Array.from(commits, () => '?').join(',')
+		const params: string[] = [filePath, ...commits]
+		return store.queryRawWithParams<FileHistoryEntry>(
+			`SELECT c.hash, c.author_name as authorName, c.author_email as authorEmail,
+			        c.authored_at as authoredAt, c.subject,
+			        fc.status, fc.rename_from as renameFrom
+			 FROM file_changes fc
+			 JOIN commits c ON c.hash = fc.commit_hash
+			 WHERE fc.file_path = ? AND c.hash IN (${placeholders})
+			 ORDER BY c.authored_at DESC`,
+			...params,
+		)
+	}
 	return store.queryRawWithParams<FileHistoryEntry>(
 		`SELECT c.hash, c.author_name as authorName, c.author_email as authorEmail,
 		        c.authored_at as authoredAt, c.subject,

@@ -86,6 +86,41 @@ export function untestedCommand(
 	}
 }
 
+export function hotspotsCommand(
+	projectRoot: string,
+	json: boolean,
+	opts: { limit?: number; coverage?: 'called' | 'imported' | 'none' },
+) {
+	const engine = new AtlasEngine(projectRoot)
+	try {
+		const rows = engine.hotspots({ limit: opts.limit, coverage: opts.coverage })
+		if (json) {
+			outputJson(rows)
+			return
+		}
+		heading(`hotspots (${rows.length})`)
+		if (rows.length === 0) {
+			console.log(pc.dim('  no hotspots found. run `atlas index` first.'))
+			return
+		}
+		console.log()
+		console.log(`  ${pc.dim('SCORE  FANIN  COMMITS  COVERAGE   SYMBOL')}`)
+		for (const r of rows) {
+			const coverage =
+				r.coverage === 'called'
+					? pc.green('called  ')
+					: r.coverage === 'imported'
+						? pc.yellow('imported')
+						: pc.red('none    ')
+			console.log(
+				`  ${pc.bold(String(Math.round(r.score)).padStart(5))}  ${String(r.fanin).padStart(5)}  ${String(r.commits).padStart(7)}  ${coverage}   ${pc.bold(r.name)}  ${pc.dim(`${r.filePath}:${r.lineStart}`)}`,
+			)
+		}
+	} finally {
+		engine.close()
+	}
+}
+
 export function hotFragileCommand(
 	projectRoot: string,
 	json: boolean,

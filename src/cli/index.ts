@@ -21,7 +21,7 @@ import {
 	subsystemsCommand,
 	subsystemCommand,
 } from './commands/git-cmds.js'
-import { hotFragileCommand, testsCommand, untestedCommand } from './commands/test-cmds.js'
+import { hotFragileCommand, hotspotsCommand, testsCommand, untestedCommand } from './commands/test-cmds.js'
 
 const program = new Command()
 	.name('atlas')
@@ -251,6 +251,7 @@ program
 	.option('--path <prefix>', 'only files starting with this path prefix')
 	.option('--since-days <n>', 'only count commits from the last N days', (v) => Number.parseInt(v, 10), 0)
 	.option('--include-tests', 'include test files')
+	.option('--branch <name>', 'only count commits reachable along first-parent from <branch>')
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		churnCommand(opts.project, opts.json, {
@@ -258,15 +259,17 @@ program
 			path: cmdOpts.path,
 			sinceDays: cmdOpts.sinceDays,
 			includeTests: cmdOpts.includeTests,
+			branch: cmdOpts.branch,
 		})
 	})
 
 program
 	.command('history <file>')
 	.description('show git commit history for a file')
-	.action((file) => {
+	.option('--branch <name>', 'only commits reachable along first-parent from <branch>')
+	.action((file, cmdOpts) => {
 		const opts = program.opts()
-		historyCommand(opts.project, opts.json, file)
+		historyCommand(opts.project, opts.json, file, { branch: cmdOpts.branch })
 	})
 
 program
@@ -335,6 +338,20 @@ program
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		hotFragileCommand(opts.project, opts.json, { limit: cmdOpts.limit })
+	})
+
+program
+	.command('hotspots')
+	.description('rank exported symbols by fanin × churn × (1 - coverage)')
+	.option('-l, --limit <n>', 'max symbols to show', (v) => Number.parseInt(v, 10), 20)
+	.option('--coverage <level>', 'filter by coverage (called|imported|none)')
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		const coverage =
+			cmdOpts.coverage === 'called' || cmdOpts.coverage === 'imported' || cmdOpts.coverage === 'none'
+				? (cmdOpts.coverage as 'called' | 'imported' | 'none')
+				: undefined
+		hotspotsCommand(opts.project, opts.json, { limit: cmdOpts.limit, coverage })
 	})
 
 export { program }
