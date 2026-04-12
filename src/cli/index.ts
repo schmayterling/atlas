@@ -231,7 +231,7 @@ program
 	.description('show files ranked by commit count')
 	.option('-l, --limit <n>', 'max files to show', (v) => Number.parseInt(v, 10), 20)
 	.option('--path <prefix>', 'only files starting with this path prefix')
-	.option('--since-days <n>', 'only count commits from the last N days', (v) => Number.parseInt(v, 10))
+	.option('--since-days <n>', 'only count commits from the last N days', (v) => Number.parseInt(v, 10), 0)
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		churnCommand(opts.project, opts.json, {

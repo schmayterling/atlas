@@ -44,7 +44,9 @@ export function historyCommand(projectRoot: string, json: boolean, file: string)
 		}
 		heading(`history of ${file} (${rows.length} commits)`)
 		if (rows.length === 0) {
-			console.log(pc.dim('  no history for this file'))
+			console.log(
+				pc.dim('  no history for this file. run `atlas index` in a git repo or check the path.'),
+			)
 			return
 		}
 		console.log()
@@ -68,6 +70,12 @@ export function contributorsCommand(projectRoot: string, json: boolean, file?: s
 			return
 		}
 		heading(file ? `contributors to ${file}` : 'top contributors')
+		if (rows.length === 0) {
+			console.log(
+				pc.dim(file ? '  no history for this file' : '  no git history. run `atlas index` in a git repo.'),
+			)
+			return
+		}
 		console.log()
 		for (const r of rows) {
 			console.log(
