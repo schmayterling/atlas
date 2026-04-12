@@ -8,3 +8,4 @@ dist/
 CLAUDE.md
 .playwright-mcp/
 .opencode-plugin/
+.claude/
