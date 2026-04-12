@@ -26,7 +26,7 @@ export function getBlastRadius(
 		maxDepth,
 		maxNodes: 5000,
 		maxEdges: 20000,
-		edgeKinds: ['calls', 'imports', 'type_ref', 'extends'],
+		edgeKinds: ['calls', 'type_ref', 'extends'],
 		timeoutMs: 5000,
 	}
 

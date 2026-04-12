@@ -311,4 +311,19 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_cochange_b ON co_change_pairs(file_b);
 		`,
 	},
+	{
+		version: 11,
+		description: 'add test_links and files.is_test for test ↔ symbol mapping',
+		up: `
+			CREATE TABLE IF NOT EXISTS test_links (
+				test_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+				source_symbol_stable_id TEXT NOT NULL,
+				confidence TEXT NOT NULL CHECK(confidence IN ('imported', 'called')),
+				PRIMARY KEY (test_file_id, source_symbol_stable_id)
+			);
+			CREATE INDEX IF NOT EXISTS idx_test_links_symbol ON test_links(source_symbol_stable_id);
+			ALTER TABLE files ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;
+			CREATE INDEX IF NOT EXISTS idx_files_is_test ON files(is_test);
+		`,
+	},
 ]

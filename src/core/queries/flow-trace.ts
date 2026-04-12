@@ -12,7 +12,7 @@ export function traceFlow(
 ): FlowTraceResult {
 	const maxPaths = opts?.maxPaths ?? 5
 	const maxDepth = opts?.maxDepth ?? 10
-	const edgeKinds = opts?.edgeKinds ?? (['calls', 'imports', 'type_ref', 'extends'] as EdgeKind[])
+	const edgeKinds = opts?.edgeKinds ?? (['calls', 'type_ref', 'extends'] as EdgeKind[])
 
 	const sourceSym = store.getSymbolByStableId(sourceStableId)
 	const targetSym = store.getSymbolByStableId(targetStableId)

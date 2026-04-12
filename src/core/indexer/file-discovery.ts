@@ -9,6 +9,7 @@ export interface DiscoveredFile {
 	absolutePath: string
 	language: string
 	sizeBytes: number
+	isTest: boolean
 }
 
 // directories to always skip
@@ -28,9 +29,10 @@ const SKIP_DIRS = new Set([
 export function discoverFiles(projectRoot: string, config: AtlasConfig): DiscoveredFile[] {
 	const extensionToLanguage = buildExtensionMap(config)
 	const excludePatterns = config.exclude
+	const testPatterns = config.testPatterns
 	const files: DiscoveredFile[] = []
 
-	walk(projectRoot, projectRoot, extensionToLanguage, excludePatterns, files)
+	walk(projectRoot, projectRoot, extensionToLanguage, excludePatterns, testPatterns, files)
 
 	files.sort((a, b) => a.path.localeCompare(b.path))
 	return files
@@ -41,6 +43,7 @@ function walk(
 	projectRoot: string,
 	extensionToLanguage: Map<string, string>,
 	excludePatterns: string[],
+	testPatterns: string[],
 	results: DiscoveredFile[],
 ) {
 	let names: string[]
@@ -66,7 +69,7 @@ function walk(
 		if (stat.isDirectory()) {
 			if (SKIP_DIRS.has(name)) continue
 			if (matchesAnyPattern(relPath, excludePatterns)) continue
-			walk(fullPath, projectRoot, extensionToLanguage, excludePatterns, results)
+			walk(fullPath, projectRoot, extensionToLanguage, excludePatterns, testPatterns, results)
 		} else if (stat.isFile()) {
 			if (matchesAnyPattern(relPath, excludePatterns)) continue
 
@@ -81,6 +84,7 @@ function walk(
 				absolutePath: fullPath,
 				language,
 				sizeBytes,
+				isTest: matchesAnyPattern(relPath, testPatterns),
 			})
 		}
 	}

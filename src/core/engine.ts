@@ -95,8 +95,13 @@ export class AtlasEngine {
 					'**/dist/**',
 					'**/build/**',
 					'**/.git/**',
+				],
+				testPatterns: [
 					'**/*.test.*',
 					'**/*.spec.*',
+					'**/tests/**',
+					'**/__tests__/**',
+					'**/test/**',
 				],
 				languages: {
 					typescript: { extensions: ['.ts', '.tsx'] },

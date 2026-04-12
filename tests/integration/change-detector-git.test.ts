@@ -38,7 +38,7 @@ function commit(root: string, files: Record<string, string>, message: string): s
 }
 
 function df(root: string, path: string): DiscoveredFile {
-	return { path, absolutePath: join(root, path), language: 'typescript', sizeBytes: 1 }
+	return { path, absolutePath: join(root, path), language: 'typescript', sizeBytes: 1, isTest: false }
 }
 
 beforeEach(() => {

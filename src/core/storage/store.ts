@@ -109,6 +109,11 @@ export class AtlasStore {
 			file_id as fileId, line, col, confidence, metadata
 			FROM edges WHERE target_id = ? AND kind = ?`,
 		)
+		// invariant: stmtFindSymbolInFile and stmtFindSymbolInFileKind must
+		// not filter by files.is_test. the TS resolver uses them to build
+		// the cross-file edges that test-mapping (step 6.5) reads to upgrade
+		// imported -> called confidence. filtering here would silently
+		// produce zero 'called' rows.
 		this.stmtFindSymbolInFile = this.db.query(
 			`${SYMBOL_SELECT} WHERE file_id = (SELECT id FROM files WHERE path = ?) AND name = ? ORDER BY line_start LIMIT 1`,
 		)
@@ -213,7 +218,7 @@ export class AtlasStore {
 	getFile(id: number): FileRecord | null {
 		return this.db
 			.query<FileRecord, [number]>(
-				'SELECT id, path, content_hash as contentHash, language, indexed_at as indexedAt, size_bytes as sizeBytes FROM files WHERE id = ?',
+				'SELECT id, path, content_hash as contentHash, language, indexed_at as indexedAt, size_bytes as sizeBytes, is_test as isTest FROM files WHERE id = ?',
 			)
 			.get(id)
 	}
@@ -221,7 +226,7 @@ export class AtlasStore {
 	getFileByPath(path: string): FileRecord | null {
 		return this.db
 			.query<FileRecord, [string]>(
-				'SELECT id, path, content_hash as contentHash, language, indexed_at as indexedAt, size_bytes as sizeBytes FROM files WHERE path = ?',
+				'SELECT id, path, content_hash as contentHash, language, indexed_at as indexedAt, size_bytes as sizeBytes, is_test as isTest FROM files WHERE path = ?',
 			)
 			.get(path)
 	}
@@ -229,7 +234,7 @@ export class AtlasStore {
 	getAllFiles(): FileRecord[] {
 		return this.db
 			.query<FileRecord, []>(
-				'SELECT id, path, content_hash as contentHash, language, indexed_at as indexedAt, size_bytes as sizeBytes FROM files',
+				'SELECT id, path, content_hash as contentHash, language, indexed_at as indexedAt, size_bytes as sizeBytes, is_test as isTest FROM files',
 			)
 			.all()
 	}
@@ -430,11 +435,12 @@ export class AtlasStore {
 		contentHash: string,
 		language: string,
 		sizeBytes: number,
+		isTest = false,
 	): number {
 		const now = Date.now()
 		const result = this.db.run(
-			'INSERT OR REPLACE INTO files (path, content_hash, language, indexed_at, size_bytes) VALUES (?, ?, ?, ?, ?)',
-			[path, contentHash, language, now, sizeBytes],
+			'INSERT OR REPLACE INTO files (path, content_hash, language, indexed_at, size_bytes, is_test) VALUES (?, ?, ?, ?, ?, ?)',
+			[path, contentHash, language, now, sizeBytes, isTest ? 1 : 0],
 		)
 		return Number(result.lastInsertRowid)
 	}

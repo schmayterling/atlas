@@ -15,7 +15,7 @@ beforeEach(() => {
 afterEach(() => temp.cleanup())
 
 function discovered(path: string): DiscoveredFile {
-	return { path, absolutePath: '/tmp/' + path, language: 'typescript', sizeBytes: 100 }
+	return { path, absolutePath: '/tmp/' + path, language: 'typescript', sizeBytes: 100, isTest: false }
 }
 
 describe('detectChanges', () => {

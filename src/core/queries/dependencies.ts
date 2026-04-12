@@ -43,7 +43,7 @@ export function getDependencies(
 	const symbolResult = store.symbolToResult(symbol)
 	const direction = opts?.direction ?? 'both'
 	const maxDepth = opts?.depth ?? 3
-	const edgeKinds = opts?.edgeKinds ?? (['imports', 'calls', 'type_ref', 'extends'] as EdgeKind[])
+	const edgeKinds = opts?.edgeKinds ?? (['calls', 'type_ref', 'extends'] as EdgeKind[])
 
 	const budget: SubgraphBudget = {
 		maxDepth,

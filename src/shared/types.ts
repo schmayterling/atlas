@@ -11,8 +11,9 @@ const SYMBOL_KINDS = [
 ] as const
 export type SymbolKind = (typeof SYMBOL_KINDS)[number]
 
-// phase 1 edge kinds (5 core types)
-export const EDGE_KINDS = ['imports', 'calls', 'contains', 'extends', 'type_ref'] as const
+// edge kinds. file imports live in their own `imports` table and are
+// not edges.
+export const EDGE_KINDS = ['calls', 'contains', 'extends', 'type_ref'] as const
 export type EdgeKind = (typeof EDGE_KINDS)[number]
 
 // confidence levels for edge resolution
@@ -35,6 +36,7 @@ export interface FileRecord {
 	language: string
 	indexedAt: number
 	sizeBytes: number
+	isTest: boolean
 }
 
 // symbol record
@@ -275,6 +277,34 @@ export interface FileInfo {
 	symbolCount: number
 	sizeBytes: number
 	indexedAt: number
+}
+
+// test ↔ source mapping
+export type TestConfidence = 'imported' | 'called'
+
+export interface TestLink {
+	testFilePath: string
+	sourceSymbolStableId: string
+	confidence: TestConfidence
+}
+
+export interface TestCoverageEntry {
+	testFilePath: string
+	confidence: TestConfidence
+}
+
+export interface TestCoverage {
+	target: SymbolResult
+	tests: TestCoverageEntry[]
+	coveredBy: TestConfidence | 'none'
+}
+
+export interface HotFragileEntry {
+	filePath: string
+	commits: number
+	symbolCount: number
+	untestedCount: number
+	subsystem: string | null
 }
 
 // symbol detail for web UI

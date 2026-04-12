@@ -163,7 +163,7 @@ export class Indexer {
 
 					const tree = parseSource(source, parserLang)
 					const result = extractor.extract(tree, filePath, source)
-					const fileId = this.store.insertFile(filePath, hash, fileInfo.language, fileInfo.sizeBytes)
+					const fileId = this.store.insertFile(filePath, hash, fileInfo.language, fileInfo.sizeBytes, fileInfo.isTest)
 
 					// build a lookup map for O(1) kind resolution instead of O(n) per symbol
 					const kindByQName = new Map(
