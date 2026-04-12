@@ -44,6 +44,12 @@ export class Indexer {
 		let changes = detectChanges(this.projectRoot, discovered, this.store)
 		log.debug(`change detection: ${(performance.now() - t).toFixed(0)}ms`)
 
+		// step 2.5: sync files.is_test against current testPatterns. handles
+		// both first-run-after-migration-v11 (existing rows default to 0)
+		// and testPatterns config changes (file reclassification without a
+		// content change). only writes rows whose flag actually changes.
+		this.store.syncFileIsTest(discovered.map((f) => ({ path: f.path, isTest: f.isTest })))
+
 		if (opts?.force) {
 			// delete ALL existing files (cascade cleans symbols/edges), then re-add everything
 			const existingPaths = this.store.getAllFiles().map((f) => f.path)
@@ -316,10 +322,14 @@ export class Indexer {
 
 		// step 6.5: test ↔ source mapping. depends on imports + edges from
 		// step 6, runs before subsystem detection so per-cluster coverage
-		// stats can read test_links.
+		// stats can read test_links. wrapped in try/catch so a failure
+		// here does not abort the rest of the index pipeline.
 		try {
 			const { runTestMapping } = await import('./test-mapping.js')
-			runTestMapping(this.store)
+			const stats = runTestMapping(this.store)
+			log.debug(
+				`test-mapping stats: ${stats.testFiles} test files, ${stats.imported} imported, ${stats.called} called`,
+			)
 		} catch (e) {
 			warnings.push(`test-mapping failed: ${e}`)
 			log.warn(`test-mapping failed: ${e}`)

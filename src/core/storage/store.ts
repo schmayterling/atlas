@@ -133,11 +133,12 @@ export class AtlasStore {
 
 		// bun:sqlite's db.run() executes only the first statement of a
 		// multi-statement string, so split each DDL bundle on ';' and run
-		// the statements individually. mirrors applyMigrations() below.
-		this.runDdl(CREATE_TABLES)
-		this.runDdl(CREATE_INDEXES)
-		this.runDdl(CREATE_FTS)
-		this.runDdl(CREATE_TRIGGERS)
+		// the statements individually. splitDdl preserves BEGIN ... END
+		// blocks (trigger bodies have semicolons inside).
+		this.runDdl(CREATE_TABLES, 'CREATE_TABLES')
+		this.runDdl(CREATE_INDEXES, 'CREATE_INDEXES')
+		this.runDdl(CREATE_FTS, 'CREATE_FTS')
+		this.runDdl(CREATE_TRIGGERS, 'CREATE_TRIGGERS')
 
 		// set initial schema version if new DB, then apply any pending migrations
 		const existing = this.db
@@ -151,9 +152,19 @@ export class AtlasStore {
 		this.applyMigrations(Number(existing?.value ?? SCHEMA_VERSION))
 	}
 
-	private runDdl(ddl: string) {
-		for (const stmt of splitDdl(ddl)) {
-			this.db.run(stmt)
+	private runDdl(ddl: string, label = 'ddl') {
+		const statements = splitDdl(ddl)
+		for (let i = 0; i < statements.length; i++) {
+			const stmt = statements[i]
+			try {
+				this.db.run(stmt)
+			} catch (e) {
+				const preview = stmt.replace(/\s+/g, ' ').slice(0, 120)
+				throw new Error(
+					`${label} statement ${i + 1}/${statements.length} failed: ${preview}${stmt.length > 120 ? '...' : ''} :: ${e}`,
+					{ cause: e },
+				)
+			}
 		}
 	}
 
@@ -174,9 +185,7 @@ export class AtlasStore {
 				log.info(`applying migration v${m.version}: ${m.description}`)
 				this.db.run('BEGIN')
 				try {
-					for (const stmt of m.up.split(';').map((s) => s.trim()).filter(Boolean)) {
-						this.db.run(stmt)
-					}
+					this.runDdl(m.up, `migration v${m.version}`)
 					this.db.run("UPDATE atlas_meta SET value = ? WHERE key = 'schema_version'", [
 						String(m.version),
 					])
@@ -596,6 +605,24 @@ export class AtlasStore {
 
 	deleteCrossProjectEdgesForProject(project: string) {
 		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
+	}
+
+	// reconcile files.is_test against the current testPatterns from the
+	// caller's perspective. used by the indexer at the start of each run so
+	// that schema migrations (v11 added is_test defaulted to 0) and
+	// testPatterns config changes both get reflected without requiring a
+	// full re-index. only writes rows whose flag actually changes.
+	syncFileIsTest(updates: { path: string; isTest: boolean }[]) {
+		if (updates.length === 0) return
+		const stmt = this.db.prepare(
+			'UPDATE files SET is_test = ? WHERE path = ? AND is_test != ?',
+		)
+		this.bulkInsert(() => {
+			for (const u of updates) {
+				const value = u.isTest ? 1 : 0
+				stmt.run(value, u.path, value)
+			}
+		})
 	}
 
 	// --- test links (test ↔ source mapping) ---

@@ -22,53 +22,61 @@ import type { AtlasStore } from '../storage/store.js'
 // stmtFindSymbolInFile/Kind prepared statements). those statements MUST NOT
 // filter by files.is_test, otherwise pass 2 produces zero rows.
 //
-// both passes are single SQL queries; the 'imported' and 'called' rows are
-// computed in two batched calls and written in two transactions. on failure
-// the rows from a successful pass remain (acceptable: indexer step 6.5
-// catches and the next index run rebuilds via clearAllTestLinks).
+// the entire pipeline runs inside a single bulkInsert transaction so a
+// failure mid-rebuild rolls back to the prior committed state instead of
+// leaving test_links half-populated.
 export function runTestMapping(store: AtlasStore): { testFiles: number; imported: number; called: number } {
 	const testFileCount = store.queryRaw<{ count: number }>(
 		'SELECT COUNT(*) as count FROM files WHERE is_test = 1',
 	)[0]?.count ?? 0
 
-	// always clear, even when there are zero test files: a user reclassifying
-	// tests as production should not see stale rows linger.
-	store.clearAllTestLinks()
+	let importedCount = 0
+	let calledCount = 0
+
+	store.bulkInsert(() => {
+		// always clear inside the transaction, even with zero test files:
+		// a user reclassifying tests as production must not see stale rows.
+		store.clearAllTestLinks()
+
+		if (testFileCount === 0) return
+
+		const importedPairs = store.getTestImportedSymbolPairs()
+		store.insertTestLinks(
+			importedPairs.map((p) => ({
+				testFileId: p.testFileId,
+				symbolStableId: p.symbolStableId,
+				confidence: 'imported' as const,
+			})),
+		)
+		importedCount = importedPairs.length
+
+		const calledPairs = store.getTestCalledSymbolPairs()
+		store.insertTestLinks(
+			calledPairs.map((p) => ({
+				testFileId: p.testFileId,
+				symbolStableId: p.symbolStableId,
+				confidence: 'called' as const,
+			})),
+		)
+		calledCount = calledPairs.length
+	})
 
 	if (testFileCount === 0) {
 		log.info('test-mapping: no test files; skipped')
-		return { testFiles: 0, imported: 0, called: 0 }
-	}
-
-	const importedPairs = store.getTestImportedSymbolPairs()
-	const importedRows = importedPairs.map((p) => ({
-		testFileId: p.testFileId,
-		symbolStableId: p.symbolStableId,
-		confidence: 'imported' as const,
-	}))
-	store.insertTestLinks(importedRows)
-
-	const calledPairs = store.getTestCalledSymbolPairs()
-	const calledRows = calledPairs.map((p) => ({
-		testFileId: p.testFileId,
-		symbolStableId: p.symbolStableId,
-		confidence: 'called' as const,
-	}))
-	store.insertTestLinks(calledRows)
-
-	if (importedRows.length > 0 && calledRows.length === 0) {
-		// the most diagnostic-worthy state: imports resolved but no call
-		// edges crossed file boundaries from any test file. usually means
-		// cross-file resolution (step 6) didn't run, or the
-		// stmtFindSymbolInFile invariant was accidentally filtered.
-		log.warn(
-			'test-mapping: imported rows exist but zero called edges resolved. coverage will be import-only. check that step 6 cross-file resolution ran successfully.',
+	} else {
+		if (importedCount > 0 && calledCount === 0) {
+			// most diagnostic-worthy state: imports resolved but no call edges
+			// crossed file boundaries from any test file. usually means
+			// cross-file resolution (step 6) didn't run, or the
+			// stmtFindSymbolInFile invariant was accidentally filtered.
+			log.warn(
+				'test-mapping: imported rows exist but zero called edges resolved. coverage will be import-only. check that step 6 cross-file resolution ran successfully.',
+			)
+		}
+		log.info(
+			`test-mapping: ${testFileCount} test files, ${importedCount} imported, ${calledCount} called`,
 		)
 	}
 
-	log.info(
-		`test-mapping: ${testFileCount} test files, ${importedRows.length} imported, ${calledRows.length} called`,
-	)
-
-	return { testFiles: testFileCount, imported: importedRows.length, called: calledRows.length }
+	return { testFiles: testFileCount, imported: importedCount, called: calledCount }
 }
