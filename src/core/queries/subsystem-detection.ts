@@ -177,8 +177,12 @@ function longestCommonPathPrefix(paths: string[]): string {
 	// drop the last segment if it looks like a filename (contains a dot)
 	const last = common[common.length - 1]
 	if (last.includes('.')) common.pop()
+	// drop bare project roots that carry no semantic info
+	if (common.length === 1 && IGNORED_ROOTS.has(common[0])) return ''
 	return common.join('/')
 }
+
+const IGNORED_ROOTS = new Set(['src', 'lib', 'app', 'pkg'])
 
 // conductance = edges leaving the cluster / (2*internal + leaving). ranges
 // 0 (perfectly isolated) to 1 (no internal cohesion). low is good.

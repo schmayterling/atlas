@@ -26,13 +26,21 @@ describe('stableSubsystemId', () => {
 })
 
 describe('canonicalName', () => {
-	test('falls back gracefully when no top symbols are found', async () => {
+	test('falls back to cluster-of-N when LCP collapses to a bare ignored root', async () => {
 		const engine = await getFixtureEngine()
 		const store = engine.getStoreForCrossProject()
-		// pass file ids that don't exist; the LEFT JOIN ensures no symbols
-		// come back and we exercise the prefix-only path
-		const name = canonicalName(store, [], ['src/a.ts', 'src/b.ts'])
-		expect(name).toBe('src')
+		// non-existent ids; LEFT JOIN returns no symbols and we exercise the
+		// prefix-only path. with the LCP guard, bare 'src' is dropped and the
+		// fallback cluster-of-N string takes over.
+		const name = canonicalName(store, [-1, -2], ['src/a.ts', 'src/b.ts'])
+		expect(name).toBe('cluster of 2 files')
+	})
+
+	test('keeps a meaningful prefix when LCP is more than just a project root', async () => {
+		const engine = await getFixtureEngine()
+		const store = engine.getStoreForCrossProject()
+		const name = canonicalName(store, [-1, -2], ['src/web/a.ts', 'src/web/b.ts'])
+		expect(name).toBe('src/web')
 	})
 
 	test('returns a non-empty string for any non-empty input', async () => {
