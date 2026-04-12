@@ -1,5 +1,11 @@
 import type Parser from 'tree-sitter'
-import type { ExtractionResult, ExtractedSymbol, ExtractedEdge, ExtractedImport } from './typescript.js'
+import type {
+	ExtractedApiEndpoint,
+	ExtractedEdge,
+	ExtractedImport,
+	ExtractedSymbol,
+	ExtractionResult,
+} from './typescript.js'
 import type { SymbolKind, Confidence } from '../../../shared/types.js'
 
 type SyntaxNode = Parser.SyntaxNode
@@ -12,6 +18,7 @@ export function extractGo(
 	const symbols: ExtractedSymbol[] = []
 	const edges: ExtractedEdge[] = []
 	const imports: ExtractedImport[] = []
+	const apiEndpoints: ExtractedApiEndpoint[] = []
 
 	const root = tree.rootNode
 
@@ -37,7 +44,13 @@ export function extractGo(
 		}
 	}
 
-	return { symbols, edges, imports }
+	// api endpoints live inside function bodies, so walk the whole tree
+	// once more looking for the common routing call shapes. covers
+	// net/http, gorilla/mux, chi, gin, echo via a single detector that
+	// matches call expressions by callee name + argument shape.
+	extractGoApiEndpoints(root, filePath, apiEndpoints)
+
+	return { symbols, edges, imports, apiEndpoints }
 }
 
 function qname(filePath: string, name: string): string {
@@ -375,4 +388,145 @@ function getDocComment(node: SyntaxNode): string | null {
 		return prev.text.replace(/^\/\/\s?/, '').trim()
 	}
 	return null
+}
+
+// --- go api endpoint extraction ---
+//
+// matches the routing call shapes that every common go http framework
+// uses. examples:
+//   http.HandleFunc("/path", myHandler)
+//   http.Handle("/path", wrapped)
+//   mux.HandleFunc("/path", myHandler)
+//   r.HandleFunc("/path", h).Methods("GET")      // gorilla/mux
+//   r.Get("/path", h)  /  r.Post / r.Put / r.Delete / r.Patch   // chi
+//   r.GET("/path", h) / r.POST / etc.                            // gin
+//   e.GET("/path", h)                                            // echo
+//
+// for each match we emit one ExtractedApiEndpoint. the handler symbol
+// qname is derived by finding the containing top-level function the
+// call sits inside; when the handler is a same-file function reference
+// (\`myHandler\` as the second arg), we upgrade to that function's qname
+// so api tracing resolves the edge. struct-receiver methods and
+// cross-file handlers need the go resolver (deferred) to resolve —
+// they currently fall back to the containing-function qname, which
+// still lets api tracing surface the route even if the exact handler
+// lookup misses.
+
+// chi's single-method helpers
+const CHI_METHODS = new Set(['Get', 'Post', 'Put', 'Delete', 'Patch', 'Head', 'Options'])
+// gin + echo use upper-case verbs
+const UPPER_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
+// net/http + gorilla/mux generic helpers (method discovered via .Methods(...) call)
+const GENERIC_ROUTE_CALLS = new Set(['HandleFunc', 'Handle'])
+
+function extractGoApiEndpoints(
+	node: SyntaxNode,
+	filePath: string,
+	endpoints: ExtractedApiEndpoint[],
+): void {
+	if (node.type === 'call_expression') {
+		tryExtractRouteCall(node, filePath, endpoints)
+	}
+	for (let i = 0; i < node.namedChildCount; i++) {
+		extractGoApiEndpoints(node.namedChild(i)!, filePath, endpoints)
+	}
+}
+
+function tryExtractRouteCall(
+	call: SyntaxNode,
+	filePath: string,
+	endpoints: ExtractedApiEndpoint[],
+): void {
+	const funcNode = call.childForFieldName('function')
+	if (!funcNode) return
+
+	const methodName = extractCalleeMethodName(funcNode)
+	if (!methodName) return
+
+	let framework: string | null = null
+	let httpMethod: string | null = null
+
+	if (CHI_METHODS.has(methodName)) {
+		framework = 'chi'
+		httpMethod = methodName.toUpperCase()
+	} else if (UPPER_METHODS.has(methodName)) {
+		framework = 'gin' // gin + echo share the same surface; framework is a guess
+		httpMethod = methodName
+	} else if (GENERIC_ROUTE_CALLS.has(methodName)) {
+		framework = 'net/http'
+		// method for HandleFunc is discovered via a trailing .Methods("GET")
+		// call on the parent chain; for now we leave it null and let the
+		// client-side matcher treat null as "any".
+		httpMethod = null
+	} else {
+		return
+	}
+
+	const args = call.childForFieldName('arguments')
+	if (!args || args.namedChildCount < 2) return
+
+	const pathArg = args.namedChild(0)!
+	const handlerArg = args.namedChild(1)!
+
+	const pathPattern = extractStringLiteral(pathArg)
+	if (!pathPattern || !pathPattern.startsWith('/')) return
+
+	// handler qname: if the second arg is a plain identifier (same-file
+	// function reference) we can point straight at it via the
+	// containing-file qname. otherwise fall back to the enclosing
+	// function's qname so api tracing at least surfaces the route.
+	let handlerQName: string
+	if (handlerArg.type === 'identifier') {
+		handlerQName = `${filePath}::${handlerArg.text}`
+	} else {
+		handlerQName = findEnclosingFunctionQName(call, filePath)
+	}
+
+	endpoints.push({
+		pathPattern,
+		httpMethod,
+		symbolQualifiedName: handlerQName,
+		role: 'server',
+		framework,
+		line: call.startPosition.row + 1,
+	})
+}
+
+function extractCalleeMethodName(funcNode: SyntaxNode): string | null {
+	if (funcNode.type === 'identifier') return funcNode.text
+	if (funcNode.type === 'selector_expression') {
+		const field = funcNode.childForFieldName('field')
+		return field?.text ?? null
+	}
+	return null
+}
+
+function extractStringLiteral(node: SyntaxNode): string | null {
+	// go string literals can be interpreted_string_literal ("...") or
+	// raw_string_literal (`...`). strip the surrounding quotes/backticks.
+	if (node.type === 'interpreted_string_literal') {
+		const raw = node.text
+		if (raw.length >= 2) return raw.slice(1, -1)
+	}
+	if (node.type === 'raw_string_literal') {
+		const raw = node.text
+		if (raw.length >= 2) return raw.slice(1, -1)
+	}
+	return null
+}
+
+function findEnclosingFunctionQName(node: SyntaxNode, filePath: string): string {
+	let cursor: SyntaxNode | null = node.parent
+	while (cursor) {
+		if (cursor.type === 'function_declaration') {
+			const name = cursor.childForFieldName('name')
+			if (name) return `${filePath}::${name.text}`
+		}
+		if (cursor.type === 'method_declaration') {
+			const name = cursor.childForFieldName('name')
+			if (name) return `${filePath}::${name.text}`
+		}
+		cursor = cursor.parent
+	}
+	return `${filePath}::module`
 }

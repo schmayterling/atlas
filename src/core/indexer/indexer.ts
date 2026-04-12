@@ -6,6 +6,7 @@ import { log } from '../../shared/logger.js'
 import type { IndexResult } from '../../shared/types.js'
 import { getLanguageForExtension, parseSource } from '../parser/parser-manager.js'
 import { getExtractor } from '../parser/extractor-registry.js'
+import { linkInRepoApiEndpoints } from '../queries/cross-language-linker.js'
 import { detectDuplicatesFromEmbeddings } from '../queries/duplicate-detection.js'
 import { findGeneratedFileIds } from '../queries/generated-code.js'
 import type { AtlasStore } from '../storage/store.js'
@@ -79,6 +80,7 @@ export class Indexer {
 		this.stepDeleteRemovedRecords(state)
 		this.stepParseAndExtract(state)
 		this.stepResolveCrossFile(state)
+		this.stepLinkCrossLanguageApis(state)
 		await this.stepMapTests(state)
 		await this.stepEmbedSymbols(state, opts)
 		await this.stepSummarizeSymbols(state, opts)
@@ -428,6 +430,25 @@ export class Indexer {
 			log.warn(`cross-file resolution failed: ${e}`)
 		}
 		log.debug(`cross-file resolution: ${(performance.now() - t).toFixed(0)}ms`)
+	}
+
+	// step 6.3: in-repo cross-language api linking. matches client
+	// fetch/axios endpoints against server handlers by path + method
+	// and writes cross_project_edges rows with the 'local' sentinel.
+	// runs AFTER cross-file resolution so the symbol stable_ids
+	// referenced by api_endpoints point at resolved handlers where
+	// possible. fails soft — cross-language tracing degrades
+	// gracefully if something is wrong with the api_endpoints table.
+	private stepLinkCrossLanguageApis(state: IndexState): void {
+		try {
+			const result = linkInRepoApiEndpoints(this.store)
+			if (result.edgesCreated > 0) {
+				log.debug(`cross-language linker: wrote ${result.edgesCreated} edges`)
+			}
+		} catch (e) {
+			state.warnings.push(`cross-language linking failed: ${e}`)
+			log.warn(`cross-language linking failed: ${e}`)
+		}
 	}
 
 	// step 6.5: test ↔ source mapping. depends on imports + edges from
