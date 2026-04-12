@@ -14,8 +14,10 @@ interface EmbedCandidate {
 }
 
 // nomic-embed-text has a ~2048 token context window. Dense code averages
-// ~3-4 chars/token, so 2000 chars stays safely under the limit.
-const MAX_EMBED_CHARS = 2000
+// ~3-4 chars/token, so 3000 chars ≈ 750-1000 tokens with safe margin.
+// truncate:true is also sent but has a known Ollama bug (<=0.20.5) where
+// it still returns 400 for some inputs; embedBatchRecoverable handles that.
+const MAX_EMBED_CHARS = 3000
 
 export function buildEmbedText(
 	row: {
@@ -150,14 +152,8 @@ export async function runEmbeddingPipeline(
 			const vec = embeddings[i]
 
 			if (vec === null) {
-				// clean up stale embeddings for changed symbols that failed to re-embed
-				try {
-					store.runRaw('DELETE FROM symbol_embeddings WHERE rowid = ?', candidate.symbolId)
-				} catch { /* may not exist */ }
-				store.runRaw(
-					'DELETE FROM embedding_meta WHERE symbol_stable_id = ?',
-					candidate.stableId,
-				)
+				// skip — preserve any existing embedding rather than deleting it,
+				// since null may be from budget exhaustion, not permanent failure
 				failed++
 				continue
 			}

@@ -6,10 +6,14 @@ const HEALTH_POLL_INTERVAL = 500
 const HEALTH_POLL_MAX = 10
 
 export class EmbedContextLengthError extends Error {
-	constructor(status: number, body: string) {
-		super(`ollama embed context length exceeded: ${status} ${body}`)
+	constructor() {
+		super('ollama embed: context length exceeded')
 		this.name = 'EmbedContextLengthError'
 	}
+}
+
+function previewText(text: string): string {
+	return text.slice(0, 80).replace(/\n/g, ' ')
 }
 
 export class OllamaClient {
@@ -91,8 +95,8 @@ export class OllamaClient {
 
 		if (!res.ok) {
 			const body = await res.text()
-			if (res.status === 400 && /context.length|input.length/i.test(body)) {
-				throw new EmbedContextLengthError(res.status, body)
+			if (res.status === 400 && /input length exceeds.*context length/i.test(body)) {
+				throw new EmbedContextLengthError()
 			}
 			throw new Error(`ollama embed failed: ${res.status} ${body}`)
 		}
@@ -109,13 +113,11 @@ export class OllamaClient {
 	async embedBatched(texts: string[], batchSize = 64): Promise<(number[] | null)[]> {
 		const results: (number[] | null)[] = new Array(texts.length).fill(null)
 		const batchCount = Math.ceil(texts.length / batchSize)
-		let retryBudget = batchCount * 2
+		const budget = { remaining: Math.max(batchCount * 2, 16) }
 
 		for (let i = 0; i < texts.length; i += batchSize) {
 			const end = Math.min(i + batchSize, texts.length)
-			await this.embedBatchRecoverable(texts, i, end, results, retryBudget, (cost) => {
-				retryBudget -= cost
-			})
+			await this.embedBatchRecoverable(texts, i, end, results, budget)
 		}
 
 		return results
@@ -126,8 +128,7 @@ export class OllamaClient {
 		start: number,
 		end: number,
 		results: (number[] | null)[],
-		budget: number,
-		useBudget: (cost: number) => void,
+		budget: { remaining: number },
 	): Promise<void> {
 		const batch = texts.slice(start, end)
 		try {
@@ -140,35 +141,32 @@ export class OllamaClient {
 
 			const count = end - start
 			if (count === 1) {
-				const preview = texts[start].slice(0, 80).replace(/\n/g, ' ')
-				log.warn(`embedding failed for index ${start} (${preview}...): context length exceeded`)
+				log.warn(`embedding failed for index ${start} (${previewText(texts[start])}...): context length exceeded`)
 				return
 			}
 
-			if (budget <= 0) {
+			if (budget.remaining <= 0) {
 				log.warn(`retry budget exhausted, skipping batch [${start}..${end})`)
 				return
 			}
 
-			useBudget(1)
-
 			if (count <= 4) {
-				// probe individually
+				// probe individually — no budget cost
 				for (let i = start; i < end; i++) {
 					try {
 						const [vec] = await this.embed([texts[i]])
 						results[i] = vec
 					} catch (inner) {
 						if (!(inner instanceof EmbedContextLengthError)) throw inner
-						const preview = texts[i].slice(0, 80).replace(/\n/g, ' ')
-						log.warn(`embedding failed for index ${i} (${preview}...): context length exceeded`)
+						log.warn(`embedding failed for index ${i} (${previewText(texts[i])}...): context length exceeded`)
 					}
 				}
 			} else {
+				budget.remaining--
 				const mid = start + Math.floor(count / 2)
 				log.debug(`batch [${start}..${end}) failed, splitting at ${mid}`)
-				await this.embedBatchRecoverable(texts, start, mid, results, budget, useBudget)
-				await this.embedBatchRecoverable(texts, mid, end, results, budget, useBudget)
+				await this.embedBatchRecoverable(texts, start, mid, results, budget)
+				await this.embedBatchRecoverable(texts, mid, end, results, budget)
 			}
 		}
 	}

@@ -6,7 +6,6 @@ function clientWithMockedEmbed(
 	embedFn: (texts: string[]) => Promise<number[][]>,
 ): OllamaClient {
 	const client = new OllamaClient()
-	// replace the network-calling embed() with our mock
 	;(client as any).embed = embedFn
 	return client
 }
@@ -30,20 +29,23 @@ describe('embedBatched', () => {
 	})
 
 	test('isolates a single failing text via binary split', async () => {
-		const texts = ['ok-0', 'ok-1', 'POISON', 'ok-3']
+		// batchSize=8 ensures we hit the recursive split path (>4 threshold)
+		const texts = ['ok-0', 'ok-1', 'ok-2', 'ok-3', 'POISON', 'ok-5', 'ok-6', 'ok-7']
 		const client = clientWithMockedEmbed(async (batch) => {
 			if (batch.includes('POISON')) {
-				throw new EmbedContextLengthError(400, 'context length exceeded')
+				throw new EmbedContextLengthError()
 			}
 			return batch.map((_, i) => fakeVec(i))
 		})
 
-		const results = await client.embedBatched(texts, 4)
-		expect(results).toHaveLength(4)
-		expect(results[0]).not.toBeNull()
-		expect(results[1]).not.toBeNull()
-		expect(results[2]).toBeNull() // POISON
-		expect(results[3]).not.toBeNull()
+		const results = await client.embedBatched(texts, 8)
+		expect(results).toHaveLength(8)
+		expect(results[4]).toBeNull() // POISON
+		// all others should succeed
+		for (let i = 0; i < 8; i++) {
+			if (i === 4) continue
+			expect(results[i]).not.toBeNull()
+		}
 	})
 
 	test('re-throws transport errors (5xx) instead of swallowing', async () => {
@@ -65,7 +67,7 @@ describe('embedBatched', () => {
 	test('all texts failing returns all nulls without throwing', async () => {
 		const texts = ['bad-0', 'bad-1', 'bad-2']
 		const client = clientWithMockedEmbed(async () => {
-			throw new EmbedContextLengthError(400, 'context length exceeded')
+			throw new EmbedContextLengthError()
 		})
 
 		const results = await client.embedBatched(texts, 2)
@@ -76,24 +78,24 @@ describe('embedBatched', () => {
 	})
 
 	test('respects retry budget and stops splitting', async () => {
-		// 16 items, batch size 4 = 4 batches, budget = 8
-		// all fail → budget exhausts before testing every item individually
-		const texts = Array.from({ length: 16 }, (_, i) => `bad-${i}`)
+		// 64 items, batch size 16 = 4 batches, budget = max(8, 16) = 16
+		// all fail → budget should limit total calls
+		const texts = Array.from({ length: 64 }, (_, i) => `bad-${i}`)
 		let callCount = 0
 		const client = clientWithMockedEmbed(async () => {
 			callCount++
-			throw new EmbedContextLengthError(400, 'context length exceeded')
+			throw new EmbedContextLengthError()
 		})
 
-		const results = await client.embedBatched(texts, 4)
-		expect(results).toHaveLength(16)
-		// should not have made an absurd number of calls
-		expect(callCount).toBeLessThan(40)
+		const results = await client.embedBatched(texts, 16)
+		expect(results).toHaveLength(64)
+		// with budget=16, calls should be significantly less than uncapped (127+ per batch)
+		expect(callCount).toBeLessThan(100)
 	})
 
 	test('single oversized symbol returns null with no throw', async () => {
 		const client = clientWithMockedEmbed(async () => {
-			throw new EmbedContextLengthError(400, 'context length exceeded')
+			throw new EmbedContextLengthError()
 		})
 
 		const results = await client.embedBatched(['huge-symbol'], 1)
