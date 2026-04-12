@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { log } from '../../shared/logger.js'
-import type { AtlasStore } from '../storage/store.js'
 import { isVectorSearchAvailable } from '../storage/sqlite-ext.js'
+import type { AtlasStore } from '../storage/store.js'
 import { OllamaClient } from './ollama-client.js'
 
 interface EmbedCandidate {
@@ -13,13 +13,9 @@ interface EmbedCandidate {
 	embedHash: string
 }
 
-// embed text combines a short metadata header with the actual source body.
-// metadata gives the model file/name context; source body is what makes
-// semantic search and duplicate detection meaningful. ollama 0.20 ignores
-// num_ctx on /api/embed and clamps to the model default (~2048 tokens for
-// nomic-embed-text), so we cap at 4500 chars to stay safely under that
-// even for token-dense code.
-const MAX_EMBED_CHARS = 4500
+// nomic-embed-text has a ~2048 token context window. Dense code averages
+// ~3-4 chars/token, so 2000 chars stays safely under the limit.
+const MAX_EMBED_CHARS = 2000
 
 export function buildEmbedText(
 	row: {
@@ -145,30 +141,35 @@ export async function runEmbeddingPipeline(
 	const texts = candidates.map((c) => c.embedText)
 	const embeddings = await ollama.embedBatched(texts)
 
-	// validate we got embeddings for all candidates
-	if (embeddings.length < candidates.length) {
-		log.warn(
-			`ollama returned ${embeddings.length} embeddings for ${candidates.length} candidates, processing partial results`,
-		)
-	}
-	const validCount = Math.min(embeddings.length, candidates.length)
+	let embedded = 0
+	let failed = 0
 
-	// store embeddings (only for successfully embedded symbols)
 	store.bulkInsert(() => {
-		for (let i = 0; i < validCount; i++) {
+		for (let i = 0; i < candidates.length; i++) {
 			const candidate = candidates[i]
-			const embedding = new Float32Array(embeddings[i])
+			const vec = embeddings[i]
+
+			if (vec === null) {
+				// clean up stale embeddings for changed symbols that failed to re-embed
+				try {
+					store.runRaw('DELETE FROM symbol_embeddings WHERE rowid = ?', candidate.symbolId)
+				} catch { /* may not exist */ }
+				store.runRaw(
+					'DELETE FROM embedding_meta WHERE symbol_stable_id = ?',
+					candidate.stableId,
+				)
+				failed++
+				continue
+			}
 
 			// upsert into symbol_embeddings (vec0)
 			try {
 				store.runRaw('DELETE FROM symbol_embeddings WHERE rowid = ?', candidate.symbolId)
-			} catch {
-				// may not exist yet
-			}
+			} catch { /* may not exist */ }
 			store.runRaw(
 				'INSERT INTO symbol_embeddings(rowid, embedding) VALUES (?, ?)',
 				candidate.symbolId,
-				embedding,
+				new Float32Array(vec),
 			)
 
 			// upsert into embedding_meta
@@ -179,8 +180,13 @@ export async function runEmbeddingPipeline(
 				candidate.embedText,
 				candidate.embedHash,
 			)
+			embedded++
 		}
 	})
 
-	return { embedded: validCount, skipped }
+	if (failed > 0) {
+		log.warn(`${failed} of ${candidates.length} symbols failed to embed`)
+	}
+
+	return { embedded, skipped }
 }

@@ -5,6 +5,13 @@ const DEFAULT_MODEL = 'nomic-embed-text'
 const HEALTH_POLL_INTERVAL = 500
 const HEALTH_POLL_MAX = 10
 
+export class EmbedContextLengthError extends Error {
+	constructor(status: number, body: string) {
+		super(`ollama embed context length exceeded: ${status} ${body}`)
+		this.name = 'EmbedContextLengthError'
+	}
+}
+
 export class OllamaClient {
 	private baseUrl: string
 	private model: string
@@ -83,23 +90,87 @@ export class OllamaClient {
 		})
 
 		if (!res.ok) {
-			throw new Error(`ollama embed failed: ${res.status} ${await res.text()}`)
+			const body = await res.text()
+			if (res.status === 400 && /context.length|input.length/i.test(body)) {
+				throw new EmbedContextLengthError(res.status, body)
+			}
+			throw new Error(`ollama embed failed: ${res.status} ${body}`)
 		}
 
 		const data = (await res.json()) as { embeddings: number[][] }
+		if (data.embeddings.length !== texts.length) {
+			throw new Error(
+				`ollama returned ${data.embeddings.length} embeddings for ${texts.length} inputs`,
+			)
+		}
 		return data.embeddings
 	}
 
-	async embedBatched(texts: string[], batchSize = 64): Promise<number[][]> {
-		const results: number[][] = []
+	async embedBatched(texts: string[], batchSize = 64): Promise<(number[] | null)[]> {
+		const results: (number[] | null)[] = new Array(texts.length).fill(null)
+		const batchCount = Math.ceil(texts.length / batchSize)
+		let retryBudget = batchCount * 2
 
 		for (let i = 0; i < texts.length; i += batchSize) {
-			const batch = texts.slice(i, i + batchSize)
-			const embeddings = await this.embed(batch)
-			results.push(...embeddings)
+			const end = Math.min(i + batchSize, texts.length)
+			await this.embedBatchRecoverable(texts, i, end, results, retryBudget, (cost) => {
+				retryBudget -= cost
+			})
 		}
 
 		return results
+	}
+
+	private async embedBatchRecoverable(
+		texts: string[],
+		start: number,
+		end: number,
+		results: (number[] | null)[],
+		budget: number,
+		useBudget: (cost: number) => void,
+	): Promise<void> {
+		const batch = texts.slice(start, end)
+		try {
+			const embeddings = await this.embed(batch)
+			for (let j = 0; j < embeddings.length; j++) {
+				results[start + j] = embeddings[j]
+			}
+		} catch (e) {
+			if (!(e instanceof EmbedContextLengthError)) throw e
+
+			const count = end - start
+			if (count === 1) {
+				const preview = texts[start].slice(0, 80).replace(/\n/g, ' ')
+				log.warn(`embedding failed for index ${start} (${preview}...): context length exceeded`)
+				return
+			}
+
+			if (budget <= 0) {
+				log.warn(`retry budget exhausted, skipping batch [${start}..${end})`)
+				return
+			}
+
+			useBudget(1)
+
+			if (count <= 4) {
+				// probe individually
+				for (let i = start; i < end; i++) {
+					try {
+						const [vec] = await this.embed([texts[i]])
+						results[i] = vec
+					} catch (inner) {
+						if (!(inner instanceof EmbedContextLengthError)) throw inner
+						const preview = texts[i].slice(0, 80).replace(/\n/g, ' ')
+						log.warn(`embedding failed for index ${i} (${preview}...): context length exceeded`)
+					}
+				}
+			} else {
+				const mid = start + Math.floor(count / 2)
+				log.debug(`batch [${start}..${end}) failed, splitting at ${mid}`)
+				await this.embedBatchRecoverable(texts, start, mid, results, budget, useBudget)
+				await this.embedBatchRecoverable(texts, mid, end, results, budget, useBudget)
+			}
+		}
 	}
 
 	async generate(prompt: string, model?: string): Promise<string> {

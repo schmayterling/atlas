@@ -59,7 +59,7 @@ describe('buildEmbedText', () => {
 				root,
 				new Map(),
 			)
-			expect(text.length).toBeLessThanOrEqual(4500)
+			expect(text.length).toBeLessThanOrEqual(2000)
 		})
 	})
 
