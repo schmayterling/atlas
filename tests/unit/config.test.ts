@@ -60,14 +60,23 @@ describe('testPatterns', () => {
 		})
 	})
 
-	test('normalizeTestPatterns rewrites bare and trailing-slash forms into **/X/**', () => {
+	test('normalizeTestPatterns rewrites only bare directory forms', () => {
 		expect(normalizeTestPatterns(['tests/**', 'spec', '__tests__', '*.spec.ts', '**/already/**'])).toEqual([
 			'**/tests/**',
 			'**/spec/**',
 			'**/__tests__/**',
-			'**/*.spec.ts',
+			'*.spec.ts',
 			'**/already/**',
 		])
+	})
+
+	test('normalizeTestPatterns leaves multi-segment and file globs alone', () => {
+		// these patterns can't be matched by file-discovery's matchPattern
+		// either way, but rewriting them would silently produce impossible
+		// directory patterns. leaving them alone preserves user intent.
+		expect(
+			normalizeTestPatterns(['foo.test.ts', 'src/**/__tests__/**', 'tests/*', 'src/tests/**']),
+		).toEqual(['foo.test.ts', 'src/**/__tests__/**', 'tests/*', 'src/tests/**'])
 	})
 
 	test('loadConfig normalizes user-supplied testPatterns', () => {
@@ -92,6 +101,25 @@ describe('testPatterns', () => {
 				writeFileSync(
 					join(root, '.atlas/config.json'),
 					JSON.stringify({ exclude: ['**/*.test.*', '**/node_modules/**'] }),
+				)
+				loadConfig(root)
+			})
+			expect(warns.some((w) => w.includes('atlas now indexes test files'))).toBe(true)
+		} finally {
+			log.warn = original
+		}
+	})
+
+	test('loadConfig warns on directory-style legacy test excludes too', () => {
+		const warns: string[] = []
+		const original = log.warn
+		log.warn = ((msg: string) => warns.push(msg)) as typeof log.warn
+		try {
+			withTempProject((root) => {
+				mkdirSync(join(root, '.atlas'), { recursive: true })
+				writeFileSync(
+					join(root, '.atlas/config.json'),
+					JSON.stringify({ exclude: ['**/tests/**', '**/node_modules/**'] }),
 				)
 				loadConfig(root)
 			})

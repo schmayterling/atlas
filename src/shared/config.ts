@@ -46,19 +46,48 @@ const ConfigSchema = z.object({
 
 export type AtlasConfig = z.infer<typeof ConfigSchema>
 
-// rewrite test pattern shapes that the file-discovery matchPattern can't
-// handle into the **/X/** form it understands. bare 'tests/**' or 'tests'
-// would otherwise silently match nothing.
+// rewrite the small set of legacy directory shapes the file-discovery
+// matchPattern can't handle directly. bare `tests` or `tests/**` would
+// otherwise silently match nothing because matchPattern only recognizes
+// `**/<dir>/**`. patterns that already use any matchPattern-supported
+// shape (`**/...`, `*.ext`, exact path) are returned untouched, since
+// rewriting them would turn valid file globs into impossible directory
+// patterns (e.g. `foo.test.ts` -> `**/foo.test.ts/**`).
 export function normalizeTestPatterns(patterns: string[]): string[] {
 	return patterns.map((raw) => {
 		const p = raw.trim()
 		if (!p) return p
+		// already in a shape matchPattern handles
 		if (p.startsWith('**/')) return p
-		if (p.startsWith('*.')) return `**/${p}`
-		if (p.endsWith('/**')) return `**/${p.slice(0, -3)}/**`
-		return `**/${p}/**`
+		if (p.startsWith('*.')) return p
+		// bare `dir/**` -> `**/dir/**`
+		if (p.endsWith('/**')) {
+			const inner = p.slice(0, -3)
+			// only rewrite if the inner part is a single directory name
+			// without slashes; multi-segment paths (`src/tests/**`) are
+			// left alone because matchPattern can't match them anyway and
+			// silently rewriting them is misleading.
+			if (inner && !inner.includes('/')) return `**/${inner}/**`
+			return p
+		}
+		// bare directory name with no slashes -> `**/dir/**`
+		if (!p.includes('/') && !p.includes('*') && !p.includes('.')) {
+			return `**/${p}/**`
+		}
+		return p
 	})
 }
+
+// directory-style fragments that, when present in a user's exclude list,
+// would silently suppress every test file discovered by tier 4 even though
+// the new tier-4 features expect to see them.
+const LEGACY_TEST_EXCLUDE_FRAGMENTS = [
+	'*.test.',
+	'*.spec.',
+	'/tests/',
+	'/__tests__/',
+	'/test/',
+] as const
 
 export function loadConfig(projectRoot: string): AtlasConfig {
 	const configPath = join(projectRoot, '.atlas', 'config.json')
@@ -80,13 +109,15 @@ export function loadConfig(projectRoot: string): AtlasConfig {
 		const hasLegacyTestExcludes =
 			Array.isArray(userRaw.exclude) &&
 			userRaw.exclude.some(
-				(p) => typeof p === 'string' && (p.includes('*.test.') || p.includes('*.spec.')),
+				(p) =>
+					typeof p === 'string' &&
+					LEGACY_TEST_EXCLUDE_FRAGMENTS.some((f) => p.includes(f)),
 			)
 		const hasNoTestPatterns =
 			!userRaw.testPatterns || (Array.isArray(userRaw.testPatterns) && userRaw.testPatterns.length === 0)
 		if (hasLegacyTestExcludes && hasNoTestPatterns) {
 			log.warn(
-				`atlas now indexes test files by default. remove **/*.test.* and **/*.spec.* from "exclude" in ${configPath} to enable atlas tests / hot-fragile / coverage queries.`,
+				`atlas now indexes test files by default. remove test patterns (**/*.test.*, **/*.spec.*, **/tests/**, **/__tests__/**, **/test/**) from "exclude" in ${configPath} to enable atlas tests / hot-fragile / coverage queries.`,
 			)
 		}
 	}
