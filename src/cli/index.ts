@@ -52,6 +52,7 @@ program
 	.option('--no-embed', 'skip vector embedding generation')
 	.option('--no-summarize', 'skip LLM summary generation')
 	.option('--with-cochange', 'use git co-change as additional weight in subsystem clustering')
+	.option('--db <path>', 'override index db path (relative to project root or absolute)')
 	.action(async (cmdOpts) => {
 		const opts = program.opts()
 		await indexCommand(opts.project, opts.json, {
@@ -60,6 +61,7 @@ program
 			noEmbed: !cmdOpts.embed,
 			noSummarize: !cmdOpts.summarize,
 			withCoChange: cmdOpts.withCochange,
+			db: cmdOpts.db,
 		})
 	})
 

@@ -54,10 +54,12 @@ export class AtlasEngine {
 	private projectRoot: string
 	private dbPath: string
 
-	constructor(projectRoot: string) {
+	constructor(projectRoot: string, opts?: { dbPath?: string }) {
 		this.projectRoot = projectRoot
 		this.config = loadConfig(projectRoot)
-		this.dbPath = getDbPath(projectRoot, this.config)
+		this.dbPath = opts?.dbPath
+			? (opts.dbPath.startsWith('/') ? opts.dbPath : join(projectRoot, opts.dbPath))
+			: getDbPath(projectRoot, this.config)
 	}
 
 	private getStore(): AtlasStore {

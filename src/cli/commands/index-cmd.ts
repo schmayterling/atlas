@@ -11,9 +11,10 @@ export async function indexCommand(
 		noEmbed?: boolean
 		noSummarize?: boolean
 		withCoChange?: boolean
+		db?: string
 	},
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = new AtlasEngine(projectRoot, opts.db ? { dbPath: opts.db } : undefined)
 
 	try {
 		const result = await engine.index(opts)
