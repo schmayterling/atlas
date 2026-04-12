@@ -5,12 +5,15 @@ import type { AtlasStore } from '../storage/store.js'
 // joining each test file's resolved imports (and outgoing calls edges) to
 // the source symbols they reference.
 //
-// pass 1 ('imported'): walk imports rows for the test file, fetch all
-// exported symbols in the imported file, insert one (test_file_id, stable_id,
-// 'imported') row per symbol.
+// pass 1 ('imported'): for each test file, mark every exported symbol of
+// every imported file as 'imported'. broad signal: it just means a test
+// imported the module, not that the test exercises any specific symbol.
+// barrel re-exports inflate this set, so 'imported' coverage is treated
+// as a weak signal by downstream queries (untestedSymbols and hotFragile
+// only count 'called' coverage).
 //
-// pass 2 ('called'): for each calls edge whose source symbol lives in the
-// test file and target symbol lives in a different file, INSERT OR REPLACE
+// pass 2 ('called'): for each calls edge whose source symbol lives in a
+// test file and target symbol lives in a non-test file, INSERT OR REPLACE
 // the row with confidence 'called'. the composite PK collides on
 // (test_file_id, source_symbol_stable_id) and 'called' wins.
 //
@@ -18,56 +21,54 @@ import type { AtlasStore } from '../storage/store.js'
 // (cross-file resolution). that step uses store.findSymbolInFile (the
 // stmtFindSymbolInFile/Kind prepared statements). those statements MUST NOT
 // filter by files.is_test, otherwise pass 2 produces zero rows.
+//
+// both passes are single SQL queries; the 'imported' and 'called' rows are
+// computed in two batched calls and written in two transactions. on failure
+// the rows from a successful pass remain (acceptable: indexer step 6.5
+// catches and the next index run rebuilds via clearAllTestLinks).
 export function runTestMapping(store: AtlasStore): { testFiles: number; imported: number; called: number } {
-	const testFiles = store.queryRaw<{ id: number; path: string }>(
-		'SELECT id, path FROM files WHERE is_test = 1',
-	)
-	if (testFiles.length === 0) {
+	const testFileCount = store.queryRaw<{ count: number }>(
+		'SELECT COUNT(*) as count FROM files WHERE is_test = 1',
+	)[0]?.count ?? 0
+
+	// always clear, even when there are zero test files: a user reclassifying
+	// tests as production should not see stale rows linger.
+	store.clearAllTestLinks()
+
+	if (testFileCount === 0) {
+		log.info('test-mapping: no test files; skipped')
 		return { testFiles: 0, imported: 0, called: 0 }
 	}
 
-	store.clearAllTestLinks()
+	const importedPairs = store.getTestImportedSymbolPairs()
+	const importedRows = importedPairs.map((p) => ({
+		testFileId: p.testFileId,
+		symbolStableId: p.symbolStableId,
+		confidence: 'imported' as const,
+	}))
+	store.insertTestLinks(importedRows)
 
-	const importedRows: { testFileId: number; symbolStableId: string; confidence: 'imported' | 'called' }[] = []
-	const calledRows: { testFileId: number; symbolStableId: string; confidence: 'imported' | 'called' }[] = []
+	const calledPairs = store.getTestCalledSymbolPairs()
+	const calledRows = calledPairs.map((p) => ({
+		testFileId: p.testFileId,
+		symbolStableId: p.symbolStableId,
+		confidence: 'called' as const,
+	}))
+	store.insertTestLinks(calledRows)
 
-	for (const tf of testFiles) {
-		const imports = store.getImportsByFileId(tf.id)
-		for (const imp of imports) {
-			if (imp.targetFileId == null) continue
-			const exported = store.queryRawWithParams<{ stableId: string }>(
-				'SELECT stable_id as stableId FROM symbols WHERE file_id = ? AND is_exported = 1',
-				imp.targetFileId,
-			)
-			for (const sym of exported) {
-				importedRows.push({ testFileId: tf.id, symbolStableId: sym.stableId, confidence: 'imported' })
-			}
-		}
-
-		// pass 2: calls edges from any symbol in this test file to a symbol
-		// in any other file. edges.source_id and edges.target_id are TEXT
-		// stable_ids, so we join symbols twice to filter by file_id.
-		const calls = store.queryRawWithParams<{ targetStableId: string }>(
-			`SELECT DISTINCT tgt.stable_id as targetStableId
-			 FROM edges e
-			 JOIN symbols src ON src.stable_id = e.source_id
-			 JOIN symbols tgt ON tgt.stable_id = e.target_id
-			 WHERE e.kind = 'calls' AND src.file_id = ? AND tgt.file_id != ?`,
-			tf.id,
-			tf.id,
+	if (importedRows.length > 0 && calledRows.length === 0) {
+		// the most diagnostic-worthy state: imports resolved but no call
+		// edges crossed file boundaries from any test file. usually means
+		// cross-file resolution (step 6) didn't run, or the
+		// stmtFindSymbolInFile invariant was accidentally filtered.
+		log.warn(
+			'test-mapping: imported rows exist but zero called edges resolved. coverage will be import-only. check that step 6 cross-file resolution ran successfully.',
 		)
-		for (const c of calls) {
-			calledRows.push({ testFileId: tf.id, symbolStableId: c.targetStableId, confidence: 'called' })
-		}
 	}
 
-	if (importedRows.length > 0) store.insertTestLinks(importedRows)
-	// pass 2 second so 'called' overwrites 'imported' on PK collision
-	if (calledRows.length > 0) store.insertTestLinks(calledRows)
-
 	log.info(
-		`test-mapping: ${testFiles.length} test files, ${importedRows.length} imported, ${calledRows.length} called`,
+		`test-mapping: ${testFileCount} test files, ${importedRows.length} imported, ${calledRows.length} called`,
 	)
 
-	return { testFiles: testFiles.length, imported: importedRows.length, called: calledRows.length }
+	return { testFiles: testFileCount, imported: importedRows.length, called: calledRows.length }
 }

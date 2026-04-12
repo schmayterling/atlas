@@ -600,39 +600,45 @@ export class AtlasStore {
 
 	// --- test links (test ↔ source mapping) ---
 
-	getImportsByFileId(fileId: number): {
-		sourceFileId: number
-		targetFileId: number | null
-		importPath: string
-		isTypeOnly: boolean
-		line: number | null
-	}[] {
+	// returns one row per (test file, exported source symbol) where the
+	// test file imports the source symbol's containing file. used by step
+	// 6.5 to populate the 'imported' confidence rows in a single query.
+	getTestImportedSymbolPairs(): { testFileId: number; symbolStableId: string }[] {
 		return this.db
-			.query<
-				{
-					sourceFileId: number
-					targetFileId: number | null
-					importPath: string
-					isTypeOnly: number
-					line: number | null
-				},
-				[number]
-			>(
-				`SELECT source_file_id as sourceFileId, target_file_id as targetFileId,
-				import_path as importPath, is_type_only as isTypeOnly, line
-				FROM imports WHERE source_file_id = ?`,
+			.query<{ testFileId: number; symbolStableId: string }, []>(
+				`SELECT i.source_file_id as testFileId, s.stable_id as symbolStableId
+				 FROM files tf
+				 JOIN imports i ON i.source_file_id = tf.id
+				 JOIN symbols s ON s.file_id = i.target_file_id
+				 WHERE tf.is_test = 1
+				 AND i.target_file_id IS NOT NULL
+				 AND s.is_exported = 1`,
 			)
-			.all(fileId)
-			.map((r) => ({
-				sourceFileId: r.sourceFileId,
-				targetFileId: r.targetFileId,
-				importPath: r.importPath,
-				isTypeOnly: r.isTypeOnly === 1,
-				line: r.line,
-			}))
+			.all()
+	}
+
+	// returns one row per (test file, source symbol) where a calls edge
+	// originates from a symbol in the test file and points at a symbol in
+	// a non-test file. used by step 6.5 to populate the 'called' confidence
+	// rows in a single query.
+	getTestCalledSymbolPairs(): { testFileId: number; symbolStableId: string }[] {
+		return this.db
+			.query<{ testFileId: number; symbolStableId: string }, []>(
+				`SELECT DISTINCT src.file_id as testFileId, tgt.stable_id as symbolStableId
+				 FROM edges e
+				 JOIN symbols src ON src.stable_id = e.source_id
+				 JOIN symbols tgt ON tgt.stable_id = e.target_id
+				 JOIN files srcf ON srcf.id = src.file_id
+				 JOIN files tgtf ON tgtf.id = tgt.file_id
+				 WHERE e.kind = 'calls'
+				 AND srcf.is_test = 1
+				 AND tgtf.is_test = 0`,
+			)
+			.all()
 	}
 
 	insertTestLinks(rows: { testFileId: number; symbolStableId: string; confidence: 'imported' | 'called' }[]) {
+		if (rows.length === 0) return
 		const stmt = this.db.prepare(
 			'INSERT OR REPLACE INTO test_links (test_file_id, source_symbol_stable_id, confidence) VALUES (?, ?, ?)',
 		)
@@ -641,15 +647,6 @@ export class AtlasStore {
 				stmt.run(row.testFileId, row.symbolStableId, row.confidence)
 			}
 		})
-	}
-
-	deleteTestLinksByFiles(fileIds: number[]) {
-		if (fileIds.length === 0) return
-		for (let i = 0; i < fileIds.length; i += 500) {
-			const chunk = fileIds.slice(i, i + 500)
-			const placeholders = chunk.map(() => '?').join(',')
-			this.db.run(`DELETE FROM test_links WHERE test_file_id IN (${placeholders})`, chunk)
-		}
 	}
 
 	clearAllTestLinks() {
