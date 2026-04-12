@@ -42,6 +42,7 @@ program
 	.option('--dry-run', 'show what would be indexed without changes')
 	.option('--no-embed', 'skip vector embedding generation')
 	.option('--no-summarize', 'skip LLM summary generation')
+	.option('--with-cochange', 'use git co-change as additional weight in subsystem clustering')
 	.action(async (cmdOpts) => {
 		const opts = program.opts()
 		await indexCommand(opts.project, opts.json, {
@@ -49,6 +50,7 @@ program
 			dryRun: cmdOpts.dryRun,
 			noEmbed: !cmdOpts.embed,
 			noSummarize: !cmdOpts.summarize,
+			withCoChange: cmdOpts.withCochange,
 		})
 	})
 
