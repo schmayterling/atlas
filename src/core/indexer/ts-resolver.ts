@@ -87,34 +87,32 @@ function resolveImports(
 	store: AtlasStore,
 	imports: ResolvedImport[],
 ) {
+	const pushImport = (importPath: string, isTypeOnly: boolean, node: ts.Node) => {
+		const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+		const result = ts.resolveModuleName(importPath, sourceFile.fileName, options, ts.sys)
+		let targetFileId: number | null = null
+		if (result.resolvedModule) {
+			const resolvedPath = toForwardSlash(
+				relative(projectRoot, result.resolvedModule.resolvedFileName),
+			)
+			targetFileId = store.getFileByPath(resolvedPath)?.id ?? null
+		}
+		imports.push({ sourceFileId, targetFileId, importPath, isTypeOnly, line })
+	}
+
 	ts.forEachChild(sourceFile, function visit(node) {
 		if (ts.isImportDeclaration(node)) {
 			const specifier = node.moduleSpecifier
-			if (!ts.isStringLiteral(specifier)) return
-
-			const importPath = specifier.text
-			const isTypeOnly = node.importClause?.isTypeOnly ?? false
-			const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
-
-			// resolve module to file
-			const result = ts.resolveModuleName(importPath, sourceFile.fileName, options, ts.sys)
-			let targetFileId: number | null = null
-
-			if (result.resolvedModule) {
-				const resolvedPath = toForwardSlash(
-					relative(projectRoot, result.resolvedModule.resolvedFileName),
-				)
-				const targetFile = store.getFileByPath(resolvedPath)
-				targetFileId = targetFile?.id ?? null
+			if (ts.isStringLiteral(specifier)) {
+				pushImport(specifier.text, node.importClause?.isTypeOnly ?? false, node)
 			}
-
-			imports.push({
-				sourceFileId,
-				targetFileId,
-				importPath,
-				isTypeOnly,
-				line,
-			})
+		} else if (
+			ts.isCallExpression(node) &&
+			node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+			node.arguments.length === 1 &&
+			ts.isStringLiteral(node.arguments[0])
+		) {
+			pushImport((node.arguments[0] as ts.StringLiteral).text, false, node)
 		}
 
 		ts.forEachChild(node, visit)
