@@ -311,7 +311,7 @@ export class Indexer {
 			const dupCount = detectDuplicatesFromEmbeddings(this.store)
 			log.info(`duplicate detection: ${dupCount} pairs in ${(performance.now() - t).toFixed(0)}ms`)
 		} catch (e) {
-			log.debug(`duplicate detection skipped: ${e}`)
+			log.warn(`duplicate detection failed: ${e}`)
 		}
 
 		// step 11: update metadata
