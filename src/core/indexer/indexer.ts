@@ -298,7 +298,7 @@ export class Indexer {
 		t = performance.now()
 		try {
 			const { runFlowPipeline } = await import('../llm/flow-pipeline.js')
-			const flowResult = await runFlowPipeline(this.store)
+			const flowResult = await runFlowPipeline(this.store, { skipLLM: opts?.noSummarize })
 			log.info(`flow detection: ${flowResult.detected} flows (${flowResult.named} named) in ${(performance.now() - t).toFixed(0)}ms`)
 		} catch (e) {
 			log.debug(`flow detection skipped: ${e}`)

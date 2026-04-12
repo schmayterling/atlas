@@ -5,6 +5,7 @@ import { findFlowRoots, traceFlowChain, storeFlow, clearFlows } from '../queries
 
 export async function runFlowPipeline(
 	store: AtlasStore,
+	opts?: { skipLLM?: boolean },
 ): Promise<{ detected: number; named: number }> {
 	// check if flows table exists
 	const tables = store.queryRaw<{ name: string }>(
@@ -28,11 +29,11 @@ export async function runFlowPipeline(
 
 	if (flows.length === 0) return { detected: 0, named: 0 }
 
-	// try to name flows with LLM
+	// try to name flows with LLM (skip when caller opts out, e.g. tests)
 	const client = new OllamaClient()
 	let chatModel: string | null = null
 	try {
-		const running = await client.isRunning()
+		const running = !opts?.skipLLM && (await client.isRunning())
 		if (running) {
 			const res = await fetch('http://127.0.0.1:11434/api/tags')
 			if (res.ok) {
