@@ -94,7 +94,8 @@ export async function runEmbeddingPipeline(
 	}>(`SELECT s.id, s.stable_id as stableId, s.kind, s.name, s.qualified_name as qualifiedName,
 		f.path as filePath, s.signature, s.doc_comment as docComment,
 		s.byte_start as byteStart, s.byte_end as byteEnd
-		FROM symbols s JOIN files f ON s.file_id = f.id`)
+		FROM symbols s JOIN files f ON s.file_id = f.id
+		WHERE NOT (s.kind = 'property' AND (s.byte_end - s.byte_start) < 80)`)
 
 	// get existing embed hashes
 	const existingMeta = store.queryRaw<{
