@@ -239,6 +239,55 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			}),
 	)
 
+	// --- atlas_subsystems ---
+	server.tool(
+		'atlas_subsystems',
+		'list detected subsystems (high-level modules from graph clustering)',
+		{},
+		() =>
+			safe(() => {
+				const rows = engine.subsystems()
+				if (rows.length === 0) {
+					return { content: [{ type: 'text' as const, text: 'no subsystems detected' }] }
+				}
+				const lines = rows.map((r) => {
+					const desc = r.description ? ` — ${r.description}` : ''
+					return `${r.id}  ${String(r.fileCount).padStart(3)} files  conductance=${r.conductance.toFixed(2)}  ${r.name}${desc}`
+				})
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
+	// --- atlas_subsystem ---
+	server.tool(
+		'atlas_subsystem',
+		'detail for one subsystem (member files, top exported symbols)',
+		{
+			id: z.string().describe('subsystem id (16-hex content hash)'),
+		},
+		({ id }) =>
+			safe(() => {
+				const detail = engine.subsystem(id)
+				if (!detail) {
+					return {
+						content: [{ type: 'text' as const, text: `subsystem ${id} not found` }],
+						isError: true,
+					}
+				}
+				const parts: string[] = []
+				parts.push(`subsystem: ${detail.name}`)
+				if (detail.description) parts.push(`description: ${detail.description}`)
+				parts.push(`conductance: ${detail.conductance.toFixed(2)}`)
+				parts.push(`\nfiles (${detail.files.length}):`)
+				for (const f of detail.files) parts.push(`  ${f.path}`)
+				if (detail.topSymbols.length > 0) {
+					parts.push(`\ntop exported symbols:`)
+					for (const s of detail.topSymbols) parts.push(`  ${s.kind.padEnd(10)} ${s.name}  (${s.filePath})`)
+				}
+				return { content: [{ type: 'text' as const, text: parts.join('\n') }] }
+			}),
+	)
+
 	// --- atlas_churn ---
 	server.tool(
 		'atlas_churn',

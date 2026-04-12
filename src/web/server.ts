@@ -254,6 +254,21 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 		} catch (e) { log.error(`git/co-change: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
+	app.get('/api/subsystems', (c) => {
+		try { return c.json(eng(c).subsystems()) }
+		catch (e) { log.error(`subsystems: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/subsystem', (c) => {
+		const id = c.req.query('id')
+		if (!id) return c.json({ error: 'id required' }, 400)
+		try {
+			const detail = eng(c).subsystem(id)
+			if (!detail) return c.json({ error: 'subsystem not found' }, 404)
+			return c.json(detail)
+		} catch (e) { log.error(`subsystem: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
 	// MCP over HTTP. the streamable transport is stateless
 	// (sessionIdGenerator: undefined) and the SDK refuses to reuse one
 	// across requests, so we build a fresh server+transport per call. the

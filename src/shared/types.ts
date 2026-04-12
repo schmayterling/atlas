@@ -250,6 +250,24 @@ export interface DuplicatePair {
 	description: string | null
 }
 
+export interface SubsystemSummary {
+	id: string
+	name: string
+	description: string | null
+	fileCount: number
+	conductance: number
+}
+
+export interface SubsystemDetail {
+	id: string
+	name: string
+	description: string | null
+	conductance: number
+	generatedAt: number
+	files: { id: number; path: string; language: string | null }[]
+	topSymbols: { name: string; kind: string; filePath: string }[]
+}
+
 // file info for web UI
 export interface FileInfo {
 	path: string

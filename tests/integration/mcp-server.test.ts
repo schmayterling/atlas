@@ -26,6 +26,8 @@ describe('mcp server tool registration', () => {
 		expect(names).toContain('atlas_dead_code')
 		expect(names).toContain('atlas_history')
 		expect(names).toContain('atlas_churn')
+		expect(names).toContain('atlas_subsystems')
+		expect(names).toContain('atlas_subsystem')
 	})
 })
 

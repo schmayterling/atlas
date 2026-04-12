@@ -12,6 +12,7 @@ import { ProjectsPage } from './pages/projects.js'
 import { FlowsPage } from './pages/flows.js'
 import { DuplicatesPage } from './pages/duplicates.js'
 import { HistoryPage } from './pages/history.js'
+import { SubsystemsPage } from './pages/subsystems.js'
 
 class ErrorBoundary extends React.Component<
 	{ children: React.ReactNode },
@@ -43,6 +44,7 @@ function App() {
 					<Route path="/flows" component={FlowsPage} />
 					<Route path="/duplicates" component={DuplicatesPage} />
 					<Route path="/history" component={HistoryPage} />
+					<Route path="/subsystems" component={SubsystemsPage} />
 					<Route path="/projects" component={ProjectsPage} />
 					<Route>
 						<div className="text-text-muted text-sm">

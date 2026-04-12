@@ -13,6 +13,8 @@ import type {
 	SearchResult,
 	SemanticSearchResult,
 	StatusResult,
+	SubsystemDetail,
+	SubsystemSummary,
 	SymbolDetail,
 	SymbolKind,
 } from '../shared/types.js'
@@ -340,6 +342,100 @@ export class AtlasEngine {
 
 	coChange(opts?: { filePath?: string; minCount?: number; limit?: number }) {
 		return gitCoChange(this.getStore(), opts)
+	}
+
+	// --- subsystems ---
+
+	subsystems(): SubsystemSummary[] {
+		const store = this.getStore()
+		const rows = store.queryRaw<{
+			id: string
+			name: string
+			description: string | null
+			memberFileIds: string
+			conductance: number
+		}>(
+			`SELECT id, name, description, member_file_ids as memberFileIds, conductance
+			 FROM subsystems
+			 ORDER BY conductance ASC`,
+		)
+		return rows.map((r) => ({
+			id: r.id,
+			name: r.name,
+			description: r.description,
+			fileCount: (JSON.parse(r.memberFileIds) as number[]).length,
+			conductance: r.conductance,
+		}))
+	}
+
+	subsystem(id: string): SubsystemDetail | null {
+		const store = this.getStore()
+		const row = store.queryRawWithParams<{
+			id: string
+			name: string
+			description: string | null
+			memberFileIds: string
+			conductance: number
+			generatedAt: number
+		}>(
+			`SELECT id, name, description, member_file_ids as memberFileIds, conductance,
+			        generated_at as generatedAt
+			 FROM subsystems WHERE id = ?`,
+			id,
+		)[0]
+		if (!row) return null
+		const memberFileIds = JSON.parse(row.memberFileIds) as number[]
+		const placeholders = memberFileIds.map(() => '?').join(',') || 'NULL'
+		const files = store.queryRawWithParams<{ id: number; path: string; language: string | null }>(
+			`SELECT id, path, language FROM files WHERE id IN (${placeholders})`,
+			...memberFileIds,
+		)
+		const topSymbols = store.queryRawWithParams<{
+			name: string
+			kind: string
+			filePath: string
+		}>(
+			`SELECT s.name, s.kind, f.path as filePath
+			 FROM symbols s JOIN files f ON f.id = s.file_id
+			 WHERE s.file_id IN (${placeholders}) AND s.is_exported = 1
+			 ORDER BY s.name LIMIT 20`,
+			...memberFileIds,
+		)
+		return {
+			id: row.id,
+			name: row.name,
+			description: row.description,
+			conductance: row.conductance,
+			generatedAt: row.generatedAt,
+			files,
+			topSymbols,
+		}
+	}
+
+	symbolSubsystem(stableId: string): SubsystemSummary | null {
+		const store = this.getStore()
+		const row = store.queryRawWithParams<{
+			id: string
+			name: string
+			description: string | null
+			memberFileIds: string
+			conductance: number
+		}>(
+			`SELECT s2.id, s2.name, s2.description, s2.member_file_ids as memberFileIds, s2.conductance
+			 FROM symbols s
+			 JOIN files f ON f.id = s.file_id
+			 JOIN subsystems s2 ON s2.id = f.subsystem_id
+			 WHERE s.stable_id = ?`,
+			stableId,
+		)[0]
+		if (!row) return null
+		return {
+			id: row.id,
+			name: row.name,
+			description: row.description,
+			fileCount: (JSON.parse(row.memberFileIds) as number[]).length,
+			conductance: row.conductance,
+		}
 	}
 
 	// --- LLM summaries ---

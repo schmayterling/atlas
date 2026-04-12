@@ -97,6 +97,26 @@ describe('GET /api/flows', () => {
 	})
 })
 
+describe('GET /api/subsystems', () => {
+	test('returns an array', async () => {
+		const { status, body } = await getJson('/api/subsystems')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+	})
+})
+
+describe('GET /api/subsystem', () => {
+	test('400s without id', async () => {
+		const { status } = await getJson('/api/subsystem')
+		expect(status).toBe(400)
+	})
+
+	test('404s for unknown id', async () => {
+		const { status } = await getJson('/api/subsystem?id=0000000000000000')
+		expect(status).toBe(404)
+	})
+})
+
 describe('GET /api/git/*', () => {
 	test('churn returns an array (empty for fixture without git)', async () => {
 		const { status, body } = await getJson('/api/git/churn?limit=10')

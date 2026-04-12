@@ -9,6 +9,8 @@ import type {
 	SearchResult,
 	SemanticSearchResult,
 	StatusResult,
+	SubsystemDetail,
+	SubsystemSummary,
 	SymbolDetail,
 	SymbolResult,
 } from '../../../shared/types.js'
@@ -96,6 +98,8 @@ export const api = {
 			limit: opts?.limit?.toString(),
 			minCount: opts?.minCount?.toString(),
 		}),
+	subsystems: () => get<SubsystemSummary[]>('/subsystems'),
+	subsystem: (id: string) => get<SubsystemDetail>('/subsystem', { id }),
 }
 
 export interface ChurnEntry {
