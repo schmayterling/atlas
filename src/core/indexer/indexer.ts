@@ -23,7 +23,13 @@ export class Indexer {
 		private store: AtlasStore,
 	) {}
 
-	async index(opts?: { force?: boolean; dryRun?: boolean; noEmbed?: boolean; noSummarize?: boolean }): Promise<IndexResult> {
+	async index(opts?: {
+		force?: boolean
+		dryRun?: boolean
+		noEmbed?: boolean
+		noSummarize?: boolean
+		withCoChange?: boolean
+	}): Promise<IndexResult> {
 		const start = performance.now()
 		const warnings: string[] = []
 
@@ -326,7 +332,25 @@ export class Indexer {
 			log.warn(`duplicate detection failed: ${e}`)
 		}
 
-		// step 11: update metadata
+		// step 11: subsystem detection
+		t = performance.now()
+		try {
+			const { runSubsystemPipeline } = await import('../llm/subsystem-pipeline.js')
+			const subResult = await runSubsystemPipeline(
+				this.store,
+				getCurrentCommit(this.projectRoot),
+				{ skipLLM: opts?.noSummarize, withCoChange: opts?.withCoChange },
+			)
+			if (!subResult.skipped) {
+				log.info(
+					`subsystem detection: ${subResult.clusters} clusters (${subResult.described} described, modularity ${subResult.partitionModularity.toFixed(2)}) in ${(performance.now() - t).toFixed(0)}ms`,
+				)
+			}
+		} catch (e) {
+			log.warn(`subsystem detection failed: ${e}`)
+		}
+
+		// step 12: update metadata
 		const commit = getCurrentCommit(this.projectRoot)
 		const branch = getCurrentBranch(this.projectRoot)
 		const configHash = computeConfigHash(this.projectRoot)

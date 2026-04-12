@@ -117,6 +117,7 @@ export class AtlasEngine {
 		dryRun?: boolean
 		noEmbed?: boolean
 		noSummarize?: boolean
+		withCoChange?: boolean
 	}): Promise<IndexResult> {
 		const store = this.getStore()
 		const indexer = new Indexer(this.projectRoot, this.config, store)
