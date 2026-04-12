@@ -18,6 +18,7 @@ import {
 	getCurrentCommit,
 } from './change-detector.js'
 import { type DiscoveredFile, discoverFiles } from './file-discovery.js'
+import { detectRepoModules, matchFileToModule, type RepoModule } from './module-detector.js'
 import { resolveProject } from './ts-resolver.js'
 
 // options recognised by the index pipeline. new flags land here so the
@@ -42,6 +43,7 @@ interface IndexState {
 	absolutePaths: string[]
 	processedStableIds: string[]
 	generatedFileIds: Set<number>
+	repoModules: RepoModule[]
 }
 
 export class Indexer {
@@ -64,9 +66,11 @@ export class Indexer {
 			absolutePaths: [],
 			processedStableIds: [],
 			generatedFileIds: new Set(),
+			repoModules: [],
 		}
 
 		this.stepDiscoverFiles(state)
+		this.stepDetectRepoModules(state)
 		this.stepDetectChanges(state, opts)
 		this.stepSyncIsTestFlags(state)
 
@@ -114,6 +118,29 @@ export class Indexer {
 		state.discovered = discoverFiles(this.projectRoot, this.config)
 		log.debug(`file discovery: ${(performance.now() - t).toFixed(0)}ms`)
 		log.info(`found ${state.discovered.length} files`)
+	}
+
+	// step 1.5: detect monorepo sub-modules (go.mod / package.json /
+	// pyproject.toml / setup.py). rows are upserted into repo_modules
+	// and files get their repo_module_id assigned in step 5 during
+	// extractOneFile. renamed "repo_modules" (schema) to avoid colliding
+	// with the registry scope's use of "project" — see the v12 migration
+	// comment for the rationale.
+	private stepDetectRepoModules(state: IndexState): void {
+		const t = performance.now()
+		const modules = detectRepoModules(this.projectRoot, state.discovered)
+		state.repoModules = modules
+		this.store.bulkInsert(() => {
+			for (const mod of modules) this.store.upsertRepoModule(mod)
+			this.store.deleteRepoModulesNotIn(modules.map((m) => m.id))
+		})
+		log.debug(`module detection: ${(performance.now() - t).toFixed(0)}ms`)
+		if (modules.length > 0) {
+			const byKind = new Map<string, number>()
+			for (const m of modules) byKind.set(m.kind, (byKind.get(m.kind) ?? 0) + 1)
+			const summary = [...byKind.entries()].map(([k, v]) => `${v} ${k}`).join(', ')
+			log.info(`repo modules: ${modules.length} (${summary})`)
+		}
 	}
 
 	// step 2: diff the discovered set against the stored index.
@@ -292,6 +319,13 @@ export class Indexer {
 			fileInfo.sizeBytes,
 			fileInfo.isTest,
 		)
+
+		// bind the file to its repo module (if any) so cross-module
+		// queries, per-module stats, and federation all have a single
+		// source of truth. nulls stay null (root-level files without a
+		// manifest) via SET NULL on the FK.
+		const mod = matchFileToModule(filePath, state.repoModules)
+		if (mod) this.store.setFileRepoModule(fileId, mod.id)
 
 		// build a lookup map for O(1) kind resolution instead of O(n) per symbol
 		const kindByQName = new Map(result.symbols.map((s) => [s.qualifiedName, s.kind]))

@@ -326,4 +326,25 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_files_is_test ON files(is_test);
 		`,
 	},
+	{
+		version: 12,
+		// "module" intentionally — atlas already uses "project" at the
+		// registry scope (~/.atlas/registry.json). this table describes
+		// intra-repo package boundaries (go.mod, package.json, pyproject.toml)
+		// so we keep the two meanings distinct.
+		description: 'add repo_modules + files.repo_module_id for monorepo boundaries',
+		up: `
+			CREATE TABLE IF NOT EXISTS repo_modules (
+				id            TEXT PRIMARY KEY,
+				name          TEXT NOT NULL,
+				kind          TEXT NOT NULL,
+				manifest_path TEXT NOT NULL UNIQUE,
+				root_dir      TEXT NOT NULL,
+				module_path   TEXT
+			);
+			CREATE INDEX IF NOT EXISTS idx_repo_modules_root ON repo_modules(root_dir);
+			ALTER TABLE files ADD COLUMN repo_module_id TEXT REFERENCES repo_modules(id) ON DELETE SET NULL;
+			CREATE INDEX IF NOT EXISTS idx_files_module ON files(repo_module_id);
+		`,
+	},
 ]

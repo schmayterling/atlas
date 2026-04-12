@@ -443,6 +443,68 @@ export class AtlasStore {
 		tx()
 	}
 
+	// --- repo modules (intra-repo package boundaries) ---
+
+	upsertRepoModule(mod: {
+		id: string
+		name: string
+		kind: string
+		manifestPath: string
+		rootDir: string
+		modulePath: string | null
+	}): void {
+		this.db.run(
+			`INSERT INTO repo_modules (id, name, kind, manifest_path, root_dir, module_path)
+			 VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET
+			   name = excluded.name,
+			   kind = excluded.kind,
+			   manifest_path = excluded.manifest_path,
+			   root_dir = excluded.root_dir,
+			   module_path = excluded.module_path`,
+			[mod.id, mod.name, mod.kind, mod.manifestPath, mod.rootDir, mod.modulePath],
+		)
+	}
+
+	deleteRepoModulesNotIn(ids: string[]): void {
+		if (ids.length === 0) {
+			this.db.run('DELETE FROM repo_modules')
+			return
+		}
+		const placeholders = ids.map(() => '?').join(',')
+		this.db.run(`DELETE FROM repo_modules WHERE id NOT IN (${placeholders})`, ids)
+	}
+
+	listRepoModules(): Array<{
+		id: string
+		name: string
+		kind: string
+		manifestPath: string
+		rootDir: string
+		modulePath: string | null
+	}> {
+		return this.db
+			.query<
+				{
+					id: string
+					name: string
+					kind: string
+					manifestPath: string
+					rootDir: string
+					modulePath: string | null
+				},
+				[]
+			>(
+				`SELECT id, name, kind, manifest_path as manifestPath, root_dir as rootDir, module_path as modulePath
+				 FROM repo_modules ORDER BY rootDir`,
+			)
+			.all()
+	}
+
+	setFileRepoModule(fileId: number, moduleId: string | null): void {
+		this.db.run('UPDATE files SET repo_module_id = ? WHERE id = ?', [moduleId, fileId])
+	}
+
 	// rewrites stable-id columns across every FK table that references a
 	// symbol stable_id, then updates files.path in place. used when git
 	// reports a rename so the pre-rename identity survives: edges, test
