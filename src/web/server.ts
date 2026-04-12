@@ -262,6 +262,35 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 		catch (e) { log.error(`subsystems: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
+	app.get('/api/hot-fragile', (c) => {
+		try {
+			const limit = parseIntParam(c.req.query('limit'), 500) ?? 20
+			return c.json(eng(c).hotFragile({ limit }))
+		} catch (e) { log.error(`hot-fragile: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/hotspots', (c) => {
+		try {
+			const limit = parseIntParam(c.req.query('limit'), 500) ?? 20
+			const coverageRaw = c.req.query('coverage')
+			const coverage =
+				coverageRaw === 'called' || coverageRaw === 'imported' || coverageRaw === 'none'
+					? (coverageRaw as 'called' | 'imported' | 'none')
+					: undefined
+			return c.json(eng(c).hotspots({ limit, coverage }))
+		} catch (e) { log.error(`hotspots: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/test-coverage', (c) => {
+		const symbol = c.req.query('symbol')
+		if (!symbol) return c.json({ error: 'symbol required' }, 400)
+		try {
+			const result = eng(c).testCoverage(symbol)
+			if (!result) return c.json({ error: 'symbol not found' }, 404)
+			return c.json(result)
+		} catch (e) { log.error(`test-coverage: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
 	app.get('/api/subsystem', (c) => {
 		const id = c.req.query('id')
 		if (!id) return c.json({ error: 'id required' }, 400)
