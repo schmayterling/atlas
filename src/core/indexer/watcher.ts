@@ -8,7 +8,7 @@ export function startWatcher(
 	projectRoot: string,
 	config: AtlasConfig,
 	store: AtlasStore,
-	opts?: { debounceMs?: number; noEmbed?: boolean },
+	opts?: { debounceMs?: number; noEmbed?: boolean; noSummarize?: boolean },
 ) {
 	const debounceMs = opts?.debounceMs ?? 500
 	let timer: ReturnType<typeof setTimeout> | null = null
@@ -33,7 +33,7 @@ export function startWatcher(
 		indexing = true
 		try {
 			const indexer = new Indexer(projectRoot, config, store)
-			const result = await indexer.index({ noEmbed: opts?.noEmbed })
+			const result = await indexer.index({ noEmbed: opts?.noEmbed, noSummarize: opts?.noSummarize })
 			const changed = result.filesAdded + result.filesModified + result.filesDeleted
 			if (changed > 0) {
 				log.info(

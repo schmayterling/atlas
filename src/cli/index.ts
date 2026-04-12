@@ -40,13 +40,15 @@ program
 	.description('index the codebase (incremental by default)')
 	.option('--full', 'force full re-index')
 	.option('--dry-run', 'show what would be indexed without changes')
-	.option('--no-embed', 'skip embedding generation')
+	.option('--no-embed', 'skip vector embedding generation')
+	.option('--no-summarize', 'skip LLM summary generation')
 	.action(async (cmdOpts) => {
 		const opts = program.opts()
 		await indexCommand(opts.project, opts.json, {
 			force: cmdOpts.full,
 			dryRun: cmdOpts.dryRun,
 			noEmbed: !cmdOpts.embed,
+			noSummarize: !cmdOpts.summarize,
 		})
 	})
 
@@ -194,13 +196,15 @@ program
 	.description('watch for file changes and re-index automatically')
 	.option('--serve', 'also start web UI server')
 	.option('--port <port>', 'web UI port (with --serve)', '3000')
-	.option('--no-embed', 'skip embedding generation')
+	.option('--no-embed', 'skip vector embedding generation')
+	.option('--no-summarize', 'skip LLM summary generation')
 	.action(async (cmdOpts) => {
 		const opts = program.opts()
 		await watchCommand(opts.project, {
 			serve: !!cmdOpts.serve,
 			port: Number(cmdOpts.port),
 			noEmbed: !cmdOpts.embed,
+			noSummarize: !cmdOpts.summarize,
 		})
 	})
 

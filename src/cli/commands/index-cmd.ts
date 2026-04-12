@@ -5,7 +5,7 @@ import { formatDuration, outputJson } from '../formatters/common.js'
 export async function indexCommand(
 	projectRoot: string,
 	json: boolean,
-	opts: { force?: boolean; dryRun?: boolean; noEmbed?: boolean },
+	opts: { force?: boolean; dryRun?: boolean; noEmbed?: boolean; noSummarize?: boolean },
 ) {
 	const engine = new AtlasEngine(projectRoot)
 

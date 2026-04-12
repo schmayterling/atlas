@@ -23,7 +23,7 @@ export class Indexer {
 		private store: AtlasStore,
 	) {}
 
-	async index(opts?: { force?: boolean; dryRun?: boolean; noEmbed?: boolean }): Promise<IndexResult> {
+	async index(opts?: { force?: boolean; dryRun?: boolean; noEmbed?: boolean; noSummarize?: boolean }): Promise<IndexResult> {
 		const start = performance.now()
 		const warnings: string[] = []
 
@@ -282,7 +282,7 @@ export class Indexer {
 		}
 
 		// step 8: LLM summaries (optional, requires Ollama chat model)
-		if (!opts?.noEmbed) {
+		if (!opts?.noSummarize) {
 			try {
 				const { runSummaryPipeline } = await import('../llm/summary-pipeline.js')
 				const summaryResult = await runSummaryPipeline(this.store, this.projectRoot)
