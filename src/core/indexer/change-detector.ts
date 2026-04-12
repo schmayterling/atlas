@@ -49,83 +49,89 @@ export function detectChanges(
 		}
 	}
 
-	// try git-based detection first, filtered to discovered file paths
-	const discoveredPaths = new Set(discoveredFiles.map((f) => f.path))
-	const gitChanges = tryGitDiff(projectRoot, store, discoveredPaths)
+	// try git-based detection first
+	const gitChanges = detectChangesViaGit(projectRoot, store, discoveredFiles, existingFiles)
 	if (gitChanges) {
 		return { ...gitChanges, configChanged, branchChanged: false, isFullReindex: false }
 	}
 
 	// fallback: content hash comparison
 	return {
-		...hashBasedDiff(discoveredFiles, store),
+		...hashBasedDiff(discoveredFiles, existingFiles),
 		configChanged,
 		branchChanged: false,
 		isFullReindex: false,
 	}
 }
 
-function tryGitDiff(
+// hybrid detector: uses `git diff` for the modified set and falls back to a
+// set difference between discovered + existing files for added/deleted. set
+// diff is the only way to catch untracked files (which git diff omits) and
+// makes the function tolerant of empty git output.
+function detectChangesViaGit(
 	projectRoot: string,
 	store: AtlasStore,
-	discoveredPaths: Set<string>,
+	discoveredFiles: DiscoveredFile[],
+	existingFiles: { path: string }[],
 ): { added: string[]; modified: string[]; deleted: string[] } | null {
 	const lastCommit = store.getMeta('last_indexed_commit')
 	if (!lastCommit || !/^[0-9a-f]{40}$/.test(lastCommit)) return null
 
+	// `git diff --name-status <lastCommit>` (no second ref) compares the
+	// working tree to the commit, so it sees both committed deltas and
+	// uncommitted edits to tracked files. it still misses *untracked*
+	// files — those are caught by the set diff against the store below.
+	const gitModified = new Set<string>()
 	try {
 		const result = Bun.spawnSync(
-			['git', 'diff', '--name-status', lastCommit, 'HEAD'],
+			['git', 'diff', '--name-status', lastCommit],
 			{ cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
 		)
-
 		if (result.exitCode !== 0) return null
 
-		const output = result.stdout.toString().trim()
-		if (!output) return { added: [], modified: [], deleted: [] }
-
-		const added: string[] = []
-		const modified: string[] = []
-		const deleted: string[] = []
-
-		for (const line of output.split('\n')) {
+		for (const line of result.stdout.toString().split('\n')) {
+			if (!line) continue
 			const [status, ...parts] = line.split('\t')
-			const filePath = parts.join('\t')
-			if (!filePath) continue
-
-			switch (status?.[0]) {
-				case 'A':
-					added.push(filePath)
-					break
-				case 'M':
-					modified.push(filePath)
-					break
-				case 'D':
-					deleted.push(filePath)
-					break
-				case 'R':
-					// rename: old path deleted, new path added
-					if (parts[0]) deleted.push(parts[0])
-					if (parts[1]) added.push(parts[1])
-					break
+			if (parts.length === 0) continue
+			const code = status?.[0]
+			// added/deleted are derived from set diff so untracked + missing
+			// files are caught regardless of git's tracked-only view. we only
+			// need git's word for which existing-on-both-sides files changed.
+			if (code === 'M' || code === 'T') {
+				gitModified.add(parts.join('\t'))
+			} else if (code === 'R' && parts.length >= 2) {
+				gitModified.add(parts[1])
 			}
-		}
-
-		return {
-			added: added.filter((p) => discoveredPaths.has(p)),
-			modified: modified.filter((p) => discoveredPaths.has(p)),
-			deleted,
 		}
 	} catch {
 		return null
 	}
+
+	const existingPaths = new Set(existingFiles.map((f) => f.path))
+	const added: string[] = []
+	const modified: string[] = []
+	const deleted: string[] = []
+	const seen = new Set<string>()
+
+	for (const file of discoveredFiles) {
+		seen.add(file.path)
+		if (!existingPaths.has(file.path)) {
+			added.push(file.path)
+		} else if (gitModified.has(file.path)) {
+			modified.push(file.path)
+		}
+	}
+	for (const f of existingFiles) {
+		if (!seen.has(f.path)) deleted.push(f.path)
+	}
+
+	return { added, modified, deleted }
 }
 
 function hashBasedDiff(
 	discoveredFiles: DiscoveredFile[],
-	store: AtlasStore,
+	existingFiles: { path: string; contentHash: string }[],
 ): { added: string[]; modified: string[]; deleted: string[] } {
-	const existingFiles = store.getAllFiles()
 	const existingByPath = new Map(existingFiles.map((f) => [f.path, f.contentHash]))
 	const discoveredPaths = new Set(discoveredFiles.map((f) => f.path))
 
