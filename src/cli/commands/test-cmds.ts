@@ -1,0 +1,99 @@
+import pc from 'picocolors'
+import { AtlasEngine } from '../../core/engine.js'
+import type { SymbolKind } from '../../shared/types.js'
+import { badge, fileRef, heading, outputJson } from '../formatters/common.js'
+
+export function testsCommand(projectRoot: string, json: boolean, query: string) {
+	const engine = new AtlasEngine(projectRoot)
+	try {
+		const result = engine.testCoverage(query)
+		if (!result) {
+			if (json) {
+				outputJson({ error: `symbol not found: ${query}` })
+			} else {
+				console.error(pc.red(`symbol not found: ${query}`))
+			}
+			process.exitCode = 1
+			return
+		}
+		if (json) {
+			outputJson(result)
+			return
+		}
+		heading(`tests covering ${result.target.name}`)
+		console.log(`  ${badge(result.target.kind)} ${pc.bold(result.target.name)}`)
+		console.log(`  ${' '.repeat(12)} ${fileRef(result.target.filePath, result.target.lineStart)}`)
+		console.log(`  ${' '.repeat(12)} coverage: ${pc.bold(result.coveredBy)}`)
+		console.log()
+		if (result.tests.length === 0) {
+			console.log(pc.yellow('  no tests reference this symbol'))
+			return
+		}
+		for (const t of result.tests) {
+			const conf = t.confidence === 'called' ? pc.green('called  ') : pc.dim('imported')
+			console.log(`  ${conf}  ${t.testFilePath}`)
+		}
+	} finally {
+		engine.close()
+	}
+}
+
+export function untestedCommand(
+	projectRoot: string,
+	json: boolean,
+	opts: { kind?: string; limit?: number },
+) {
+	const engine = new AtlasEngine(projectRoot)
+	try {
+		const result = engine.untestedSymbols({
+			kind: opts.kind as SymbolKind | undefined,
+			limit: opts.limit,
+		})
+		if (json) {
+			outputJson(result)
+			return
+		}
+		heading(`untested exported symbols (${result.length})`)
+		if (result.length === 0) {
+			console.log(pc.green('  every exported symbol is referenced from at least one test'))
+			return
+		}
+		console.log()
+		for (const sym of result) {
+			console.log(`  ${badge(sym.kind)} ${pc.bold(sym.name)}`)
+			console.log(`  ${' '.repeat(12)} ${fileRef(sym.filePath, sym.lineStart)}`)
+		}
+	} finally {
+		engine.close()
+	}
+}
+
+export function hotFragileCommand(
+	projectRoot: string,
+	json: boolean,
+	opts: { limit?: number },
+) {
+	const engine = new AtlasEngine(projectRoot)
+	try {
+		const rows = engine.hotFragile({ limit: opts.limit })
+		if (json) {
+			outputJson(rows)
+			return
+		}
+		heading(`hot-fragile files (${rows.length})`)
+		if (rows.length === 0) {
+			console.log(pc.dim('  no high-churn files with untested symbols. add git history with `atlas index`.'))
+			return
+		}
+		console.log()
+		for (const r of rows) {
+			const fragility = r.commits * r.untestedCount
+			console.log(
+				`  ${pc.red(String(fragility).padStart(5))}  ${pc.dim(`${r.commits} commits`.padEnd(12))} ${pc.yellow(`${r.untestedCount}/${r.symbolCount} untested`.padEnd(20))} ${r.filePath}`,
+			)
+			if (r.subsystem) console.log(`  ${' '.repeat(7)} ${pc.dim(`subsystem: ${r.subsystem}`)}`)
+		}
+	} finally {
+		engine.close()
+	}
+}

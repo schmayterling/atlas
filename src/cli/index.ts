@@ -20,6 +20,7 @@ import {
 	subsystemsCommand,
 	subsystemCommand,
 } from './commands/git-cmds.js'
+import { hotFragileCommand, testsCommand, untestedCommand } from './commands/test-cmds.js'
 
 const program = new Command()
 	.name('atlas')
@@ -295,6 +296,33 @@ program
 	.action((id) => {
 		const opts = program.opts()
 		subsystemCommand(opts.project, opts.json, id)
+	})
+
+program
+	.command('tests <symbol>')
+	.description('show test files that cover a symbol (imported or called)')
+	.action((symbol) => {
+		const opts = program.opts()
+		testsCommand(opts.project, opts.json, symbol)
+	})
+
+program
+	.command('untested')
+	.description('list exported symbols with no test coverage')
+	.option('-k, --kind <kind>', 'filter by symbol kind')
+	.option('-l, --limit <n>', 'max symbols to show', (v) => Number.parseInt(v, 10), 100)
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		untestedCommand(opts.project, opts.json, { kind: cmdOpts.kind, limit: cmdOpts.limit })
+	})
+
+program
+	.command('hot-fragile')
+	.description('rank files by churn × untested-symbol count')
+	.option('-l, --limit <n>', 'max files to show', (v) => Number.parseInt(v, 10), 20)
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		hotFragileCommand(opts.project, opts.json, { limit: cmdOpts.limit })
 	})
 
 export { program }

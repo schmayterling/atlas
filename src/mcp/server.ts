@@ -315,6 +315,61 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			}),
 	)
 
+	// --- atlas_test_coverage ---
+	server.tool(
+		'atlas_test_coverage',
+		'show test files that cover a symbol (imported or called)',
+		{
+			symbol: z.string().describe('symbol name or qualifiedName'),
+		},
+		({ symbol }) =>
+			safe(() => {
+				const result = engine.testCoverage(symbol)
+				if (!result) {
+					return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
+				}
+				if (result.tests.length === 0) {
+					return {
+						content: [
+							{
+								type: 'text' as const,
+								text: `${result.target.name} (${result.target.filePath}:${result.target.lineStart})\ncoverage: none`,
+							},
+						],
+					}
+				}
+				const lines = [
+					`${result.target.name} (${result.target.filePath}:${result.target.lineStart})`,
+					`coverage: ${result.coveredBy}`,
+					'',
+					...result.tests.map((t) => `  ${t.confidence.padEnd(8)}  ${t.testFilePath}`),
+				]
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
+	// --- atlas_hot_fragile ---
+	server.tool(
+		'atlas_hot_fragile',
+		'rank files by churn × untested-symbol count (high-risk refactor candidates)',
+		{
+			limit: z.number().optional().describe('max files to return (default 20)'),
+		},
+		({ limit }) =>
+			safe(() => {
+				const rows = engine.hotFragile({ limit: limit ?? 20 })
+				if (rows.length === 0) {
+					return { content: [{ type: 'text' as const, text: 'no hot-fragile files (need git history + test_links)' }] }
+				}
+				const lines = rows.map((r) => {
+					const fragility = r.commits * r.untestedCount
+					const sub = r.subsystem ? ` [${r.subsystem}]` : ''
+					return `${String(fragility).padStart(5)}  ${String(r.commits).padStart(4)}c ${String(r.untestedCount).padStart(3)}/${String(r.symbolCount).padStart(3)} untested  ${r.filePath}${sub}`
+				})
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
 	return server
 }
 
