@@ -22,6 +22,14 @@ import {
 	SCHEMA_VERSION,
 } from './schema.js'
 
+interface CrossProjectEdgeRow {
+	sourceProject: string
+	sourceStableId: string
+	targetProject: string
+	targetStableId: string
+	kind: string
+}
+
 const SYMBOL_SELECT = `SELECT id, stable_id as stableId, file_id as fileId, name, qualified_name as qualifiedName,
 	kind, visibility, is_exported as isExported, line_start as lineStart, line_end as lineEnd,
 	col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
@@ -519,28 +527,28 @@ export class AtlasStore {
 		)
 	}
 
-	getCrossProjectEdgesFrom(project: string, stableId: string): {
-		sourceProject: string
-		sourceStableId: string
-		targetProject: string
-		targetStableId: string
-		kind: string
-	}[] {
-		return this.db
-			.query('SELECT source_project as sourceProject, source_stable_id as sourceStableId, target_project as targetProject, target_stable_id as targetStableId, kind FROM cross_project_edges WHERE source_project = ? AND source_stable_id = ?')
-			.all(project, stableId) as any[]
+	getCrossProjectEdgesFrom(project: string, stableId: string): CrossProjectEdgeRow[] {
+		return this.queryCrossProjectEdges('source', project, stableId)
 	}
 
-	getCrossProjectEdgesTo(project: string, stableId: string): {
-		sourceProject: string
-		sourceStableId: string
-		targetProject: string
-		targetStableId: string
-		kind: string
-	}[] {
+	getCrossProjectEdgesTo(project: string, stableId: string): CrossProjectEdgeRow[] {
+		return this.queryCrossProjectEdges('target', project, stableId)
+	}
+
+	private queryCrossProjectEdges(
+		field: 'source' | 'target',
+		project: string,
+		stableId: string,
+	): CrossProjectEdgeRow[] {
+		const projectCol = `${field}_project`
+		const stableIdCol = `${field}_stable_id`
 		return this.db
-			.query('SELECT source_project as sourceProject, source_stable_id as sourceStableId, target_project as targetProject, target_stable_id as targetStableId, kind FROM cross_project_edges WHERE target_project = ? AND target_stable_id = ?')
-			.all(project, stableId) as any[]
+			.query(
+				`SELECT source_project as sourceProject, source_stable_id as sourceStableId,
+				target_project as targetProject, target_stable_id as targetStableId, kind
+				FROM cross_project_edges WHERE ${projectCol} = ? AND ${stableIdCol} = ?`,
+			)
+			.all(project, stableId) as CrossProjectEdgeRow[]
 	}
 
 	deleteCrossProjectEdgesForProject(project: string) {

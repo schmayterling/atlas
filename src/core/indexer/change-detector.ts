@@ -179,10 +179,10 @@ function hasBranchChanged(projectRoot: string, store: AtlasStore): boolean {
 	return storedBranch !== currentBranch
 }
 
-export function getCurrentBranch(projectRoot: string): string | null {
+function runGitRevParse(projectRoot: string, args: string[]): string | null {
 	try {
 		const result = Bun.spawnSync(
-			['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+			['git', 'rev-parse', ...args],
 			{ cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
 		)
 		if (result.exitCode !== 0) return null
@@ -192,17 +192,12 @@ export function getCurrentBranch(projectRoot: string): string | null {
 	}
 }
 
+export function getCurrentBranch(projectRoot: string): string | null {
+	return runGitRevParse(projectRoot, ['--abbrev-ref', 'HEAD'])
+}
+
 export function getCurrentCommit(projectRoot: string): string | null {
-	try {
-		const result = Bun.spawnSync(
-			['git', 'rev-parse', 'HEAD'],
-			{ cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
-		)
-		if (result.exitCode !== 0) return null
-		return result.stdout.toString().trim()
-	} catch {
-		return null
-	}
+	return runGitRevParse(projectRoot, ['HEAD'])
 }
 
 export function computeConfigHash(projectRoot: string): string {
