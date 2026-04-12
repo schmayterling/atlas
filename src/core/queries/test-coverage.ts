@@ -30,7 +30,10 @@ export function getTestCoverage(store: AtlasStore, query: string): TestCoverage 
 	return { target, tests, coveredBy }
 }
 
-// list exported, production symbols with no entry in test_links.
+// list exported, production symbols that have no 'called' coverage. an
+// 'imported' row alone is not enough: it just means a test imported the
+// module that contains the symbol, not that the test exercises the symbol.
+// only edge-resolved 'called' confidence counts as real coverage here.
 export function findUntestedSymbols(
 	store: AtlasStore,
 	opts?: { kind?: SymbolKind; limit?: number },
@@ -51,7 +54,9 @@ export function findUntestedSymbols(
 		AND f.is_test = 0
 		AND s.kind IN ('function', 'class', 'method', 'interface')
 		AND NOT EXISTS (
-			SELECT 1 FROM test_links tl WHERE tl.source_symbol_stable_id = s.stable_id
+			SELECT 1 FROM test_links tl
+			WHERE tl.source_symbol_stable_id = s.stable_id
+			AND tl.confidence = 'called'
 		)
 		${kindClause}
 		ORDER BY f.path, s.line_start
@@ -60,8 +65,8 @@ export function findUntestedSymbols(
 	)
 }
 
-// hot-fragile = production files with high churn and many untested exported
-// symbols. ranks by commits * untestedCount.
+// hot-fragile = production files with high churn and many exported symbols
+// lacking 'called' coverage. ranks by commits * untestedCount.
 export function findHotFragile(
 	store: AtlasStore,
 	opts?: { limit?: number },
@@ -80,7 +85,9 @@ export function findHotFragile(
 		   GROUP BY file_path
 		 ) c ON c.file_path = f.path
 		 LEFT JOIN symbols s ON s.file_id = f.id AND s.is_exported = 1
-		 LEFT JOIN test_links tl ON tl.source_symbol_stable_id = s.stable_id
+		 LEFT JOIN test_links tl
+		   ON tl.source_symbol_stable_id = s.stable_id
+		   AND tl.confidence = 'called'
 		 LEFT JOIN subsystems ss ON ss.id = f.subsystem_id
 		 WHERE f.is_test = 0
 		 GROUP BY f.id
