@@ -9,6 +9,11 @@ export const DEFAULT_TEST_PATTERNS = [
 	'**/tests/**',
 	'**/__tests__/**',
 	'**/test/**',
+	// go convention: foo_test.go sits next to foo.go
+	'**/*_test.go',
+	// python conventions: pytest and unittest style both in use
+	'**/*_test.py',
+	'**/test_*.py',
 ] as const
 
 const ConfigSchema = z.object({

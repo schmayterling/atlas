@@ -60,6 +60,12 @@ describe('testPatterns', () => {
 		})
 	})
 
+	test('default patterns cover go and python test conventions', () => {
+		expect(DEFAULT_TEST_PATTERNS).toContain('**/*_test.go')
+		expect(DEFAULT_TEST_PATTERNS).toContain('**/*_test.py')
+		expect(DEFAULT_TEST_PATTERNS).toContain('**/test_*.py')
+	})
+
 	test('normalizeTestPatterns rewrites only bare directory forms', () => {
 		expect(normalizeTestPatterns(['tests/**', 'spec', '__tests__', '*.spec.ts', '**/already/**'])).toEqual([
 			'**/tests/**',
