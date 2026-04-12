@@ -102,20 +102,13 @@ export class Indexer {
 			}
 		}
 
+		// no longer early-return on totalChanged === 0. the parsing/extract
+		// path is naturally a no-op when nothing changed (steps 4-6 see empty
+		// inputs), but the post-processing pipelines (embed, summarize, flow,
+		// dup, subsystem) need to run so newly-added pipelines can backfill
+		// against an existing index without forcing --full.
 		if (totalChanged === 0) {
-			log.info('no changes detected')
-			return {
-				filesTotal: discovered.length,
-				filesAdded: 0,
-				filesModified: 0,
-				filesDeleted: 0,
-				filesCached: discovered.length,
-				symbols: this.store.getSymbolCount(),
-				edges: this.store.getEdgeCount(),
-				references: this.store.getReferenceCount(),
-				duration: performance.now() - start,
-				warnings,
-			}
+			log.info('no file changes; running post-processing pipelines only')
 		}
 
 		// step 4: delete records for deleted + modified files
@@ -251,8 +244,12 @@ export class Indexer {
 		})
 		log.debug(`parsing + extraction: ${(performance.now() - t).toFixed(0)}ms`)
 
-		// step 6: cross-file resolution via TS compiler API
+		// step 6: cross-file resolution via TS compiler API (skipped when
+		// nothing was processed; the resolver is expensive on cold starts).
 		t = performance.now()
+		if (absolutePaths.length === 0) {
+			log.debug('skipping cross-file resolution (no files processed)')
+		} else {
 		log.info('resolving cross-file references...')
 		try {
 			// delete cross-file edges only for symbols in processed files (not all)
@@ -296,6 +293,7 @@ export class Indexer {
 			log.warn(`cross-file resolution failed: ${e}`)
 		}
 		log.debug(`cross-file resolution: ${(performance.now() - t).toFixed(0)}ms`)
+		}
 
 		// step 7: embedding pipeline (optional)
 		if (!opts?.noEmbed) {
