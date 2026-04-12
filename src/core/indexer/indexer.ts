@@ -57,6 +57,18 @@ export class Indexer {
 			`changes: ${changes.added.length} added, ${changes.modified.length} modified, ${changes.deleted.length} deleted`,
 		)
 
+		// step 2.5: git history ingestion (runs before the no-op early return
+		// so a clean tree still refreshes commit data after new commits land)
+		try {
+			const { ingestGitHistory } = await import('./git-history.js')
+			const gitResult = ingestGitHistory(this.projectRoot, this.store)
+			if (gitResult.commitsAdded > 0) {
+				log.info(`git: +${gitResult.commitsAdded} commits, ${gitResult.fileChangesAdded} file changes`)
+			}
+		} catch (e) {
+			log.warn(`git history ingestion failed: ${e}`)
+		}
+
 		// step 3: dry run
 		if (opts?.dryRun) {
 			return {

@@ -26,6 +26,13 @@ import { traceApi, type ApiTraceResult } from './queries/api-trace.js'
 import { summarizeSymbol, type SummaryResult } from './llm/summarizer.js'
 import { getFlows, type DetectedFlow } from './queries/flow-detection.js'
 import { findDuplicates, type DuplicatePair } from './queries/duplicate-detection.js'
+import {
+	churn as gitChurn,
+	contributors as gitContributors,
+	fileHistory as gitFileHistory,
+	lastChanged as gitLastChanged,
+	type ChurnOpts,
+} from './queries/git.js'
 import { semanticSearch } from './queries/semantic-search.js'
 import { AtlasStore } from './storage/store.js'
 
@@ -309,6 +316,24 @@ export class AtlasEngine {
 	duplicates(): DuplicatePair[] {
 		const store = this.getStore()
 		return findDuplicates(store)
+	}
+
+	// --- git history ---
+
+	churn(opts?: ChurnOpts) {
+		return gitChurn(this.getStore(), opts)
+	}
+
+	fileHistory(filePath: string) {
+		return gitFileHistory(this.getStore(), filePath)
+	}
+
+	contributors(filePath?: string) {
+		return gitContributors(this.getStore(), filePath)
+	}
+
+	lastChanged(filePath: string) {
+		return gitLastChanged(this.getStore(), filePath)
 	}
 
 	// --- LLM summaries ---

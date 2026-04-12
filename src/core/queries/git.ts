@@ -1,0 +1,118 @@
+import type { AtlasStore } from '../storage/store.js'
+
+export interface CommitRecord {
+	hash: string
+	authorName: string
+	authorEmail: string
+	authoredAt: number
+	subject: string
+}
+
+export interface ChurnEntry {
+	filePath: string
+	commits: number
+	contributors: number
+	lastTouchedAt: number
+	topAuthor: string
+}
+
+export interface ContributorEntry {
+	authorName: string
+	authorEmail: string
+	commits: number
+}
+
+export interface FileHistoryEntry extends CommitRecord {
+	status: 'A' | 'M' | 'D' | 'R'
+	renameFrom: string | null
+}
+
+export interface ChurnOpts {
+	limit?: number
+	pathPrefix?: string
+	since?: number
+}
+
+export function churn(store: AtlasStore, opts: ChurnOpts = {}): ChurnEntry[] {
+	const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500)
+	const params: (string | number)[] = []
+	let where = '1=1'
+	if (opts.pathPrefix) {
+		where += ' AND fc.file_path LIKE ?'
+		params.push(`${opts.pathPrefix}%`)
+	}
+	if (opts.since) {
+		where += ' AND c.authored_at >= ?'
+		params.push(opts.since)
+	}
+	const sql = `
+		SELECT fc.file_path as filePath,
+		       COUNT(DISTINCT fc.commit_hash) as commits,
+		       COUNT(DISTINCT c.author_email) as contributors,
+		       MAX(c.authored_at) as lastTouchedAt,
+		       (SELECT c2.author_name
+		        FROM file_changes fc2
+		        JOIN commits c2 ON c2.hash = fc2.commit_hash
+		        WHERE fc2.file_path = fc.file_path
+		        GROUP BY c2.author_email
+		        ORDER BY COUNT(*) DESC LIMIT 1) as topAuthor
+		FROM file_changes fc
+		JOIN commits c ON c.hash = fc.commit_hash
+		WHERE ${where}
+		GROUP BY fc.file_path
+		ORDER BY commits DESC, lastTouchedAt DESC
+		LIMIT ?
+	`
+	params.push(limit)
+	return store.queryRawWithParams<ChurnEntry>(sql, ...params)
+}
+
+export function fileHistory(store: AtlasStore, filePath: string): FileHistoryEntry[] {
+	return store.queryRawWithParams<FileHistoryEntry>(
+		`SELECT c.hash, c.author_name as authorName, c.author_email as authorEmail,
+		        c.authored_at as authoredAt, c.subject,
+		        fc.status, fc.rename_from as renameFrom
+		 FROM file_changes fc
+		 JOIN commits c ON c.hash = fc.commit_hash
+		 WHERE fc.file_path = ?
+		 ORDER BY c.authored_at DESC`,
+		filePath,
+	)
+}
+
+export function contributors(
+	store: AtlasStore,
+	filePath?: string,
+): ContributorEntry[] {
+	if (filePath) {
+		return store.queryRawWithParams<ContributorEntry>(
+			`SELECT c.author_name as authorName, c.author_email as authorEmail,
+			        COUNT(*) as commits
+			 FROM file_changes fc
+			 JOIN commits c ON c.hash = fc.commit_hash
+			 WHERE fc.file_path = ?
+			 GROUP BY c.author_email
+			 ORDER BY commits DESC`,
+			filePath,
+		)
+	}
+	return store.queryRaw<ContributorEntry>(
+		`SELECT author_name as authorName, author_email as authorEmail, COUNT(*) as commits
+		 FROM commits
+		 GROUP BY author_email
+		 ORDER BY commits DESC`,
+	)
+}
+
+export function lastChanged(store: AtlasStore, filePath: string): CommitRecord | null {
+	const rows = store.queryRawWithParams<CommitRecord>(
+		`SELECT c.hash, c.author_name as authorName, c.author_email as authorEmail,
+		        c.authored_at as authoredAt, c.subject
+		 FROM file_changes fc
+		 JOIN commits c ON c.hash = fc.commit_hash
+		 WHERE fc.file_path = ?
+		 ORDER BY c.authored_at DESC LIMIT 1`,
+		filePath,
+	)
+	return rows[0] ?? null
+}
