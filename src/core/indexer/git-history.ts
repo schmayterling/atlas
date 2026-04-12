@@ -27,9 +27,16 @@ const COMMIT_MARKER = '@@ATLASCOMMIT@@'
 
 // not all repos are git repos, and shallow clones may not have full history.
 // callers should treat any failure as non-fatal.
+//
+// when relevantPaths is provided, file_changes rows whose file_path is not
+// in the set are skipped. this filters out noise from files that were once
+// committed and later gitignored (e.g. agent debug artifacts) and from
+// files outside the atlas include glob. when omitted, every git-tracked
+// file is ingested.
 export function ingestGitHistory(
 	projectRoot: string,
 	store: AtlasStore,
+	relevantPaths?: Set<string>,
 ): GitIngestResult {
 	if (!isGitRepo(projectRoot)) {
 		return { commitsAdded: 0, fileChangesAdded: 0, skipped: true, reason: 'not a git repo' }
@@ -90,6 +97,13 @@ export function ingestGitHistory(
 
 	store.bulkInsert(() => {
 		for (const c of commits) {
+			// pre-filter file changes against the relevant set so we don't
+			// insert commits whose only changed files are noise
+			const relevantFiles = relevantPaths
+				? c.files.filter((fc) => relevantPaths.has(fc.filePath))
+				: c.files
+			if (relevantFiles.length === 0 && relevantPaths) continue
+
 			store.runRaw(
 				'INSERT OR IGNORE INTO commits (hash, author_name, author_email, authored_at, subject) VALUES (?, ?, ?, ?, ?)',
 				c.hash,
@@ -99,7 +113,7 @@ export function ingestGitHistory(
 				c.subject,
 			)
 			commitCount++
-			for (const fc of c.files) {
+			for (const fc of relevantFiles) {
 				store.runRaw(
 					'INSERT INTO file_changes (commit_hash, file_path, status, rename_from) VALUES (?, ?, ?, ?)',
 					c.hash,

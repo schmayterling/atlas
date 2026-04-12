@@ -56,6 +56,13 @@ export class Indexer {
 				branchChanged: false,
 				isFullReindex: true,
 			}
+
+			// drop the git history watermark + tables so the next ingestion
+			// step rebuilds from scratch under the current path filter
+			this.store.runRaw('DELETE FROM file_changes')
+			this.store.runRaw('DELETE FROM commits')
+			this.store.runRaw('DELETE FROM co_change_pairs')
+			this.store.setMeta('git_history_last_commit', '')
 		}
 
 		const totalChanged = changes.added.length + changes.modified.length + changes.deleted.length
@@ -64,10 +71,14 @@ export class Indexer {
 		)
 
 		// step 2.5: git history ingestion (runs before the no-op early return
-		// so a clean tree still refreshes commit data after new commits land)
+		// so a clean tree still refreshes commit data after new commits land).
+		// the discovered file set scopes ingestion: only file_changes whose
+		// path matches a currently-discovered file are kept, which filters
+		// out noise from once-tracked-now-gitignored artifacts.
 		try {
 			const { ingestGitHistory } = await import('./git-history.js')
-			const gitResult = ingestGitHistory(this.projectRoot, this.store)
+			const relevantPaths = new Set(discovered.map((f) => f.path))
+			const gitResult = ingestGitHistory(this.projectRoot, this.store, relevantPaths)
 			if (gitResult.commitsAdded > 0) {
 				log.info(`git: +${gitResult.commitsAdded} commits, ${gitResult.fileChangesAdded} file changes`)
 			}
