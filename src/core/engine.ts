@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type AtlasConfig, getDbPath, loadConfig } from '../shared/config.js'
+import { type AtlasConfig, DEFAULT_TEST_PATTERNS, getDbPath, loadConfig } from '../shared/config.js'
 import { log } from '../shared/logger.js'
 import type {
 	BlastRadiusResult,
@@ -100,13 +100,7 @@ export class AtlasEngine {
 					'**/build/**',
 					'**/.git/**',
 				],
-				testPatterns: [
-					'**/*.test.*',
-					'**/*.spec.*',
-					'**/tests/**',
-					'**/__tests__/**',
-					'**/test/**',
-				],
+				testPatterns: [...DEFAULT_TEST_PATTERNS],
 				languages: {
 					typescript: { extensions: ['.ts', '.tsx'] },
 					javascript: { extensions: ['.js', '.jsx', '.mjs', '.cjs'] },

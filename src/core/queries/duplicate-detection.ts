@@ -27,10 +27,9 @@ export function findDuplicates(
 		const symMap = store.getSymbolsByStableIds(allIds)
 		const fileMap = new Map<number, boolean>()
 		if (!includeTests) {
-			const fileIds = [...new Set([...symMap.values()].map((s) => s.fileId))]
-			for (const fid of fileIds) {
-				const file = store.getFile(fid)
-				if (file) fileMap.set(fid, file.isTest)
+			// fetch all files in one query rather than per-fileId getFile()
+			for (const f of store.getAllFiles()) {
+				fileMap.set(f.id, f.isTest)
 			}
 		}
 		const results = store.symbolsToResults([...symMap.values()])

@@ -282,12 +282,6 @@ export interface FileInfo {
 // test ↔ source mapping
 export type TestConfidence = 'imported' | 'called'
 
-export interface TestLink {
-	testFilePath: string
-	sourceSymbolStableId: string
-	confidence: TestConfidence
-}
-
 export interface TestCoverageEntry {
 	testFilePath: string
 	confidence: TestConfidence

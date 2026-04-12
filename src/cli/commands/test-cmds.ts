@@ -38,6 +38,8 @@ export function testsCommand(projectRoot: string, json: boolean, query: string) 
 	}
 }
 
+const CALLABLE_KINDS_MSG = 'function, method'
+
 export function untestedCommand(
 	projectRoot: string,
 	json: boolean,
@@ -45,6 +47,22 @@ export function untestedCommand(
 ) {
 	const engine = new AtlasEngine(projectRoot)
 	try {
+		// the underlying query only counts callable kinds because only
+		// function/method symbols can produce 'called' coverage edges. tell
+		// the user explicitly when they ask for an unsupported kind rather
+		// than returning a misleading "all covered" message.
+		if (opts.kind && opts.kind !== 'function' && opts.kind !== 'method') {
+			if (json) {
+				outputJson([])
+			} else {
+				console.log(
+					pc.yellow(
+						`  '${opts.kind}' coverage isn't tracked. atlas only resolves 'called' edges for ${CALLABLE_KINDS_MSG}.`,
+					),
+				)
+			}
+			return
+		}
 		const result = engine.untestedSymbols({
 			kind: opts.kind as SymbolKind | undefined,
 			limit: opts.limit,
@@ -53,9 +71,9 @@ export function untestedCommand(
 			outputJson(result)
 			return
 		}
-		heading(`untested exported symbols (${result.length})`)
+		heading(`untested ${opts.kind ? opts.kind : 'callable'} symbols (${result.length})`)
 		if (result.length === 0) {
-			console.log(pc.green('  every exported symbol is referenced from at least one test'))
+			console.log(pc.green('  every callable exported symbol is exercised by at least one test'))
 			return
 		}
 		console.log()
@@ -82,7 +100,17 @@ export function hotFragileCommand(
 		}
 		heading(`hot-fragile files (${rows.length})`)
 		if (rows.length === 0) {
-			console.log(pc.dim('  no high-churn files with untested symbols. add git history with `atlas index`.'))
+			// distinguish "no git history" from "fully covered". the
+			// underlying query INNER JOINs file_changes, so an empty result
+			// either means no commits exist for any file or every callable
+			// symbol has called coverage.
+			const status = engine.status()
+			const haveHistory = status.lastCommit !== null
+			if (!haveHistory) {
+				console.log(pc.dim('  no git history. run `atlas index` in a git repo to enable hot-fragile.'))
+			} else {
+				console.log(pc.green('  no callable exported symbols are simultaneously high-churn and untested. nice.'))
+			}
 			return
 		}
 		console.log()

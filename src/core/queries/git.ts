@@ -39,8 +39,11 @@ export function churn(store: AtlasStore, opts: ChurnOpts = {}): ChurnEntry[] {
 	const params: (string | number)[] = []
 	let where = '1=1'
 	if (opts.pathPrefix) {
-		where += ' AND fc.file_path LIKE ?'
-		params.push(`${opts.pathPrefix}%`)
+		// escape LIKE metacharacters so a path containing % or _ does not
+		// silently widen the match. mirrors the dead-code.ts pattern.
+		const escapedPrefix = opts.pathPrefix.replace(/%/g, '\\%').replace(/_/g, '\\_')
+		where += ` AND fc.file_path LIKE ? ESCAPE '\\'`
+		params.push(`${escapedPrefix}%`)
 	}
 	if (opts.since) {
 		where += ' AND c.authored_at >= ?'

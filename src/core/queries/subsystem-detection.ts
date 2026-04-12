@@ -49,9 +49,12 @@ export function buildFileGraph(
 	// pull cross-file edges by joining symbols → file. dedupe pairs and sum
 	// weights. an edge counts when source and target symbols live in
 	// different files. SQLite has no LEAST/GREATEST so we use CASE WHEN
-	// to canonicalize each pair as (smaller, larger). edges where either
-	// endpoint lives in a test file are dropped at the graph layer below
-	// because we only added non-test nodes above.
+	// to canonicalize each pair as (smaller, larger). filter test-file
+	// edges at the SQL level so we don't fetch and discard ~30% of edges
+	// just to drop them in JS at the addEdge stage.
+	const edgeTestFilter = opts?.includeTests
+		? ''
+		: 'AND f_src.is_test = 0 AND f_tgt.is_test = 0'
 	const edgeRows = store.queryRaw<FileEdgeRow>(`
 		SELECT a, b, COUNT(*) as weight FROM (
 			SELECT
@@ -60,7 +63,10 @@ export function buildFileGraph(
 			FROM edges e
 			JOIN symbols s_src ON s_src.stable_id = e.source_id
 			JOIN symbols s_tgt ON s_tgt.stable_id = e.target_id
+			JOIN files f_src ON f_src.id = s_src.file_id
+			JOIN files f_tgt ON f_tgt.id = s_tgt.file_id
 			WHERE s_src.file_id != s_tgt.file_id
+			${edgeTestFilter}
 		)
 		GROUP BY a, b
 	`)

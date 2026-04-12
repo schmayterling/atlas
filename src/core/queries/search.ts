@@ -1,3 +1,4 @@
+import { log } from '../../shared/logger.js'
 import type { AtlasStore } from '../storage/store.js'
 import type { SearchResult, SymbolKind, SymbolResult } from '../../shared/types.js'
 
@@ -65,7 +66,8 @@ function searchSummaries(
 			if (sym) results.push(store.symbolToResult(sym))
 		}
 		return results
-	} catch {
+	} catch (e) {
+		log.warn(`searchSummaries failed, returning empty: ${e}`)
 		return []
 	}
 }

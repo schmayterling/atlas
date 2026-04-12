@@ -28,7 +28,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		{ name: 'atlas', version: '0.1.0' },
 		{
 			instructions:
-				'atlas indexes codebases and answers structural questions about code. call atlas_status first to check if the index is fresh. use atlas_search for symbol lookup, atlas_semantic_search for natural language queries, atlas_deps for dependency graphs, atlas_blast_radius for change impact analysis, atlas_trace for execution path tracing, and atlas_dead_code for finding unreferenced symbols.',
+				'atlas indexes codebases and answers structural questions about code. call atlas_status first to check if the index is fresh. use atlas_search for symbol lookup, atlas_semantic_search for natural language queries, atlas_deps for dependency graphs, atlas_blast_radius for change impact analysis, atlas_trace for execution path tracing, atlas_dead_code for finding unreferenced symbols, atlas_test_coverage to see which test files exercise a symbol, and atlas_hot_fragile to rank files by churn × untested-symbol count.',
 		},
 	)
 
