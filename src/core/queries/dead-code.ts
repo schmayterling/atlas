@@ -16,6 +16,9 @@ export function findDeadCode(
 			AND s.name != 'constructor'
 			AND s.stable_id NOT IN (
 				SELECT DISTINCT target_id FROM edges WHERE kind != 'contains'
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM test_links tl WHERE tl.source_symbol_stable_id = s.stable_id
 			)`
 
 	if (!opts?.includeTests) {

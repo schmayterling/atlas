@@ -9,6 +9,7 @@ import type {
 	EdgeKind,
 	FileInfo,
 	FlowTraceResult,
+	HotFragileEntry,
 	IndexResult,
 	SearchResult,
 	SemanticSearchResult,
@@ -17,6 +18,8 @@ import type {
 	SubsystemSummary,
 	SymbolDetail,
 	SymbolKind,
+	SymbolResult,
+	TestCoverage,
 } from '../shared/types.js'
 import { Indexer } from './indexer/indexer.js'
 import { getBlastRadius } from './queries/blast-radius.js'
@@ -24,6 +27,7 @@ import { findDeadCode } from './queries/dead-code.js'
 import { getDependencies } from './queries/dependencies.js'
 import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
+import { findHotFragile, findUntestedSymbols, getTestCoverage } from './queries/test-coverage.js'
 import { traceApi, type ApiTraceResult } from './queries/api-trace.js'
 import { summarizeSymbol, type SummaryResult } from './llm/summarizer.js'
 import { getFlows, type DetectedFlow } from './queries/flow-detection.js'
@@ -248,6 +252,20 @@ export class AtlasEngine {
 	deadCode(opts?: { path?: string; kind?: SymbolKind; includeTests?: boolean }): DeadCodeResult {
 		const store = this.getStore()
 		return findDeadCode(store, opts)
+	}
+
+	// --- test coverage ---
+
+	testCoverage(query: string): TestCoverage | null {
+		return getTestCoverage(this.getStore(), query)
+	}
+
+	untestedSymbols(opts?: { kind?: SymbolKind; limit?: number }): SymbolResult[] {
+		return findUntestedSymbols(this.getStore(), opts)
+	}
+
+	hotFragile(opts?: { limit?: number }): HotFragileEntry[] {
+		return findHotFragile(this.getStore(), opts)
 	}
 
 	// --- semantic search ---
