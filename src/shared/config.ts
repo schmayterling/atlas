@@ -3,7 +3,17 @@ import { join } from 'node:path'
 import { z } from 'zod'
 
 const ConfigSchema = z.object({
-	include: z.array(z.string()).default(['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx']),
+	include: z
+		.array(z.string())
+		.default([
+			'**/*.ts',
+			'**/*.tsx',
+			'**/*.js',
+			'**/*.jsx',
+			'**/*.py',
+			'**/*.go',
+			'**/*.rs',
+		]),
 	exclude: z
 		.array(z.string())
 		.default([
@@ -19,6 +29,9 @@ const ConfigSchema = z.object({
 		.default({
 			typescript: { extensions: ['.ts', '.tsx'] },
 			javascript: { extensions: ['.js', '.jsx', '.mjs', '.cjs'] },
+			python: { extensions: ['.py'] },
+			go: { extensions: ['.go'] },
+			rust: { extensions: ['.rs'] },
 		}),
 	indexPath: z.string().default('.atlas/atlas.db'),
 })

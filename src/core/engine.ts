@@ -66,7 +66,15 @@ export class AtlasEngine {
 
 		if (!existsSync(configPath)) {
 			const defaultConfig = {
-				include: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
+				include: [
+					'**/*.ts',
+					'**/*.tsx',
+					'**/*.js',
+					'**/*.jsx',
+					'**/*.py',
+					'**/*.go',
+					'**/*.rs',
+				],
 				exclude: [
 					'**/node_modules/**',
 					'**/dist/**',
@@ -75,6 +83,13 @@ export class AtlasEngine {
 					'**/*.test.*',
 					'**/*.spec.*',
 				],
+				languages: {
+					typescript: { extensions: ['.ts', '.tsx'] },
+					javascript: { extensions: ['.js', '.jsx', '.mjs', '.cjs'] },
+					python: { extensions: ['.py'] },
+					go: { extensions: ['.go'] },
+					rust: { extensions: ['.rs'] },
+				},
 			}
 			writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2))
 		}
