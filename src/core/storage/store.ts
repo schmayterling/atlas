@@ -30,6 +30,31 @@ interface CrossProjectEdgeRow {
 	kind: string
 }
 
+// split a multi-statement DDL bundle into individual statements while
+// preserving BEGIN ... END blocks (e.g. trigger bodies) as a single unit.
+function splitDdl(ddl: string): string[] {
+	const stmts: string[] = []
+	let current = ''
+	let depth = 0
+	for (const rawLine of ddl.split('\n')) {
+		const line = rawLine.replace(/--.*$/, '')
+		if (!line.trim()) {
+			if (current) current += '\n'
+			continue
+		}
+		current += `${line}\n`
+		if (/\bBEGIN\b/i.test(line)) depth++
+		if (/\bEND\b/i.test(line) && depth > 0) depth--
+		if (depth === 0 && /;\s*$/.test(line)) {
+			const trimmed = current.trim()
+			if (trimmed) stmts.push(trimmed)
+			current = ''
+		}
+	}
+	if (current.trim()) stmts.push(current.trim())
+	return stmts
+}
+
 const SYMBOL_SELECT = `SELECT id, stable_id as stableId, file_id as fileId, name, qualified_name as qualifiedName,
 	kind, visibility, is_exported as isExported, line_start as lineStart, line_end as lineEnd,
 	col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
@@ -101,10 +126,13 @@ export class AtlasStore {
 			}
 		}
 
-		this.db.run(CREATE_TABLES)
-		this.db.run(CREATE_INDEXES)
-		this.db.run(CREATE_FTS)
-		this.db.run(CREATE_TRIGGERS)
+		// bun:sqlite's db.run() executes only the first statement of a
+		// multi-statement string, so split each DDL bundle on ';' and run
+		// the statements individually. mirrors applyMigrations() below.
+		this.runDdl(CREATE_TABLES)
+		this.runDdl(CREATE_INDEXES)
+		this.runDdl(CREATE_FTS)
+		this.runDdl(CREATE_TRIGGERS)
 
 		// set initial schema version if new DB, then apply any pending migrations
 		const existing = this.db
@@ -116,6 +144,12 @@ export class AtlasStore {
 			])
 		}
 		this.applyMigrations(Number(existing?.value ?? SCHEMA_VERSION))
+	}
+
+	private runDdl(ddl: string) {
+		for (const stmt of splitDdl(ddl)) {
+			this.db.run(stmt)
+		}
 	}
 
 	private applyMigrations(currentVersion: number) {
