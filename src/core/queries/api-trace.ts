@@ -17,6 +17,9 @@ export interface ApiTraceResult {
 	servers: ApiEndpointResult[]
 }
 
+// TRAVERSAL surface. test files are NOT filtered. an api trace may surface
+// integration tests that hit a given route, which is exactly what a user
+// asking "who calls this endpoint" wants to see.
 export function traceApi(
 	store: AtlasStore,
 	pathPattern: string,

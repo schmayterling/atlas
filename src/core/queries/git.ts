@@ -31,6 +31,7 @@ export interface ChurnOpts {
 	limit?: number
 	pathPrefix?: string
 	since?: number
+	includeTests?: boolean
 }
 
 export function churn(store: AtlasStore, opts: ChurnOpts = {}): ChurnEntry[] {
@@ -44,6 +45,12 @@ export function churn(store: AtlasStore, opts: ChurnOpts = {}): ChurnEntry[] {
 	if (opts.since) {
 		where += ' AND c.authored_at >= ?'
 		params.push(opts.since)
+	}
+	// LIST surface: hide test files unless opted in. left join keeps churn
+	// rows for files that no longer exist on disk (deleted), but drops files
+	// currently flagged as tests.
+	if (!opts.includeTests) {
+		where += ` AND NOT EXISTS (SELECT 1 FROM files cur WHERE cur.path = fc.file_path AND cur.is_test = 1)`
 	}
 	const sql = `
 		SELECT fc.file_path as filePath,
@@ -113,15 +120,20 @@ export interface CoChangePair {
 
 export function coChange(
 	store: AtlasStore,
-	opts?: { filePath?: string; minCount?: number; limit?: number },
+	opts?: { filePath?: string; minCount?: number; limit?: number; includeTests?: boolean },
 ): CoChangePair[] {
 	const minCount = opts?.minCount ?? 2
 	const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 500)
+	const testClause = opts?.includeTests
+		? ''
+		: `AND NOT EXISTS (SELECT 1 FROM files fa WHERE fa.path = file_a AND fa.is_test = 1)
+		   AND NOT EXISTS (SELECT 1 FROM files fb WHERE fb.path = file_b AND fb.is_test = 1)`
 	if (opts?.filePath) {
 		return store.queryRawWithParams<CoChangePair>(
 			`SELECT file_a as fileA, file_b as fileB, count, jaccard
 			 FROM co_change_pairs
 			 WHERE (file_a = ? OR file_b = ?) AND count >= ?
+			 ${testClause}
 			 ORDER BY jaccard DESC
 			 LIMIT ?`,
 			opts.filePath,
@@ -134,6 +146,7 @@ export function coChange(
 		`SELECT file_a as fileA, file_b as fileB, count, jaccard
 		 FROM co_change_pairs
 		 WHERE count >= ?
+		 ${testClause}
 		 ORDER BY jaccard DESC
 		 LIMIT ?`,
 		minCount,

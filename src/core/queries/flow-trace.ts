@@ -4,6 +4,9 @@ import type { GraphEdge } from '../graph/graph-index.js'
 import { loadSubgraph } from '../graph/graph-index.js'
 import type { AtlasStore } from '../storage/store.js'
 
+// TRAVERSAL surface. test files are NOT filtered. tracing a flow between
+// two named symbols may legitimately walk through test scaffolding when the
+// caller is asking about test execution paths.
 export function traceFlow(
 	store: AtlasStore,
 	sourceStableId: string,

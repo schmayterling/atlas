@@ -5,12 +5,12 @@ import { heading, outputJson } from '../formatters/common.js'
 export function churnCommand(
 	projectRoot: string,
 	json: boolean,
-	opts: { limit?: number; path?: string; sinceDays?: number },
+	opts: { limit?: number; path?: string; sinceDays?: number; includeTests?: boolean },
 ) {
 	const engine = new AtlasEngine(projectRoot)
 	try {
 		const since = opts.sinceDays ? Date.now() - opts.sinceDays * 86400_000 : undefined
-		const rows = engine.churn({ limit: opts.limit ?? 20, pathPrefix: opts.path, since })
+		const rows = engine.churn({ limit: opts.limit ?? 20, pathPrefix: opts.path, since, includeTests: opts.includeTests })
 
 		if (json) {
 			outputJson(rows)
@@ -90,7 +90,7 @@ export function contributorsCommand(projectRoot: string, json: boolean, file?: s
 export function coChangeCommand(
 	projectRoot: string,
 	json: boolean,
-	opts: { file?: string; limit?: number; minCount?: number },
+	opts: { file?: string; limit?: number; minCount?: number; includeTests?: boolean },
 ) {
 	const engine = new AtlasEngine(projectRoot)
 	try {
@@ -98,6 +98,7 @@ export function coChangeCommand(
 			filePath: opts.file,
 			limit: opts.limit ?? 20,
 			minCount: opts.minCount ?? 2,
+			includeTests: opts.includeTests,
 		})
 		if (json) {
 			outputJson(rows)

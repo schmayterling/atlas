@@ -7,6 +7,9 @@ import type {
 import { loadSubgraph, reachableNodes } from '../graph/graph-index.js'
 import type { AtlasStore } from '../storage/store.js'
 
+// TRAVERSAL surface. test files are NOT filtered by default. seeing which
+// tests depend on a production symbol is the answer to "which tests will
+// break if I change this", so includeTests defaults to true.
 export function getBlastRadius(
 	store: AtlasStore,
 	symbolStableId: string,

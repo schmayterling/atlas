@@ -31,10 +31,17 @@ interface FileRow {
 }
 
 // build a file-level undirected graph weighted by cross-file edges. ignores
-// intra-file edges (file_id is null for cross-file in atlas).
-export function buildFileGraph(store: AtlasStore, opts?: { withCoChange?: boolean }): UndirectedGraph {
+// intra-file edges (file_id is null for cross-file in atlas). test files are
+// excluded by default so subsystem clusters represent the production-code
+// dependency structure (test files fan into many modules and would blur
+// subsystem boundaries).
+export function buildFileGraph(
+	store: AtlasStore,
+	opts?: { withCoChange?: boolean; includeTests?: boolean },
+): UndirectedGraph {
 	const graph = new UndirectedGraph()
-	const files = store.queryRaw<FileRow>('SELECT id, path FROM files')
+	const fileWhere = opts?.includeTests ? '' : 'WHERE is_test = 0'
+	const files = store.queryRaw<FileRow>(`SELECT id, path FROM files ${fileWhere}`)
 	for (const f of files) {
 		graph.addNode(String(f.id), { path: f.path })
 	}
@@ -42,7 +49,9 @@ export function buildFileGraph(store: AtlasStore, opts?: { withCoChange?: boolea
 	// pull cross-file edges by joining symbols → file. dedupe pairs and sum
 	// weights. an edge counts when source and target symbols live in
 	// different files. SQLite has no LEAST/GREATEST so we use CASE WHEN
-	// to canonicalize each pair as (smaller, larger).
+	// to canonicalize each pair as (smaller, larger). edges where either
+	// endpoint lives in a test file are dropped at the graph layer below
+	// because we only added non-test nodes above.
 	const edgeRows = store.queryRaw<FileEdgeRow>(`
 		SELECT a, b, COUNT(*) as weight FROM (
 			SELECT
@@ -97,7 +106,7 @@ export function buildFileGraph(store: AtlasStore, opts?: { withCoChange?: boolea
 // and conductance scores.
 export function detectSubsystems(
 	store: AtlasStore,
-	opts?: { withCoChange?: boolean },
+	opts?: { withCoChange?: boolean; includeTests?: boolean },
 ): SubsystemDetectionResult {
 	const graph = buildFileGraph(store, opts)
 	if (graph.order < 2) {

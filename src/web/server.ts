@@ -41,17 +41,20 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 		const q = c.req.query('q')
 		if (!q) return c.json({ error: 'q required' }, 400)
 		try {
+			const includeTests = c.req.query('includeTests') === 'true'
 			const semantic = c.req.query('semantic') === 'true'
-			if (semantic) return c.json(await eng(c).semanticSearch(q, { limit: parseIntParam(c.req.query('limit'), 500) }))
-			return c.json(eng(c).search(q, { kind: c.req.query('kind') as SymbolKind | undefined, limit: parseIntParam(c.req.query('limit'), 500) }))
+			if (semantic) return c.json(await eng(c).semanticSearch(q, { limit: parseIntParam(c.req.query('limit'), 500), includeTests }))
+			return c.json(eng(c).search(q, { kind: c.req.query('kind') as SymbolKind | undefined, limit: parseIntParam(c.req.query('limit'), 500), includeTests }))
 		} catch (e) { log.error(`search: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
 	app.get('/api/files', (c) => {
-		try { return c.json(eng(c).files()) }
+		try { return c.json(eng(c).files({ includeTests: c.req.query('includeTests') === 'true' })) }
 		catch (e) { log.error(`files: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
+	// LOOKUP surface: user explicitly asked for the symbols at a specific
+	// path, return them whether or not the file is a test.
 	app.get('/api/files/symbols', (c) => {
 		const path = c.req.query('path')
 		if (!path) return c.json({ error: 'path required' }, 400)
@@ -90,7 +93,7 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 	})
 
 	app.get('/api/dead-code', (c) => {
-		try { return c.json(eng(c).deadCode({ kind: c.req.query('kind') as SymbolKind | undefined, path: c.req.query('path') ?? undefined })) }
+		try { return c.json(eng(c).deadCode({ kind: c.req.query('kind') as SymbolKind | undefined, path: c.req.query('path') ?? undefined, includeTests: c.req.query('includeTests') === 'true' })) }
 		catch (e) { log.error(`dead-code: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
@@ -124,7 +127,7 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 					} catch { /* no summaries table */ }
 					return c.json({ type: 'file', path: filePath, summary: fileSummary, symbols: engine.fileSymbols(filePath) })
 				}
-				return c.json({ type: 'index', files: eng(c).files().map((f) => ({ path: f.path, language: f.language, symbolCount: f.symbolCount })) })
+				return c.json({ type: 'index', files: eng(c).files({ includeTests: c.req.query('includeTests') === 'true' }).map((f) => ({ path: f.path, language: f.language, symbolCount: f.symbolCount })) })
 			}
 			const engine = eng(c)
 			const detail = await engine.symbolDetail(symbolQuery)

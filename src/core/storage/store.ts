@@ -326,11 +326,13 @@ export class AtlasStore {
 
 	// --- search ---
 
-	searchSymbols(query: string, limit = 20): SymbolResult[] {
+	searchSymbols(query: string, limit = 20, includeTests = false): SymbolResult[] {
 		// sanitize FTS5 query: strip operators, keep only alphanumeric and underscore
 		const sanitized = query.replace(/[^a-zA-Z0-9_\s]/g, '')
 		if (!sanitized.trim()) return []
 		const ftsQuery = `${sanitized}*`
+
+		const testClause = includeTests ? '' : 'AND f.is_test = 0'
 
 		try {
 			return this.db
@@ -343,19 +345,20 @@ export class AtlasStore {
 					FROM symbols_fts
 					JOIN symbols s ON s.id = symbols_fts.rowid
 					JOIN files f ON f.id = s.file_id
-					WHERE symbols_fts MATCH ?
+					WHERE symbols_fts MATCH ? ${testClause}
 					ORDER BY rank
 					LIMIT ?`,
 				)
 				.all(ftsQuery, limit)
 		} catch {
 			// fall back to exact search on FTS parse error
-			return this.searchSymbolsExact(query, undefined, limit)
+			return this.searchSymbolsExact(query, undefined, limit, includeTests)
 		}
 	}
 
-	searchSymbolsExact(name: string, kind?: SymbolKind, limit = 20): SymbolResult[] {
+	searchSymbolsExact(name: string, kind?: SymbolKind, limit = 20, includeTests = false): SymbolResult[] {
 		const kindClause = kind ? 'AND s.kind = ?' : ''
+		const testClause = includeTests ? '' : 'AND f.is_test = 0'
 		const params = kind ? [name, kind, limit] : [name, limit]
 
 		return this.db
@@ -367,7 +370,7 @@ export class AtlasStore {
 				(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
 				FROM symbols s
 				JOIN files f ON f.id = s.file_id
-				WHERE s.name = ? ${kindClause}
+				WHERE s.name = ? ${kindClause} ${testClause}
 				ORDER BY s.is_exported DESC, s.name
 				LIMIT ?`,
 			)

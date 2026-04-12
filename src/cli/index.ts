@@ -77,6 +77,7 @@ program
 	.option('-e, --exact', 'exact match only')
 	.option('-s, --semantic', 'semantic search (natural language, requires embeddings)')
 	.option('-n, --limit <n>', 'max results', '20')
+	.option('--include-tests', 'include symbols from test files')
 	.action(async (query, cmdOpts) => {
 		const opts = program.opts()
 		await searchCommand(opts.project, query, opts.json, {
@@ -84,6 +85,7 @@ program
 			exact: cmdOpts.exact,
 			semantic: cmdOpts.semantic,
 			limit: Number(cmdOpts.limit),
+			includeTests: cmdOpts.includeTests,
 		})
 	})
 
@@ -139,11 +141,13 @@ program
 	.description('find unreferenced symbols')
 	.option('-k, --kind <kind>', 'filter by symbol kind')
 	.option('--path <path>', 'filter by file path')
+	.option('--include-tests', 'include symbols from test files')
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		deadCodeCommand(opts.project, opts.json, {
 			kind: cmdOpts.kind,
 			path: cmdOpts.path,
+			includeTests: cmdOpts.includeTests,
 		})
 	})
 
@@ -170,11 +174,12 @@ program
 program
 	.command('duplicates')
 	.description('show potential duplicate code')
-	.action(() => {
+	.option('--include-tests', 'include duplicate pairs in test files')
+	.action((cmdOpts) => {
 		const opts = program.opts()
 		const { AtlasEngine } = require('../core/engine.js')
 		const engine = new AtlasEngine(opts.project)
-		const dups = engine.duplicates()
+		const dups = engine.duplicates({ includeTests: cmdOpts.includeTests })
 		if (opts.json) { console.log(JSON.stringify(dups, null, 2)); engine.close(); return }
 		if (dups.length === 0) { console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.'); engine.close(); return }
 		const pc = require('picocolors')
@@ -232,12 +237,14 @@ program
 	.option('-l, --limit <n>', 'max files to show', (v) => Number.parseInt(v, 10), 20)
 	.option('--path <prefix>', 'only files starting with this path prefix')
 	.option('--since-days <n>', 'only count commits from the last N days', (v) => Number.parseInt(v, 10), 0)
+	.option('--include-tests', 'include test files')
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		churnCommand(opts.project, opts.json, {
 			limit: cmdOpts.limit,
 			path: cmdOpts.path,
 			sinceDays: cmdOpts.sinceDays,
+			includeTests: cmdOpts.includeTests,
 		})
 	})
 
@@ -263,12 +270,14 @@ program
 	.option('--file <path>', 'only pairs involving this file')
 	.option('-l, --limit <n>', 'max pairs to show', (v) => Number.parseInt(v, 10), 20)
 	.option('--min-count <n>', 'minimum joint commit count', (v) => Number.parseInt(v, 10), 2)
+	.option('--include-tests', 'include pairs involving test files')
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		coChangeCommand(opts.project, opts.json, {
 			file: cmdOpts.file,
 			limit: cmdOpts.limit,
 			minCount: cmdOpts.minCount,
+			includeTests: cmdOpts.includeTests,
 		})
 	})
 

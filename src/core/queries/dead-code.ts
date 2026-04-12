@@ -3,7 +3,7 @@ import type { AtlasStore } from '../storage/store.js'
 
 export function findDeadCode(
 	store: AtlasStore,
-	opts?: { path?: string; kind?: SymbolKind },
+	opts?: { path?: string; kind?: SymbolKind; includeTests?: boolean },
 ): DeadCodeResult {
 	// build parameterized query to avoid SQL injection
 	let sql = `SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
@@ -17,6 +17,10 @@ export function findDeadCode(
 			AND s.stable_id NOT IN (
 				SELECT DISTINCT target_id FROM edges WHERE kind != 'contains'
 			)`
+
+	if (!opts?.includeTests) {
+		sql += ' AND f.is_test = 0'
+	}
 
 	const params: (string | number)[] = []
 

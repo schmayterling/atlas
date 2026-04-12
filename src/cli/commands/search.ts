@@ -7,13 +7,13 @@ export async function searchCommand(
 	projectRoot: string,
 	query: string,
 	json: boolean,
-	opts: { kind?: string; exact?: boolean; limit?: number; semantic?: boolean },
+	opts: { kind?: string; exact?: boolean; limit?: number; semantic?: boolean; includeTests?: boolean },
 ) {
 	const engine = new AtlasEngine(projectRoot)
 
 	try {
 		if (opts.semantic) {
-			const result = await engine.semanticSearch(query, { limit: opts.limit })
+			const result = await engine.semanticSearch(query, { limit: opts.limit, includeTests: opts.includeTests })
 
 			if (json) {
 				outputJson(result)
@@ -51,6 +51,7 @@ export async function searchCommand(
 			kind: opts.kind as SymbolKind | undefined,
 			exact: opts.exact,
 			limit: opts.limit,
+			includeTests: opts.includeTests,
 		})
 
 		if (json) {

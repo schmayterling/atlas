@@ -8,6 +8,9 @@ import type {
 import { loadSubgraph, reachableNodes } from '../graph/graph-index.js'
 import type { AtlasStore } from '../storage/store.js'
 
+// TRAVERSAL surface. test files are NOT filtered. dependency graphs from a
+// known starting symbol legitimately reach into test files; that's how a
+// caller asks "what depends on this".
 export function getDependencies(
 	store: AtlasStore,
 	symbolStableId: string,

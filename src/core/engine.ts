@@ -186,7 +186,7 @@ export class AtlasEngine {
 
 	search(
 		query: string,
-		opts?: { kind?: SymbolKind; exact?: boolean; limit?: number },
+		opts?: { kind?: SymbolKind; exact?: boolean; limit?: number; includeTests?: boolean },
 	): SearchResult {
 		const store = this.getStore()
 		return searchSymbols(store, query, opts)
@@ -245,25 +245,26 @@ export class AtlasEngine {
 
 	// --- dead code ---
 
-	deadCode(opts?: { path?: string; kind?: SymbolKind }): DeadCodeResult {
+	deadCode(opts?: { path?: string; kind?: SymbolKind; includeTests?: boolean }): DeadCodeResult {
 		const store = this.getStore()
 		return findDeadCode(store, opts)
 	}
 
 	// --- semantic search ---
 
-	async semanticSearch(query: string, opts?: { limit?: number }): Promise<SemanticSearchResult> {
+	async semanticSearch(query: string, opts?: { limit?: number; includeTests?: boolean }): Promise<SemanticSearchResult> {
 		const store = this.getStore()
 		return semanticSearch(store, query, opts)
 	}
 
 	// --- file browsing ---
 
-	files(): FileInfo[] {
+	files(opts?: { includeTests?: boolean }): FileInfo[] {
 		const store = this.getStore()
 		const allFiles = store.getAllFiles()
+		const visible = opts?.includeTests ? allFiles : allFiles.filter((f) => !f.isTest)
 		const counts = store.getSymbolCountByFile()
-		return allFiles.map((f) => ({
+		return visible.map((f) => ({
 			path: f.path,
 			language: f.language,
 			symbolCount: counts.get(f.id) ?? 0,
@@ -319,6 +320,9 @@ export class AtlasEngine {
 	}
 
 	// --- flows ---
+	// note: getFlows() returns persisted flow rows. test files are filtered
+	// at flow-detection time via findFlowRoots(includeTests=false) so this
+	// list is already production-only by default.
 
 	flows(): DetectedFlow[] {
 		const store = this.getStore()
@@ -327,9 +331,9 @@ export class AtlasEngine {
 
 	// --- duplicates ---
 
-	duplicates(): DuplicatePair[] {
+	duplicates(opts?: { includeTests?: boolean }): DuplicatePair[] {
 		const store = this.getStore()
-		return findDuplicates(store)
+		return findDuplicates(store, opts)
 	}
 
 	// --- git history ---
@@ -350,11 +354,14 @@ export class AtlasEngine {
 		return gitLastChanged(this.getStore(), filePath)
 	}
 
-	coChange(opts?: { filePath?: string; minCount?: number; limit?: number }) {
+	coChange(opts?: { filePath?: string; minCount?: number; limit?: number; includeTests?: boolean }) {
 		return gitCoChange(this.getStore(), opts)
 	}
 
 	// --- subsystems ---
+	// listSubsystems reads the persisted subsystems table; clusters are
+	// computed from the file graph which already excludes test files at
+	// build time (buildFileGraph), so the persisted output is production-only.
 
 	subsystems(): SubsystemSummary[] {
 		return listSubsystems(this.getStore())

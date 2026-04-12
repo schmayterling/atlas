@@ -7,9 +7,10 @@ import type { AtlasStore } from '../storage/store.js'
 export async function semanticSearch(
 	store: AtlasStore,
 	query: string,
-	opts?: { limit?: number },
+	opts?: { limit?: number; includeTests?: boolean },
 ): Promise<SemanticSearchResult> {
 	const limit = opts?.limit ?? 10
+	const includeTests = opts?.includeTests ?? false
 
 	if (!isVectorSearchAvailable()) {
 		return { query, results: [], embeddingsAvailable: false }
@@ -37,7 +38,11 @@ export async function semanticSearch(
 
 	const queryVec = new Float32Array(queryEmbedding)
 
-	// KNN search via sqlite-vec
+	// over-fetch to absorb test-symbol post-filter rejects when includeTests=false.
+	// vec0 MATCH does not compose cleanly with column filters on joined tables,
+	// so filtering happens in JS after KNN ranking.
+	const fetchK = includeTests ? limit : limit * 5
+
 	const rows = store.queryRawWithParams<{
 		rowid: number
 		distance: number
@@ -50,11 +55,12 @@ export async function semanticSearch(
 		lineEnd: number
 		isExported: number
 		docComment: string | null
+		isTest: number
 	}>(
 		`SELECT e.rowid, e.distance,
 		s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
 		f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
-		s.is_exported as isExported, s.doc_comment as docComment
+		s.is_exported as isExported, s.doc_comment as docComment, f.is_test as isTest
 		FROM symbol_embeddings e
 		JOIN symbols s ON s.id = e.rowid
 		JOIN files f ON f.id = s.file_id
@@ -62,10 +68,12 @@ export async function semanticSearch(
 		AND k = ?
 		ORDER BY e.distance`,
 		queryVec,
-		limit,
+		fetchK,
 	)
 
-	const results = rows.map((r) => ({
+	const filtered = includeTests ? rows : rows.filter((r) => r.isTest === 0)
+
+	const results = filtered.slice(0, limit).map((r) => ({
 		name: r.name,
 		qualifiedName: r.qualifiedName,
 		kind: r.kind as SymbolKind,

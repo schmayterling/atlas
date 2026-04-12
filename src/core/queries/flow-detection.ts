@@ -3,13 +3,21 @@ import type { DetectedFlow } from '../../shared/types.js'
 
 export type { DetectedFlow }
 
-// find flow roots: exported functions/methods with no inbound calls edges
-export function findFlowRoots(store: AtlasStore): { stableId: string; name: string; kind: string }[] {
+// find flow roots: exported functions/methods with no inbound calls edges.
+// excludes test files by default so detected flows describe production
+// entry points, not test scaffolding.
+export function findFlowRoots(
+	store: AtlasStore,
+	opts?: { includeTests?: boolean },
+): { stableId: string; name: string; kind: string }[] {
+	const testClause = opts?.includeTests ? '' : 'AND f.is_test = 0'
 	return store.queryRaw<{ stableId: string; name: string; kind: string }>(`
 		SELECT s.stable_id as stableId, s.name, s.kind
 		FROM symbols s
+		JOIN files f ON f.id = s.file_id
 		WHERE s.is_exported = 1
 		AND s.kind IN ('function', 'method')
+		${testClause}
 		AND s.stable_id NOT IN (
 			SELECT DISTINCT target_id FROM edges WHERE kind = 'calls'
 		)

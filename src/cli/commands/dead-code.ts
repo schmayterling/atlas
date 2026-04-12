@@ -6,7 +6,7 @@ import { badge, fileRef, heading, outputJson } from '../formatters/common.js'
 export function deadCodeCommand(
 	projectRoot: string,
 	json: boolean,
-	opts: { kind?: string; path?: string },
+	opts: { kind?: string; path?: string; includeTests?: boolean },
 ) {
 	const engine = new AtlasEngine(projectRoot)
 
@@ -14,6 +14,7 @@ export function deadCodeCommand(
 		const result = engine.deadCode({
 			kind: opts.kind as SymbolKind | undefined,
 			path: opts.path,
+			includeTests: opts.includeTests,
 		})
 
 		if (json) {

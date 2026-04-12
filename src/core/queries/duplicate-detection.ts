@@ -4,11 +4,14 @@ import { isVectorSearchAvailable } from '../storage/sqlite-ext.js'
 
 export type { DuplicatePair }
 
-// find duplicate candidates using embedding similarity
+// find duplicate candidates using embedding similarity. by default, drop
+// pairs where either symbol lives in a test file (intentional arrange/act/
+// assert repetition would dominate the output otherwise).
 export function findDuplicates(
 	store: AtlasStore,
-	opts?: { threshold?: number; limit?: number },
+	opts?: { threshold?: number; limit?: number; includeTests?: boolean },
 ): DuplicatePair[] {
+	const includeTests = opts?.includeTests ?? false
 	// first check stored duplicates
 	const stored = store.queryRaw<{
 		symbolAId: string
@@ -22,6 +25,14 @@ export function findDuplicates(
 		// batch-fetch all symbols
 		const allIds = [...new Set(stored.flatMap((r) => [r.symbolAId, r.symbolBId]))]
 		const symMap = store.getSymbolsByStableIds(allIds)
+		const fileMap = new Map<number, boolean>()
+		if (!includeTests) {
+			const fileIds = [...new Set([...symMap.values()].map((s) => s.fileId))]
+			for (const fid of fileIds) {
+				const file = store.getFile(fid)
+				if (file) fileMap.set(fid, file.isTest)
+			}
+		}
 		const results = store.symbolsToResults([...symMap.values()])
 		const resultMap = new Map<string, import('../../shared/types.js').SymbolResult>()
 		const symValues = [...symMap.values()]
@@ -34,6 +45,12 @@ export function findDuplicates(
 				const a = resultMap.get(row.symbolAId)
 				const b = resultMap.get(row.symbolBId)
 				if (!a || !b) return null
+				if (!includeTests) {
+					const symA = symMap.get(row.symbolAId)
+					const symB = symMap.get(row.symbolBId)
+					if (!symA || !symB) return null
+					if (fileMap.get(symA.fileId) || fileMap.get(symB.fileId)) return null
+				}
 				return {
 					symbolA: a,
 					symbolB: b,

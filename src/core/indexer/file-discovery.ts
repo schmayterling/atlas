@@ -113,6 +113,15 @@ function matchPattern(path: string, pattern: string): boolean {
 	// exact match
 	if (path === pattern) return true
 
+	// **/dir/** -> matches any path containing /dir/. checked BEFORE the
+	// **/<glob> branch because '**/tests/**' would otherwise be parsed as a
+	// flat-file glob ('tests/**') and never match directory descendants.
+	if (pattern.startsWith('**/') && pattern.endsWith('/**')) {
+		const dir = pattern.slice(3, -3)
+		if (!dir) return false
+		return path.includes(`/${dir}/`) || path.startsWith(`${dir}/`)
+	}
+
 	// **/*.foo.* or **/*.ext -> matches pattern like **/*.test.* or **/*.ts
 	if (pattern.startsWith('**/') && pattern.includes('*')) {
 		// extract the part after **/ e.g. "*.test.*" or "*.ts"
@@ -125,12 +134,6 @@ function matchPattern(path: string, pattern: string): boolean {
 		} catch {
 			return false
 		}
-	}
-
-	// **/dir/** -> matches any path containing /dir/
-	if (pattern.startsWith('**/') && pattern.endsWith('/**')) {
-		const dir = pattern.slice(3, -3)
-		return path.includes(`/${dir}/`) || path.startsWith(`${dir}/`)
 	}
 
 	// **/dir -> matches directory name anywhere
