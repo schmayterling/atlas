@@ -114,11 +114,43 @@ export function ingestGitHistory(
 
 	store.setMeta('git_history_last_commit', head)
 
+	// refresh co_change_pairs from the new file_changes state. cheap on
+	// repos with < 10k commits; the only mechanism that scales beyond
+	// on-demand pairwise self-joins.
+	try {
+		refreshCoChangePairs(store)
+	} catch (e) {
+		log.warn(`co_change_pairs refresh failed: ${e}`)
+	}
+
 	return {
 		commitsAdded: commitCount,
 		fileChangesAdded: fileChangeCount,
 		skipped: false,
 	}
+}
+
+// recompute co_change_pairs from scratch. uses a single SQL aggregation
+// against file_changes; ordering enforces file_a < file_b so each pair
+// appears once.
+function refreshCoChangePairs(store: AtlasStore): void {
+	store.runRaw('DELETE FROM co_change_pairs')
+	store.runRaw(`
+		INSERT INTO co_change_pairs (file_a, file_b, count, jaccard)
+		SELECT
+			a.file_path AS file_a,
+			b.file_path AS file_b,
+			COUNT(*) AS count,
+			CAST(COUNT(*) AS REAL) / (
+				(SELECT COUNT(DISTINCT commit_hash) FROM file_changes WHERE file_path = a.file_path)
+				+ (SELECT COUNT(DISTINCT commit_hash) FROM file_changes WHERE file_path = b.file_path)
+				- COUNT(*)
+			) AS jaccard
+		FROM file_changes a
+		JOIN file_changes b ON a.commit_hash = b.commit_hash AND a.file_path < b.file_path
+		GROUP BY a.file_path, b.file_path
+		HAVING count >= 2
+	`)
 }
 
 // parse output of: git log --pretty=format:'@@ATLASCOMMIT@@<H>\t<an>\t<ae>\t<at>\t<s>' --name-status -z

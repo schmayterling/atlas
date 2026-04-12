@@ -278,4 +278,19 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_hash);
 		`,
 	},
+	{
+		version: 10,
+		description: 'add co_change_pairs aggregation for subsystem clustering',
+		up: `
+			CREATE TABLE IF NOT EXISTS co_change_pairs (
+				file_a TEXT NOT NULL,
+				file_b TEXT NOT NULL,
+				count INTEGER NOT NULL,
+				jaccard REAL NOT NULL,
+				PRIMARY KEY (file_a, file_b)
+			);
+			CREATE INDEX IF NOT EXISTS idx_cochange_a ON co_change_pairs(file_a);
+			CREATE INDEX IF NOT EXISTS idx_cochange_b ON co_change_pairs(file_b);
+		`,
+	},
 ]

@@ -104,6 +104,43 @@ export function contributors(
 	)
 }
 
+export interface CoChangePair {
+	fileA: string
+	fileB: string
+	count: number
+	jaccard: number
+}
+
+export function coChange(
+	store: AtlasStore,
+	opts?: { filePath?: string; minCount?: number; limit?: number },
+): CoChangePair[] {
+	const minCount = opts?.minCount ?? 2
+	const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 500)
+	if (opts?.filePath) {
+		return store.queryRawWithParams<CoChangePair>(
+			`SELECT file_a as fileA, file_b as fileB, count, jaccard
+			 FROM co_change_pairs
+			 WHERE (file_a = ? OR file_b = ?) AND count >= ?
+			 ORDER BY jaccard DESC
+			 LIMIT ?`,
+			opts.filePath,
+			opts.filePath,
+			minCount,
+			limit,
+		)
+	}
+	return store.queryRawWithParams<CoChangePair>(
+		`SELECT file_a as fileA, file_b as fileB, count, jaccard
+		 FROM co_change_pairs
+		 WHERE count >= ?
+		 ORDER BY jaccard DESC
+		 LIMIT ?`,
+		minCount,
+		limit,
+	)
+}
+
 export function lastChanged(store: AtlasStore, filePath: string): CommitRecord | null {
 	const rows = store.queryRawWithParams<CommitRecord>(
 		`SELECT c.hash, c.author_name as authorName, c.author_email as authorEmail,

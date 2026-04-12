@@ -28,6 +28,7 @@ import { getFlows, type DetectedFlow } from './queries/flow-detection.js'
 import { findDuplicates, type DuplicatePair } from './queries/duplicate-detection.js'
 import {
 	churn as gitChurn,
+	coChange as gitCoChange,
 	contributors as gitContributors,
 	fileHistory as gitFileHistory,
 	lastChanged as gitLastChanged,
@@ -334,6 +335,10 @@ export class AtlasEngine {
 
 	lastChanged(filePath: string) {
 		return gitLastChanged(this.getStore(), filePath)
+	}
+
+	coChange(opts?: { filePath?: string; minCount?: number; limit?: number }) {
+		return gitCoChange(this.getStore(), opts)
 	}
 
 	// --- LLM summaries ---
