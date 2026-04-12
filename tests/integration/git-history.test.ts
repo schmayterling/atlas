@@ -50,12 +50,15 @@ afterEach(() => {
 })
 
 describe('parseGitLog', () => {
+	const HASH_A = '0000000000000000000000000000000000000001'
+	const HASH_B = '0000000000000000000000000000000000000002'
+	const HASH_C = '0000000000000000000000000000000000000003'
+
 	test('parses a single commit with one file change', () => {
-		// build a synthetic raw log buffer matching git output format
-		const raw = `@@ATLASCOMMIT@@abc123\tAlice\talice@x.com\t1700000000\tinitial\nA\tfile1.ts\0`
+		const raw = `@@ATLASCOMMIT@@${HASH_A}\tAlice\talice@x.com\t1700000000\tinitial\nA\tfile1.ts\0`
 		const commits = parseGitLog(raw)
 		expect(commits.length).toBe(1)
-		expect(commits[0].hash).toBe('abc123')
+		expect(commits[0].hash).toBe(HASH_A)
 		expect(commits[0].authorName).toBe('Alice')
 		expect(commits[0].files.length).toBe(1)
 		expect(commits[0].files[0].status).toBe('A')
@@ -63,7 +66,7 @@ describe('parseGitLog', () => {
 	})
 
 	test('parses a rename', () => {
-		const raw = `@@ATLASCOMMIT@@abc\tBob\tbob@x.com\t1700000001\trename\nR100\told.ts\0new.ts\0`
+		const raw = `@@ATLASCOMMIT@@${HASH_B}\tBob\tbob@x.com\t1700000001\trename\nR100\told.ts\0new.ts\0`
 		const commits = parseGitLog(raw)
 		expect(commits[0].files[0].status).toBe('R')
 		expect(commits[0].files[0].filePath).toBe('new.ts')
@@ -71,9 +74,20 @@ describe('parseGitLog', () => {
 	})
 
 	test('parses subjects containing tabs', () => {
-		const raw = `@@ATLASCOMMIT@@abc\tA\ta@x\t1700000002\tfix:\tdo a thing\nM\tx.ts\0`
+		const raw = `@@ATLASCOMMIT@@${HASH_C}\tA\ta@x\t1700000002\tfix:\tdo a thing\nM\tx.ts\0`
 		const commits = parseGitLog(raw)
 		expect(commits[0].subject).toBe('fix:\tdo a thing')
+	})
+
+	test('rejects chunks whose first field is not a 40-char hex hash (COMMIT_MARKER collision guard)', () => {
+		// a commit subject containing the literal marker would split mid-chunk
+		// and produce a chunk whose hash field is non-hex; the parser should
+		// drop it instead of inserting a junk row.
+		const raw = `@@ATLASCOMMIT@@${HASH_A}\tA\ta@x\t1700000000\tweird @@ATLASCOMMIT@@junk\tB\tb@x\t1700000001\treal\nA\tfile.ts\0`
+		const commits = parseGitLog(raw)
+		// the only valid chunk is the leading one with HASH_A
+		expect(commits.length).toBe(1)
+		expect(commits[0].hash).toBe(HASH_A)
 	})
 })
 

@@ -56,13 +56,6 @@ export class Indexer {
 				branchChanged: false,
 				isFullReindex: true,
 			}
-
-			// drop the git history watermark + tables so the next ingestion
-			// step rebuilds from scratch under the current path filter
-			this.store.runRaw('DELETE FROM file_changes')
-			this.store.runRaw('DELETE FROM commits')
-			this.store.runRaw('DELETE FROM co_change_pairs')
-			this.store.setMeta('git_history_last_commit', '')
 		}
 
 		const totalChanged = changes.added.length + changes.modified.length + changes.deleted.length
@@ -70,23 +63,9 @@ export class Indexer {
 			`changes: ${changes.added.length} added, ${changes.modified.length} modified, ${changes.deleted.length} deleted`,
 		)
 
-		// step 2.5: git history ingestion (runs before the no-op early return
-		// so a clean tree still refreshes commit data after new commits land).
-		// the discovered file set scopes ingestion: only file_changes whose
-		// path matches a currently-discovered file are kept, which filters
-		// out noise from once-tracked-now-gitignored artifacts.
-		try {
-			const { ingestGitHistory } = await import('./git-history.js')
-			const relevantPaths = new Set(discovered.map((f) => f.path))
-			const gitResult = ingestGitHistory(this.projectRoot, this.store, relevantPaths)
-			if (gitResult.commitsAdded > 0) {
-				log.info(`git: +${gitResult.commitsAdded} commits, ${gitResult.fileChangesAdded} file changes`)
-			}
-		} catch (e) {
-			log.warn(`git history ingestion failed: ${e}`)
-		}
-
-		// step 3: dry run
+		// step 3: dry run -- must come before any state mutation, including
+		// the --full git table reset and the git history ingestion. a dry
+		// run reports what would happen without touching persisted data.
 		if (opts?.dryRun) {
 			return {
 				filesTotal: discovered.length,
@@ -100,6 +79,36 @@ export class Indexer {
 				duration: performance.now() - start,
 				warnings,
 			}
+		}
+
+		// --full git history reset: drop every git-derived row + watermark
+		// in one transaction so the next ingestion rebuilds from scratch
+		// under the current path filter. only runs after the dry-run guard.
+		if (opts?.force) {
+			const { clearGitHistory } = await import('./git-history.js')
+			clearGitHistory(this.store)
+		}
+
+		// step 3.5: git history ingestion (runs even when totalChanged === 0
+		// so a clean tree still refreshes commit data after new commits land).
+		// the discovered file set scopes ingestion: only file_changes whose
+		// path matches a currently-discovered file (or rename source) are
+		// kept, which filters out noise from once-tracked-now-gitignored
+		// artifacts. an empty discovered set means "ingest everything"; we
+		// pass undefined rather than an empty Set so the filter doesn't
+		// silently skip every commit.
+		try {
+			const { ingestGitHistory } = await import('./git-history.js')
+			const relevantPaths =
+				discovered.length > 0 ? new Set(discovered.map((f) => f.path)) : undefined
+			const gitResult = ingestGitHistory(this.projectRoot, this.store, relevantPaths)
+			if (gitResult.commitsAdded > 0) {
+				log.info(`git: +${gitResult.commitsAdded} commits, ${gitResult.fileChangesAdded} file changes`)
+			} else if (gitResult.skipped && gitResult.reason && gitResult.reason !== 'up to date') {
+				log.debug(`git history: ${gitResult.reason}`)
+			}
+		} catch (e) {
+			log.warn(`git history ingestion failed: ${e}`)
 		}
 
 		// no longer early-return on totalChanged === 0. the parsing/extract
@@ -244,55 +253,65 @@ export class Indexer {
 		})
 		log.debug(`parsing + extraction: ${(performance.now() - t).toFixed(0)}ms`)
 
-		// step 6: cross-file resolution via TS compiler API (skipped when
-		// nothing was processed; the resolver is expensive on cold starts).
+		// step 6: cross-file resolution via TS compiler API. skipped only
+		// when there is nothing to process AND no deletions to clean up;
+		// the resolver itself is expensive but it also owns cleanup of
+		// stale cross-file edges that point to removed symbols.
 		t = performance.now()
-		if (absolutePaths.length === 0) {
-			log.debug('skipping cross-file resolution (no files processed)')
+		if (absolutePaths.length === 0 && changes.deleted.length === 0) {
+			log.debug('skipping cross-file resolution (no files processed, no deletions)')
 		} else {
-		log.info('resolving cross-file references...')
-		try {
-			// delete cross-file edges only for symbols in processed files (not all)
-			if (processedStableIds.length > 0) {
-				this.store.deleteCrossFileEdgesForSources(processedStableIds)
+			log.info('resolving cross-file references...')
+			try {
+				// delete cross-file edges only for symbols in processed files (not all)
+				if (processedStableIds.length > 0) {
+					this.store.deleteCrossFileEdgesForSources(processedStableIds)
+				}
+
+				// when files were deleted in step 4 their symbols cascaded away
+				// but cross-file edges pointing INTO those symbols (sourceId or
+				// targetId referencing a now-missing stable_id) are orphaned.
+				// rebuild from the current TS compiler view of the project to
+				// drop the stale rows. only runs when we have something to resolve.
+				const resolved =
+					absolutePaths.length > 0
+						? resolveProject(this.projectRoot, absolutePaths, this.store)
+						: { edges: [], imports: [] }
+
+				this.store.bulkInsert(() => {
+					for (const edge of resolved.edges) {
+						this.store.insertEdge({
+							sourceId: edge.sourceStableId,
+							targetId: edge.targetStableId,
+							kind: edge.kind,
+							fileId: null, // cross-file edges
+							line: edge.line,
+							col: edge.col,
+							confidence: edge.confidence,
+							metadata: null,
+						})
+						edgeCount++
+					}
+
+					for (const imp of resolved.imports) {
+						this.store.insertImport({
+							sourceFileId: imp.sourceFileId,
+							targetFileId: imp.targetFileId,
+							importPath: imp.importPath,
+							isTypeOnly: imp.isTypeOnly,
+							line: imp.line,
+						})
+					}
+				})
+
+				log.info(
+					`resolved ${resolved.edges.length} cross-file edges, ${resolved.imports.length} imports`,
+				)
+			} catch (e) {
+				warnings.push(`cross-file resolution failed: ${e}`)
+				log.warn(`cross-file resolution failed: ${e}`)
 			}
-
-			const resolved = resolveProject(this.projectRoot, absolutePaths, this.store)
-
-			this.store.bulkInsert(() => {
-				for (const edge of resolved.edges) {
-					this.store.insertEdge({
-						sourceId: edge.sourceStableId,
-						targetId: edge.targetStableId,
-						kind: edge.kind,
-						fileId: null, // cross-file edges
-						line: edge.line,
-						col: edge.col,
-						confidence: edge.confidence,
-						metadata: null,
-					})
-					edgeCount++
-				}
-
-				for (const imp of resolved.imports) {
-					this.store.insertImport({
-						sourceFileId: imp.sourceFileId,
-						targetFileId: imp.targetFileId,
-						importPath: imp.importPath,
-						isTypeOnly: imp.isTypeOnly,
-						line: imp.line,
-					})
-				}
-			})
-
-			log.info(
-				`resolved ${resolved.edges.length} cross-file edges, ${resolved.imports.length} imports`,
-			)
-		} catch (e) {
-			warnings.push(`cross-file resolution failed: ${e}`)
-			log.warn(`cross-file resolution failed: ${e}`)
-		}
-		log.debug(`cross-file resolution: ${(performance.now() - t).toFixed(0)}ms`)
+			log.debug(`cross-file resolution: ${(performance.now() - t).toFixed(0)}ms`)
 		}
 
 		// step 7: embedding pipeline (optional)
