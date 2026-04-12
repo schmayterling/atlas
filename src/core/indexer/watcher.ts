@@ -1,13 +1,12 @@
 import { watch } from 'chokidar'
 import type { AtlasConfig } from '../../shared/config.js'
 import { log } from '../../shared/logger.js'
-import { Indexer } from './indexer.js'
-import type { AtlasStore } from '../storage/store.js'
+import type { AtlasEngine } from '../engine.js'
 
 export function startWatcher(
 	projectRoot: string,
 	config: AtlasConfig,
-	store: AtlasStore,
+	engine: AtlasEngine,
 	opts?: { debounceMs?: number; noEmbed?: boolean; noSummarize?: boolean },
 ) {
 	const debounceMs = opts?.debounceMs ?? 500
@@ -32,8 +31,7 @@ export function startWatcher(
 		if (indexing) return
 		indexing = true
 		try {
-			const indexer = new Indexer(projectRoot, config, store)
-			const result = await indexer.index({ noEmbed: opts?.noEmbed, noSummarize: opts?.noSummarize })
+			const result = await engine.index({ noEmbed: opts?.noEmbed, noSummarize: opts?.noSummarize })
 			const changed = result.filesAdded + result.filesModified + result.filesDeleted
 			if (changed > 0) {
 				log.info(
