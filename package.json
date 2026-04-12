@@ -26,6 +26,7 @@
     "commander": "^13.1.0",
     "cytoscape": "^3.33.2",
     "graphology": "^0.25.4",
+    "graphology-communities-louvain": "^2.0.2",
     "graphology-types": "^0.24.7",
     "hono": "^4.12.12",
     "lucide-react": "^1.8.0",
