@@ -75,6 +75,7 @@ export class Indexer {
 
 		await this.stepIngestGitHistory(state, opts)
 		this.stepLogChangeSummary(state)
+		this.stepHandleRenames(state)
 		this.stepDeleteRemovedRecords(state)
 		this.stepParseAndExtract(state)
 		this.stepResolveCrossFile(state)
@@ -127,6 +128,7 @@ export class Indexer {
 				added: state.discovered.map((f) => f.path),
 				modified: [],
 				deleted: existingPaths,
+				renames: [],
 				configChanged: false,
 				branchChanged: false,
 				isFullReindex: true,
@@ -193,6 +195,31 @@ export class Indexer {
 		if (total === 0) {
 			log.info('no file changes; running post-processing pipelines only')
 		}
+	}
+
+	// rename handler: for every {oldPath, newPath} pair git told us about,
+	// rewrite symbol identity in place so edges, api_endpoints, test_links,
+	// embeddings, summaries, flows and duplicates all keep pointing at the
+	// same logical symbols under the new path. runs BEFORE step 4 so the
+	// downstream delete+insert never sees the old path; the new path is
+	// still in state.changes.modified so step 5 re-parses the content to
+	// pick up any concurrent edits. file_id stays stable so file_changes /
+	// co_change_pairs / pr_files (future) inherit the pre-rename history.
+	private stepHandleRenames(state: IndexState): void {
+		if (state.changes.renames.length === 0) return
+		let rewritten = 0
+		for (const r of state.changes.renames) {
+			try {
+				rewritten += this.store.rewriteStableIdsForRename(r.oldPath, r.newPath)
+				log.debug(`rename: ${r.oldPath} -> ${r.newPath}`)
+			} catch (e) {
+				state.warnings.push(`rename rewrite failed (${r.oldPath} -> ${r.newPath}): ${e}`)
+				log.warn(`rename rewrite failed (${r.oldPath} -> ${r.newPath}): ${e}`)
+			}
+		}
+		log.info(
+			`renames: ${state.changes.renames.length} files, ${rewritten} stable_ids rewritten`,
+		)
 	}
 
 	// step 4: delete records for deleted + modified files so re-indexing
@@ -556,6 +583,7 @@ function emptyChangeSet(): ChangeSet {
 		added: [],
 		modified: [],
 		deleted: [],
+		renames: [],
 		configChanged: false,
 		branchChanged: false,
 		isFullReindex: false,

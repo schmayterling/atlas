@@ -5,10 +5,21 @@ import { log } from '../../shared/logger.js'
 import type { AtlasStore } from '../storage/store.js'
 import type { DiscoveredFile } from './file-discovery.js'
 
+export interface FileRename {
+	oldPath: string
+	newPath: string
+}
+
 export interface ChangeSet {
 	added: string[]
 	modified: string[]
 	deleted: string[]
+	// renames detected from git diff -M. the old path is absent from
+	// deleted and the new path is absent from added — the rename handler
+	// in the indexer rewrites identity in place instead. rename-with-edit
+	// also appears in modified (same newPath) so step 5 re-parses the
+	// content, but step 4 still uses files.path so the cascade works.
+	renames: FileRename[]
 	configChanged: boolean
 	branchChanged: boolean
 	isFullReindex: boolean
@@ -27,6 +38,7 @@ export function detectChanges(
 			added: discoveredFiles.map((f) => f.path),
 			modified: [],
 			deleted: [],
+			renames: [],
 			configChanged: false,
 			branchChanged: false,
 			isFullReindex: true,
@@ -43,6 +55,7 @@ export function detectChanges(
 			added: discoveredFiles.map((f) => f.path),
 			modified: [],
 			deleted: [],
+			renames: [],
 			configChanged,
 			branchChanged: true,
 			isFullReindex: true,
@@ -55,36 +68,43 @@ export function detectChanges(
 		return { ...gitChanges, configChanged, branchChanged: false, isFullReindex: false }
 	}
 
-	// fallback: content hash comparison
+	// fallback: content hash comparison. hash-based diff can't detect
+	// renames (it has no git to ask) so renames degrade to add+delete.
 	return {
 		...hashBasedDiff(discoveredFiles, existingFiles),
+		renames: [],
 		configChanged,
 		branchChanged: false,
 		isFullReindex: false,
 	}
 }
 
-// hybrid detector: uses `git diff` for the modified set and falls back to a
-// set difference between discovered + existing files for added/deleted. set
-// diff is the only way to catch untracked files (which git diff omits) and
-// makes the function tolerant of empty git output.
+// hybrid detector: uses `git diff -M` for the modified + rename sets and
+// falls back to a set difference between discovered + existing files for
+// added/deleted. set diff is the only way to catch untracked files (which
+// git diff omits) and makes the function tolerant of empty git output.
+// renames are returned as {oldPath, newPath} pairs so the indexer can
+// rewrite symbol identity in place without a delete+insert cycle.
 function detectChangesViaGit(
 	projectRoot: string,
 	store: AtlasStore,
 	discoveredFiles: DiscoveredFile[],
 	existingFiles: { path: string }[],
-): { added: string[]; modified: string[]; deleted: string[] } | null {
+): { added: string[]; modified: string[]; deleted: string[]; renames: FileRename[] } | null {
 	const lastCommit = store.getMeta('last_indexed_commit')
 	if (!lastCommit || !/^[0-9a-f]{40}$/.test(lastCommit)) return null
 
-	// `git diff --name-status <lastCommit>` (no second ref) compares the
+	// `git diff --name-status -M <lastCommit>` (no second ref) compares the
 	// working tree to the commit, so it sees both committed deltas and
-	// uncommitted edits to tracked files. it still misses *untracked*
-	// files — those are caught by the set diff against the store below.
+	// uncommitted edits to tracked files. -M enables rename detection so
+	// R<score>\told\tnew rows surface instead of degrading to add+delete.
+	// untracked files are still missed by git diff — those are caught by
+	// the set diff against the store below.
 	const gitModified = new Set<string>()
+	const renames: FileRename[] = []
 	try {
 		const result = Bun.spawnSync(
-			['git', 'diff', '--name-status', lastCommit],
+			['git', 'diff', '--name-status', '-M', lastCommit],
 			{ cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
 		)
 		if (result.exitCode !== 0) return null
@@ -94,18 +114,28 @@ function detectChangesViaGit(
 			const [status, ...parts] = line.split('\t')
 			if (parts.length === 0) continue
 			const code = status?.[0]
-			// added/deleted are derived from set diff so untracked + missing
-			// files are caught regardless of git's tracked-only view. we only
-			// need git's word for which existing-on-both-sides files changed.
 			if (code === 'M' || code === 'T') {
 				gitModified.add(parts.join('\t'))
 			} else if (code === 'R' && parts.length >= 2) {
+				// R<score>\told\tnew — record the pair so the rename step
+				// in the indexer can rewrite identity, and also mark the new
+				// path as modified so content edits on top of the rename are
+				// re-parsed by step 5.
+				renames.push({ oldPath: parts[0], newPath: parts[1] })
 				gitModified.add(parts[1])
 			}
 		}
 	} catch {
 		return null
 	}
+
+	// strip rename sources from "deleted" and rename targets from "added"
+	// so the normal delete/insert loop doesn't clobber the rename handler's
+	// in-place rewrite. the store still needs its existing file row for
+	// the rename handler to find; we only remove the paths from the
+	// downstream change lists.
+	const renamedOld = new Set(renames.map((r) => r.oldPath))
+	const renamedNew = new Set(renames.map((r) => r.newPath))
 
 	const existingPaths = new Set(existingFiles.map((f) => f.path))
 	const added: string[] = []
@@ -115,6 +145,7 @@ function detectChangesViaGit(
 
 	for (const file of discoveredFiles) {
 		seen.add(file.path)
+		if (renamedNew.has(file.path)) continue // handled by rename step
 		if (!existingPaths.has(file.path)) {
 			added.push(file.path)
 		} else if (gitModified.has(file.path)) {
@@ -122,10 +153,12 @@ function detectChangesViaGit(
 		}
 	}
 	for (const f of existingFiles) {
-		if (!seen.has(f.path)) deleted.push(f.path)
+		if (seen.has(f.path)) continue
+		if (renamedOld.has(f.path)) continue // handled by rename step
+		deleted.push(f.path)
 	}
 
-	return { added, modified, deleted }
+	return { added, modified, deleted, renames }
 }
 
 function hashBasedDiff(
