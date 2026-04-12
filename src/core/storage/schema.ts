@@ -254,4 +254,28 @@ export const MIGRATIONS: Migration[] = [
 			DELETE FROM embedding_meta;
 		`,
 	},
+	{
+		version: 8,
+		description: 'add commits + file_changes for git history ingestion',
+		up: `
+			CREATE TABLE IF NOT EXISTS commits (
+				hash TEXT PRIMARY KEY,
+				author_name TEXT NOT NULL,
+				author_email TEXT NOT NULL,
+				authored_at INTEGER NOT NULL,
+				subject TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_commits_authored_at ON commits(authored_at);
+			CREATE INDEX IF NOT EXISTS idx_commits_author ON commits(author_email);
+			CREATE TABLE IF NOT EXISTS file_changes (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				commit_hash TEXT NOT NULL REFERENCES commits(hash) ON DELETE CASCADE,
+				file_path TEXT NOT NULL,
+				status TEXT NOT NULL CHECK(status IN ('A','M','D','R')),
+				rename_from TEXT
+			);
+			CREATE INDEX IF NOT EXISTS idx_file_changes_path ON file_changes(file_path);
+			CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_hash);
+		`,
+	},
 ]
