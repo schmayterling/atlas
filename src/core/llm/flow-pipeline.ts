@@ -68,7 +68,7 @@ export async function runFlowPipeline(
 				if (lines.length >= 2) description = lines.slice(1).join(' ').trim()
 				named++
 			} catch (e) {
-				log.debug(`failed to name flow ${flow.rootName}: ${e}`)
+				log.warn(`failed to name flow ${flow.rootName}: ${e}`)
 			}
 		}
 

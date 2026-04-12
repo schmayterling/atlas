@@ -98,7 +98,7 @@ async function describeClusters(store: AtlasStore, clusters: DetectedSubsystem[]
 				described++
 			}
 		} catch (e) {
-			log.debug(`failed to describe subsystem ${cluster.name}: ${e}`)
+			log.warn(`failed to describe subsystem ${cluster.name}: ${e}`)
 		}
 	}
 	return described
