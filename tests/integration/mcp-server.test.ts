@@ -24,6 +24,29 @@ describe('mcp server tool registration', () => {
 		expect(names).toContain('atlas_blast_radius')
 		expect(names).toContain('atlas_trace')
 		expect(names).toContain('atlas_dead_code')
+		expect(names).toContain('atlas_history')
+		expect(names).toContain('atlas_churn')
+	})
+})
+
+describe('mcp server git tools', () => {
+	test('atlas_churn returns either rows or a no-data message', async () => {
+		const result = await client.callTool({ name: 'atlas_churn', arguments: { limit: 5 } })
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].type).toBe('text')
+		// the fixture project has no git history; expect the empty-state line
+		expect(content[0].text).toBeDefined()
+	})
+
+	test('atlas_history returns no-history message for an unknown file', async () => {
+		const result = await client.callTool({
+			name: 'atlas_history',
+			arguments: { file: 'no-such-file.ts' },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('no history')
 	})
 })
 

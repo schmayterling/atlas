@@ -217,6 +217,55 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			}),
 	)
 
+	// --- atlas_history ---
+	server.tool(
+		'atlas_history',
+		'git commit history for a file (most recent first)',
+		{
+			file: z.string().describe('repo-relative file path'),
+			limit: z.number().optional().describe('max commits to return (default 20)'),
+		},
+		({ file, limit }) =>
+			safe(() => {
+				const rows = engine.fileHistory(file).slice(0, limit ?? 20)
+				if (rows.length === 0) {
+					return { content: [{ type: 'text' as const, text: `no history for ${file}` }] }
+				}
+				const lines = rows.map((r) => {
+					const date = new Date(r.authoredAt).toISOString().slice(0, 10)
+					return `${date}  ${r.hash.slice(0, 7)}  ${r.authorName}  ${r.status}  ${r.subject}`
+				})
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
+	// --- atlas_churn ---
+	server.tool(
+		'atlas_churn',
+		'hot files ranked by commit count (optionally filtered by path prefix)',
+		{
+			path: z.string().optional().describe('only files starting with this path prefix'),
+			limit: z.number().optional().describe('max files to return (default 20)'),
+			sinceDays: z
+				.number()
+				.optional()
+				.describe('only count commits from the last N days'),
+		},
+		({ path, limit, sinceDays }) =>
+			safe(() => {
+				const since = sinceDays ? Date.now() - sinceDays * 86400_000 : undefined
+				const rows = engine.churn({ pathPrefix: path, limit: limit ?? 20, since })
+				if (rows.length === 0) {
+					return { content: [{ type: 'text' as const, text: 'no churn data available' }] }
+				}
+				const lines = rows.map((r) => {
+					const date = new Date(r.lastTouchedAt).toISOString().slice(0, 10)
+					return `${String(r.commits).padStart(4)} commits  ${date}  ${r.topAuthor.padEnd(20)}  ${r.filePath}`
+				})
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
 	return server
 }
 
