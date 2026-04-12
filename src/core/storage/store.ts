@@ -116,14 +116,17 @@ export class AtlasStore {
 		)
 		if (pending.length === 0) return
 
+		// migrations whose failure is recoverable. v2 introduces vec0 (sqlite-vec
+		// extension may be unavailable). v7 recreates the same vec0 table at a
+		// new dimension. all other migrations introduce required tables and
+		// must fail loudly.
+		const OPTIONAL_MIGRATIONS = new Set([2, 7])
+
 		for (const m of pending) {
 			try {
 				log.info(`applying migration v${m.version}: ${m.description}`)
-				// use db.exec for multi-statement SQL; not transactional
-				// because CREATE VIRTUAL TABLE can't run inside transactions
 				this.db.run('BEGIN')
 				try {
-					// split and run statements individually
 					for (const stmt of m.up.split(';').map((s) => s.trim()).filter(Boolean)) {
 						this.db.run(stmt)
 					}
@@ -136,8 +139,8 @@ export class AtlasStore {
 					throw innerErr
 				}
 			} catch (e) {
-				// vec0 migration may fail if sqlite-vec extension isn't loaded; skip and try next
-				log.debug(`migration v${m.version} failed (non-fatal): ${e}`)
+				if (!OPTIONAL_MIGRATIONS.has(m.version)) throw e
+				log.debug(`migration v${m.version} failed (non-fatal, optional): ${e}`)
 				continue
 			}
 		}
