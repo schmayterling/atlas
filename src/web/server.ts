@@ -17,9 +17,12 @@ export function parseIntParam(val: string | undefined, max = 100): number | unde
 	return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), max) : undefined
 }
 
-export async function startWebServer(projectRoot: string, opts: { port: number; open: boolean }) {
+// build the Hono app with all routes wired up. extracted from
+// startWebServer so tests can call app.request('/api/...') in-process
+// without spinning up Bun.serve. pass outDir=null to skip the SPA static
+// file fallback (tests don't need it).
+export function createApp(projectRoot: string, outDir: string | null = null): Hono {
 	addProject(projectRoot)
-	const outDir = await buildClient(projectRoot)
 	const app = new Hono()
 
 	// helper: resolve engine for a request
@@ -229,21 +232,31 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 		}
 	})
 
-	// static files + SPA fallback
-	const indexPath = join(outDir, 'index.html')
-	if (existsSync(indexPath)) {
-		const indexHtml = await Bun.file(indexPath).text()
-		app.get('*', async (c) => {
-			const urlPath = new URL(c.req.url).pathname
-			if (urlPath !== '/') {
-				const filePath = join(outDir, urlPath)
-				if (!filePath.startsWith(outDir + '/')) return c.html(indexHtml)
-				const file = Bun.file(filePath)
-				if (await file.exists()) return new Response(file)
-			}
-			return c.html(indexHtml)
-		})
+	// static files + SPA fallback (skipped when outDir is null, i.e. in tests)
+	if (outDir !== null) {
+		const staticDir = outDir
+		const indexPath = join(staticDir, 'index.html')
+		if (existsSync(indexPath)) {
+			app.get('*', async (c) => {
+				const urlPath = new URL(c.req.url).pathname
+				if (urlPath !== '/') {
+					const filePath = join(staticDir, urlPath)
+					if (filePath.startsWith(staticDir + '/')) {
+						const file = Bun.file(filePath)
+						if (await file.exists()) return new Response(file)
+					}
+				}
+				return c.html(await Bun.file(indexPath).text())
+			})
+		}
 	}
+
+	return app
+}
+
+export async function startWebServer(projectRoot: string, opts: { port: number; open: boolean }) {
+	const outDir = await buildClient(projectRoot)
+	const app = createApp(projectRoot, outDir)
 
 	const server = Bun.serve({ fetch: app.fetch, port: opts.port, hostname: '127.0.0.1' })
 	log.info(`atlas web UI: http://localhost:${server.port}`)
