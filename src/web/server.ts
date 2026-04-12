@@ -209,14 +209,24 @@ export async function startWebServer(projectRoot: string, opts: { port: number; 
 		catch (e) { log.error(`api-trace: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
-	// MCP over HTTP
-	const defaultEngine = getOrCreateEngine(undefined, projectRoot)
-	const mcpServer = createMcpServer(defaultEngine)
-	const mcpTransport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-	mcpServer.connect(mcpTransport)
+	// MCP over HTTP. the streamable transport is stateless
+	// (sessionIdGenerator: undefined) and the SDK refuses to reuse one
+	// across requests, so we build a fresh server+transport per call. the
+	// underlying engine is cached by getOrCreateEngine, so the only
+	// per-request cost is wiring up the tool registrations. routing on
+	// ?project= means /mcp?project=foo hits foo's engine instead of always
+	// the default one.
 	app.all('/mcp', async (c) => {
-		try { return await mcpTransport.handleRequest(c.req.raw) }
-		catch (e) { log.error(`mcp http: ${e}`); return c.json({ error: 'mcp request failed' }, 500) }
+		try {
+			const engine = getOrCreateEngine(c.req.query('project'), projectRoot)
+			const server = createMcpServer(engine)
+			const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+			await server.connect(transport)
+			return await transport.handleRequest(c.req.raw)
+		} catch (e) {
+			log.error(`mcp http: ${e}`)
+			return c.json({ error: 'mcp request failed' }, 500)
+		}
 	})
 
 	// static files + SPA fallback
