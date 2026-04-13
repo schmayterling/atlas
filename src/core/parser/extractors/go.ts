@@ -59,7 +59,149 @@ export function extractGo(
 	// matches call expressions by callee name + argument shape.
 	extractGoApiEndpoints(root, filePath, apiEndpoints)
 
+	// interface dispatch: emit dispatches_to edges from interface
+	// methods to concrete methods that satisfy them, matched by
+	// (methodName, paramCount, returnCount) signature fingerprint
+	// within the same file. this lets dead-code reachability
+	// credit concrete methods reached via interface values as
+	// alive. scoped to same-file only because full cross-package
+	// Go interface satisfaction needs real type inference. see #50.
+	emitInterfaceDispatchEdges(symbols, edges, filePath)
+
 	return { symbols, edges, imports, apiEndpoints, packageName }
+}
+
+// given the full symbol list extracted from a single go file, match
+// every interface method against every concrete struct method with
+// the same name + param count + return count and emit a
+// dispatches_to edge from the interface method → concrete method.
+// the fingerprint is intentionally loose (no type comparison) — go's
+// structural interface satisfaction is too complex for a regex-level
+// extractor. reviewers should expect some false positives when two
+// unrelated types coincidentally share a method name and arity, and
+// add file-level tests for the cases that matter.
+function emitInterfaceDispatchEdges(
+	symbols: ExtractedSymbol[],
+	edges: ExtractedEdge[],
+	filePath: string,
+) {
+	// collect interface methods per file. key is the method signature
+	// fingerprint, value is the list of interface method qnames that
+	// own it (a method named Foo() int might live on multiple
+	// interfaces).
+	interface InterfaceMethod {
+		interfaceName: string
+		methodName: string
+		qname: string
+		fingerprint: string
+	}
+	const interfaceMethods: InterfaceMethod[] = []
+	// parent qname -> is interface?
+	const parentKinds = new Map<string, SymbolKind>()
+	for (const s of symbols) {
+		if (s.kind === 'interface' || s.kind === 'class') {
+			parentKinds.set(s.qualifiedName, s.kind)
+		}
+	}
+	for (const s of symbols) {
+		if (s.kind !== 'method' || !s.parentQualifiedName) continue
+		if (parentKinds.get(s.parentQualifiedName) !== 'interface') continue
+		const interfaceName = s.parentQualifiedName.split('::').pop() ?? ''
+		const methodName = s.name
+		const fingerprint = fingerprintSignature(s.signature, methodName)
+		interfaceMethods.push({
+			interfaceName,
+			methodName,
+			qname: s.qualifiedName,
+			fingerprint,
+		})
+	}
+	if (interfaceMethods.length === 0) return
+
+	// now walk concrete struct methods (parent.kind === 'class') and
+	// emit one dispatches_to edge per matching interface method.
+	for (const s of symbols) {
+		if (s.kind !== 'method' || !s.parentQualifiedName) continue
+		if (parentKinds.get(s.parentQualifiedName) !== 'class') continue
+		const fingerprint = fingerprintSignature(s.signature, s.name)
+		for (const iface of interfaceMethods) {
+			if (iface.methodName !== s.name) continue
+			if (iface.fingerprint !== fingerprint) continue
+			edges.push({
+				sourceQualifiedName: iface.qname,
+				targetName: s.qualifiedName,
+				kind: 'dispatches_to',
+				line: s.lineStart,
+				col: s.colStart,
+				confidence: 'heuristic' as Confidence,
+			})
+		}
+	}
+	// suppress unused-variable warning for filePath while keeping the
+	// parameter in scope for future file-level disambiguation (e.g.
+	// if multiple files share method names we may want to include
+	// filePath in the fingerprint).
+	void filePath
+}
+
+// coarse fingerprint: method name + paren-counted param commas +
+// number of return slots. close enough to catch obvious matches
+// (Query(ctx context.Context) ([]Row, error) vs Query(id string)
+// string) and loose enough that we still match despite the
+// extractor lacking a real type system.
+function fingerprintSignature(signature: string | null, methodName: string): string {
+	if (!signature) return `${methodName}|0|0`
+	// strip the first `(` through the matching `)` for params; count
+	// commas at depth 1.
+	let depth = 0
+	let paramStart = -1
+	let paramEnd = -1
+	for (let i = 0; i < signature.length; i++) {
+		const c = signature[i]
+		if (c === '(') {
+			if (depth === 0 && paramStart === -1) paramStart = i + 1
+			depth++
+		} else if (c === ')') {
+			depth--
+			if (depth === 0 && paramEnd === -1) {
+				paramEnd = i
+				break
+			}
+		}
+	}
+	let paramCount = 0
+	if (paramStart !== -1 && paramEnd !== -1 && paramEnd > paramStart) {
+		const inner = signature.slice(paramStart, paramEnd)
+		if (inner.trim().length > 0) {
+			let nested = 0
+			paramCount = 1
+			for (let i = 0; i < inner.length; i++) {
+				const c = inner[i]
+				if (c === '(' || c === '[' || c === '{') nested++
+				else if (c === ')' || c === ']' || c === '}') nested--
+				else if (c === ',' && nested === 0) paramCount++
+			}
+		}
+	}
+	// return slots: count anything after the param list before EOL.
+	// a "(a, b)" result is 2, a plain "string" result is 1, none is 0.
+	const returnPart = paramEnd !== -1 ? signature.slice(paramEnd + 1).trim() : ''
+	let returnCount = 0
+	if (returnPart.length > 0) {
+		if (returnPart.startsWith('(')) {
+			let nested = 0
+			returnCount = 1
+			for (let i = 1; i < returnPart.length - 1; i++) {
+				const c = returnPart[i]
+				if (c === '(' || c === '[' || c === '{') nested++
+				else if (c === ')' || c === ']' || c === '}') nested--
+				else if (c === ',' && nested === 0) returnCount++
+			}
+		} else {
+			returnCount = 1
+		}
+	}
+	return `${methodName}|${paramCount}|${returnCount}`
 }
 
 function qname(filePath: string, name: string): string {
