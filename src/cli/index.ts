@@ -118,11 +118,15 @@ program
 	.description('show dependency graph for a symbol')
 	.option('-d, --direction <dir>', 'upstream, downstream, or both', 'both')
 	.option('--depth <n>', 'max traversal depth', '3')
+	.option('--all-projects', 'fan out across cross_project_edges (requires --project to anchor)')
+	.option('--project <id>', 'project id to anchor the starting symbol when using --all-projects')
 	.action((symbol, cmdOpts) => {
 		const opts = program.opts()
 		depsCommand(opts.project, symbol, opts.json, {
 			direction: cmdOpts.direction,
 			depth: Number(cmdOpts.depth),
+			allProjects: cmdOpts.allProjects,
+			project: cmdOpts.project,
 		})
 	})
 
@@ -131,11 +135,15 @@ program
 	.description('show blast radius for a file or symbol')
 	.option('--depth <n>', 'max propagation depth', '5')
 	.option('--no-tests', 'exclude affected test files')
+	.option('--all-projects', 'fan out across cross_project_edges (requires --project to anchor)')
+	.option('--project <id>', 'project id to anchor the starting target when using --all-projects')
 	.action((target, cmdOpts) => {
 		const opts = program.opts()
 		blastCommand(opts.project, target, opts.json, {
 			depth: Number(cmdOpts.depth),
 			tests: cmdOpts.tests !== false,
+			allProjects: cmdOpts.allProjects,
+			project: cmdOpts.project,
 		})
 	})
 
@@ -152,11 +160,15 @@ program
 	.description('trace execution paths between two symbols')
 	.option('--max-paths <n>', 'max paths to show', '5')
 	.option('--depth <n>', 'max path depth', '10')
+	.option('--from-project <id>', 'project id where the <from> symbol lives (required for cross-project trace)')
+	.option('--to-project <id>', 'project id where the <to> symbol lives (required for cross-project trace)')
 	.action((from, to, cmdOpts) => {
 		const opts = program.opts()
 		traceCommand(opts.project, from, to, opts.json, {
 			maxPaths: Number(cmdOpts.maxPaths),
 			depth: Number(cmdOpts.depth),
+			fromProject: cmdOpts.fromProject,
+			toProject: cmdOpts.toProject,
 		})
 	})
 
@@ -166,12 +178,14 @@ program
 	.option('-k, --kind <kind>', 'filter by symbol kind')
 	.option('--path <path>', 'filter by file path')
 	.option('--include-tests', 'include symbols from test files')
+	.option('--all-projects', 'union dead-code across every registered project')
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		deadCodeCommand(opts.project, opts.json, {
 			kind: cmdOpts.kind,
 			path: cmdOpts.path,
 			includeTests: cmdOpts.includeTests,
+			allProjects: cmdOpts.allProjects,
 		})
 	})
 

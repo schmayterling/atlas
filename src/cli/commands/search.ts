@@ -1,11 +1,7 @@
 import pc from 'picocolors'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
-import {
-	getActiveProject,
-	getProjectLinks,
-	listProjects,
-	type ProjectEntry,
-} from '../../core/registry.js'
+import { listProjects } from '../../core/registry.js'
+import { linkedProjectSet, mergeSemanticResults } from '../../core/federation/federated-engine.js'
 import { log } from '../../shared/logger.js'
 import type { SymbolKind, SymbolResult } from '../../shared/types.js'
 import { badge, fileRef, outputJson } from '../formatters/common.js'
@@ -103,39 +99,70 @@ async function searchAllProjects(query: string, json: boolean, opts: SearchOpts)
 	}
 
 	const perProjectCap = (opts.limit ?? 20) * 3
-	const merged: Array<SymbolResult & { project: string }> = []
+	const finalLimit = opts.limit ?? 20
 
-	for (const project of projects) {
-		const engine = getOrCreateEngine(project.id, project.root)
-		try {
-			if (opts.semantic) {
+	// semantic federated search needs a global merge by distance so the
+	// top-N reflects the best matches across every project, not the top-N
+	// of project A concatenated with top-N of project B. lexical search
+	// uses FTS which is per-project so we keep the simple concatenation.
+	if (opts.semantic) {
+		const semanticBlocks: Array<{ project: string; results: Array<SymbolResult & { distance: number }> }> = []
+		for (const project of projects) {
+			const engine = getOrCreateEngine(project.id, project.root)
+			try {
 				const r = await engine.semanticSearch(query, {
 					limit: perProjectCap,
 					includeTests: opts.includeTests,
 				})
 				if (!r.embeddingsAvailable) {
 					if (!json) {
-						console.log(
-							pc.dim(`  [${project.id}] embeddings not available, skipping`),
-						)
+						console.log(pc.dim(`  [${project.id}] embeddings not available, skipping`))
 					}
 					continue
 				}
-				for (const sym of r.results) merged.push({ ...sym, project: project.id })
-			} else {
-				const r = engine.search(query, {
-					kind: opts.kind as SymbolKind | undefined,
-					exact: opts.exact,
-					limit: perProjectCap,
-					includeTests: opts.includeTests,
-				})
-				for (const sym of r.results) merged.push({ ...sym, project: project.id })
+				semanticBlocks.push({ project: project.id, results: r.results })
+			} catch (e) {
+				log.warn(`search: [${project.id}] semantic query failed: ${e}`)
+				if (!json) console.log(pc.red(`  [${project.id}] query failed: ${e}`))
+			} finally {
+				engine.close()
 			}
+		}
+		const truncated = mergeSemanticResults(semanticBlocks, finalLimit)
+
+		if (json) {
+			outputJson({ total: truncated.length, results: truncated })
+			return
+		}
+		if (truncated.length === 0) {
+			console.log(pc.dim(`no semantic results for "${query}" across ${projects.length} projects`))
+			return
+		}
+		console.log(
+			`${pc.bold(String(truncated.length))} semantic results for "${query}" across ${projects.length} projects (sorted by distance)`,
+		)
+		console.log()
+		for (const sym of truncated) {
+			const tag = pc.magenta(`[${sym.project}]`)
+			const dist = pc.dim(`distance: ${sym.distance.toFixed(3)}`)
+			const ref = fileRef(sym.filePath, sym.lineStart)
+			console.log(`  ${tag} ${badge(sym.kind)} ${pc.bold(sym.name)} ${ref}  ${dist}`)
+		}
+		return
+	}
+
+	const merged: Array<SymbolResult & { project: string }> = []
+	for (const project of projects) {
+		const engine = getOrCreateEngine(project.id, project.root)
+		try {
+			const r = engine.search(query, {
+				kind: opts.kind as SymbolKind | undefined,
+				exact: opts.exact,
+				limit: perProjectCap,
+				includeTests: opts.includeTests,
+			})
+			for (const sym of r.results) merged.push({ ...sym, project: project.id })
 		} catch (e) {
-			// fail soft per project so one broken db doesn't kill the
-			// whole query. log.warn always fires (to stderr) so json
-			// consumers see the failure in logs even though stdout
-			// stays clean.
 			log.warn(`search: [${project.id}] query failed: ${e}`)
 			if (!json) {
 				console.log(pc.red(`  [${project.id}] query failed: ${e}`))
@@ -145,7 +172,6 @@ async function searchAllProjects(query: string, json: boolean, opts: SearchOpts)
 		}
 	}
 
-	const finalLimit = opts.limit ?? 20
 	const truncated = merged.slice(0, finalLimit)
 
 	if (json) {
@@ -209,38 +235,6 @@ async function runSingleSemantic(
 		console.log(`  ${' '.repeat(12)} ${ref}  ${dist}`)
 		console.log()
 	}
-}
-
-// #33: restrict the federation fan-out to projects reachable via the
-// linkProjects graph rooted at the active project. walks outward via
-// BFS (treating links as undirected so `link a b` lets a search from
-// either project fan out to the other). falls back to the full
-// registry when no active project is set, mirroring the CLI's
-// default resolution order.
-function linkedProjectSet(allProjects: ProjectEntry[]): ProjectEntry[] {
-	const rootId = getActiveProject()
-	if (!rootId) return allProjects
-	const links = getProjectLinks()
-	const adj = new Map<string, Set<string>>()
-	for (const link of links) {
-		if (!adj.has(link.from)) adj.set(link.from, new Set())
-		if (!adj.has(link.to)) adj.set(link.to, new Set())
-		adj.get(link.from)!.add(link.to)
-		adj.get(link.to)!.add(link.from)
-	}
-	const visited = new Set<string>([rootId])
-	const queue = [rootId]
-	while (queue.length > 0) {
-		const id = queue.shift()!
-		const neighbours = adj.get(id)
-		if (!neighbours) continue
-		for (const next of neighbours) {
-			if (visited.has(next)) continue
-			visited.add(next)
-			queue.push(next)
-		}
-	}
-	return allProjects.filter((p) => visited.has(p.id))
 }
 
 function printSymbol(sym: SymbolResult) {

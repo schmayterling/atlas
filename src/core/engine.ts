@@ -388,6 +388,21 @@ export class AtlasEngine {
 		}
 	}
 
+	// federation fan-out helper: takes a stable_id directly so callers
+	// that already resolved a symbol via anchorSymbol() don't have to
+	// pay the resolveSymbol round-trip again. used by deps/blast/trace
+	// --all-projects via federated-engine.fanOutDownstream. see #32.
+	getCrossProjectEdgesByStableId(projectId: string, stableId: string): {
+		outbound: { targetProject: string; targetStableId: string; kind: string }[]
+		inbound: { sourceProject: string; sourceStableId: string; kind: string }[]
+	} {
+		const store = this.getStore()
+		return {
+			outbound: store.getCrossProjectEdgesFrom(projectId, stableId),
+			inbound: store.getCrossProjectEdgesTo(projectId, stableId),
+		}
+	}
+
 	// get the store for cross-project operations (used by engine-pool)
 	getStoreForCrossProject(): AtlasStore {
 		return this.getStore()
