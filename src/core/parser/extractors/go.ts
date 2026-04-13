@@ -19,7 +19,6 @@ export function extractGo(
 	const edges: ExtractedEdge[] = []
 	const imports: ExtractedImport[] = []
 	const apiEndpoints: ExtractedApiEndpoint[] = []
-	let packageName: string | null = null
 
 	const root = tree.rootNode
 
@@ -27,11 +26,10 @@ export function extractGo(
 		const child = root.namedChild(i)!
 		switch (child.type) {
 			case 'package_clause': {
-				// `package foo` — the identifier immediately following the
-				// keyword is the package name. used by the go-resolver to
-				// map import paths back to directories.
-				const ident = child.descendantsOfType('package_identifier')[0]
-				if (ident) packageName = ident.text
+				// `package foo` — the go-resolver re-parses target files
+				// on demand to learn their package name (see #28). the
+				// extractor no longer persists it since no consumer
+				// reads a packageName field from ExtractionResult.
 				break
 			}
 			case 'function_declaration':
@@ -64,7 +62,7 @@ export function extractGo(
 	// (name, paramCount, returnCount) fingerprint. see #50.
 	emitInterfaceDispatchEdges(symbols, edges)
 
-	return { symbols, edges, imports, apiEndpoints, packageName }
+	return { symbols, edges, imports, apiEndpoints }
 }
 
 // match interface methods to concrete struct methods in the same

@@ -7,11 +7,6 @@ export interface ExtractionResult {
 	edges: ExtractedEdge[]
 	imports: ExtractedImport[]
 	apiEndpoints?: ExtractedApiEndpoint[]
-	// go-only: the package declared via `package foo` at the top of the
-	// file. consumed by the go-resolver to map import paths back to
-	// directories within the same go.mod. null for ts/python/jsx where the
-	// concept does not apply. see #3.
-	packageName?: string | null
 }
 
 export interface ExtractedApiEndpoint {

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
-import { isVectorSearchAvailable, loadVecExtension } from './sqlite-ext.js'
+import { loadVecExtension } from './sqlite-ext.js'
 import type {
 	ChannelHit,
 	ChannelHitGroup,
@@ -177,22 +177,9 @@ export class AtlasStore {
 		)
 		if (pending.length === 0) return
 
-		// migrations whose failure is recoverable. v2 introduces vec0 (sqlite-vec
-		// extension may be unavailable). v7 recreates the same vec0 table at a
-		// new dimension. v15 backfills pull_requests.files_complete via ALTER
-		// TABLE, which is a no-op (duplicate column error) for v13-born dbs
-		// that already have the column. all other migrations introduce
-		// required tables and must fail loudly.
-		const OPTIONAL_MIGRATIONS = new Set([2, 7, 15])
-		// v15 should ONLY absorb the specific "duplicate column name"
-		// error. any other failure (locked table, corrupted schema) must
-		// propagate so the operator sees it instead of having the
-		// migration silently re-attempted on every startup.
-		const isAcceptableOptionalFailure = (version: number, err: unknown): boolean => {
-			if (version !== 15) return true
-			return String(err).includes('duplicate column')
-		}
-
+		// migration optionality lives on the Migration entries themselves
+		// in schema.ts (via optional + acceptableErrors). authors see the
+		// failure mode on the same line as the SQL. see #56.
 		for (const m of pending) {
 			try {
 				log.info(`applying migration v${m.version}: ${m.description}`)
@@ -208,8 +195,13 @@ export class AtlasStore {
 					throw innerErr
 				}
 			} catch (e) {
-				if (!OPTIONAL_MIGRATIONS.has(m.version)) throw e
-				if (!isAcceptableOptionalFailure(m.version, e)) throw e
+				if (!m.optional) throw e
+				// when acceptableErrors is set, ONLY matching failures
+				// are swallowed. empty / unset means "any failure
+				// acceptable" (v2, v7 where vec0 may be missing).
+				if (m.acceptableErrors && !m.acceptableErrors.some((re) => re.test(String(e)))) {
+					throw e
+				}
 				log.debug(`migration v${m.version} failed (non-fatal, optional): ${e}`)
 				continue
 			}
@@ -961,7 +953,7 @@ export class AtlasStore {
 		const out: ChannelHitGroup[] = []
 		for (const [value, set] of byValue) {
 			if (set.size < 2) continue
-			out.push({ kind, value, symbolStableIds: Array.from(set).sort() })
+			out.push({ value, symbolStableIds: Array.from(set).sort() })
 		}
 		out.sort((a, b) => a.value.localeCompare(b.value))
 		return out

@@ -325,10 +325,11 @@ export interface ChannelHit {
 }
 
 // aggregated view of channel_hits: "every symbol that touched value X
-// of kind Y at least once". returned from store.findChannelHitGroups
-// for consumers that want the pairwise view on demand.
+// at least once". returned from store.findChannelHitGroups for
+// consumers that want the pairwise view on demand. the kind is not
+// echoed back — callers already pass it as the query parameter.
+// see #55.
 export interface ChannelHitGroup {
-	kind: string
 	value: string
 	symbolStableIds: string[]
 }
