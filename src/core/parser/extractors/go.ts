@@ -353,10 +353,11 @@ function extractVarDecl(
 }
 
 function extractImport(node: SyntaxNode, imports: ExtractedImport[]) {
-	for (let i = 0; i < node.namedChildCount; i++) {
-		const spec = node.namedChild(i)!
-		if (spec.type !== 'import_spec') continue
-
+	// tree-sitter-go wraps grouped `import (...)` declarations in an
+	// import_spec_list, so direct namedChild iteration misses every spec
+	// inside a grouped import. descendantsOfType('import_spec') walks
+	// both shapes (single and grouped) uniformly.
+	for (const spec of node.descendantsOfType('import_spec')) {
 		const pathNode = spec.childForFieldName('path')
 		if (!pathNode) continue
 

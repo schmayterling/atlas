@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { extname } from 'node:path'
+import { extname, relative } from 'node:path'
 import type { AtlasConfig } from '../../shared/config.js'
 import { contentHash, stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
+import { toForwardSlash } from '../../shared/paths.js'
 import type { IndexResult } from '../../shared/types.js'
 import { getLanguageForExtension, parseSource } from '../parser/parser-manager.js'
 import { getExtractor } from '../parser/extractor-registry.js'
@@ -21,6 +22,7 @@ import {
 import { type DiscoveredFile, discoverFiles } from './file-discovery.js'
 import { detectRepoModules, matchFileToModule, type RepoModule } from './module-detector.js'
 import { resolveProject } from './ts-resolver.js'
+import { resolveGoProject } from './go-resolver.js'
 
 // options recognised by the index pipeline. new flags land here so the
 // driver stays a short ordered sequence of step calls.
@@ -463,13 +465,42 @@ export class Indexer {
 			// targetId referencing a now-missing stable_id) are orphaned.
 			// rebuild from the current TS compiler view of the project to
 			// drop the stale rows. only runs when we have something to resolve.
-			const resolved =
+			const tsResolved =
 				state.absolutePaths.length > 0
 					? resolveProject(this.projectRoot, state.absolutePaths, this.store)
 					: { edges: [], imports: [] }
 
+			// go resolver: mirrors the shape of resolveProject. step 5
+			// wrote null-target `imports` rows for every go file we're
+			// re-indexing; delete those here before inserting fresh
+			// resolved rows so re-indexing stays idempotent.
+			let goResolved: {
+				edges: typeof tsResolved.edges
+				imports: typeof tsResolved.imports
+			} = { edges: [], imports: [] }
+			if (state.goAbsolutePaths.length > 0) {
+				const goFileIds: number[] = []
+				for (const abs of state.goAbsolutePaths) {
+					const rel = toForwardSlash(relative(this.projectRoot, abs))
+					const rec = this.store.getFileByPath(rel)
+					if (rec) goFileIds.push(rec.id)
+				}
+				if (goFileIds.length > 0) {
+					this.store.deleteImportsForSourceFiles(goFileIds)
+				}
+				goResolved = resolveGoProject(
+					this.projectRoot,
+					state.goAbsolutePaths,
+					this.store,
+					state.repoModules,
+				)
+			}
+
+			const totalEdges = tsResolved.edges.length + goResolved.edges.length
+			const totalImports = tsResolved.imports.length + goResolved.imports.length
+
 			this.store.bulkInsert(() => {
-				for (const edge of resolved.edges) {
+				for (const edge of [...tsResolved.edges, ...goResolved.edges]) {
 					this.store.insertEdge({
 						sourceId: edge.sourceStableId,
 						targetId: edge.targetStableId,
@@ -482,7 +513,7 @@ export class Indexer {
 					})
 				}
 
-				for (const imp of resolved.imports) {
+				for (const imp of [...tsResolved.imports, ...goResolved.imports]) {
 					this.store.insertImport({
 						sourceFileId: imp.sourceFileId,
 						targetFileId: imp.targetFileId,
@@ -493,9 +524,7 @@ export class Indexer {
 				}
 			})
 
-			log.info(
-				`resolved ${resolved.edges.length} cross-file edges, ${resolved.imports.length} imports`,
-			)
+			log.info(`resolved ${totalEdges} cross-file edges, ${totalImports} imports`)
 		} catch (e) {
 			state.warnings.push(`cross-file resolution failed: ${e}`)
 			log.warn(`cross-file resolution failed: ${e}`)
