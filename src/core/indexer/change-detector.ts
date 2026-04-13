@@ -129,11 +129,16 @@ function detectChangesViaGit(
 		return null
 	}
 
-	// strip rename sources from "deleted" and rename targets from "added"
-	// so the normal delete/insert loop doesn't clobber the rename handler's
-	// in-place rewrite. the store still needs its existing file row for
-	// the rename handler to find; we only remove the paths from the
-	// downstream change lists.
+	// strip rename sources from "deleted" — the rename handler updates
+	// the existing file row in place. rename targets do NOT get stripped
+	// from "added" or "modified": the rename handler rewrites FK tables
+	// keyed by stable_id, but content edits on top of the rename still
+	// need step 5 to re-parse and refresh symbols, edges, hashes, and
+	// line ranges. so:
+	//   - renamed source: drop from deleted (file row is preserved)
+	//   - renamed target: drop from added (row already exists) but if
+	//     git sees a concurrent content edit, push into modified so
+	//     step 5 re-parses
 	const renamedOld = new Set(renames.map((r) => r.oldPath))
 	const renamedNew = new Set(renames.map((r) => r.newPath))
 
@@ -145,7 +150,12 @@ function detectChangesViaGit(
 
 	for (const file of discoveredFiles) {
 		seen.add(file.path)
-		if (renamedNew.has(file.path)) continue // handled by rename step
+		if (renamedNew.has(file.path)) {
+			// rename target: handler owns the file row. re-parse only when
+			// git flagged a content delta on top of the rename (rename+edit).
+			if (gitModified.has(file.path)) modified.push(file.path)
+			continue
+		}
 		if (!existingPaths.has(file.path)) {
 			added.push(file.path)
 		} else if (gitModified.has(file.path)) {

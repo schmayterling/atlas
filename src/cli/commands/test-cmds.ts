@@ -1,10 +1,10 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import type { SymbolKind } from '../../shared/types.js'
 import { badge, fileRef, heading, outputJson } from '../formatters/common.js'
 
 export function testsCommand(projectRoot: string, json: boolean, query: string) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const result = engine.testCoverage(query)
 		if (!result) {
@@ -45,7 +45,7 @@ export function untestedCommand(
 	json: boolean,
 	opts: { kind?: string; limit?: number },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		// the underlying query only counts callable kinds because only
 		// function/method symbols can produce 'called' coverage edges. tell
@@ -91,7 +91,7 @@ export function hotspotsCommand(
 	json: boolean,
 	opts: { limit?: number; coverage?: 'called' | 'imported' | 'none' },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const rows = engine.hotspots({ limit: opts.limit, coverage: opts.coverage })
 		if (json) {
@@ -126,7 +126,7 @@ export function hotFragileCommand(
 	json: boolean,
 	opts: { limit?: number },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const rows = engine.hotFragile({ limit: opts.limit })
 		if (json) {

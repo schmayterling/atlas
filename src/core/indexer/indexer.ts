@@ -72,13 +72,17 @@ export class Indexer {
 		}
 
 		this.stepDiscoverFiles(state)
-		this.stepDetectRepoModules(state)
 		this.stepDetectChanges(state, opts)
-		this.stepSyncIsTestFlags(state)
 
-		// step 3: dry-run guard must come before any state mutation so the
+		// step 3: dry-run guard MUST come before any state mutation so the
 		// caller sees what would happen without touching persisted data.
+		// repo-module detection and is_test sync both write to the store,
+		// so they need to stay behind this guard. change detection above
+		// is a pure read.
 		if (opts?.dryRun) return this.dryRunResult(state)
+
+		this.stepDetectRepoModules(state)
+		this.stepSyncIsTestFlags(state)
 
 		await this.stepIngestGitHistory(state, opts)
 		this.stepLogChangeSummary(state)
@@ -532,7 +536,7 @@ export class Indexer {
 
 	// step 8: LLM summaries (optional, --no-summarize skips).
 	private async stepSummarizeSymbols(
-		_state: IndexState,
+		state: IndexState,
 		opts: IndexOptions | undefined,
 	): Promise<void> {
 		if (opts?.noSummarize) return
@@ -545,7 +549,8 @@ export class Indexer {
 				)
 			}
 		} catch (e) {
-			log.debug(`summary pipeline skipped: ${e}`)
+			state.warnings.push(`summary pipeline failed: ${e}`)
+			log.warn(`summary pipeline failed: ${e}`)
 		}
 	}
 
@@ -576,7 +581,8 @@ export class Indexer {
 				`flow detection: ${flowResult.detected} flows (${flowResult.named} named) in ${(performance.now() - t).toFixed(0)}ms`,
 			)
 		} catch (e) {
-			log.debug(`flow detection skipped: ${e}`)
+			state.warnings.push(`flow detection failed: ${e}`)
+			log.warn(`flow detection failed: ${e}`)
 		}
 	}
 

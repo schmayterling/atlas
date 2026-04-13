@@ -352,17 +352,18 @@ export const MIGRATIONS: Migration[] = [
 		description: 'add pull_requests + pr_files + issues for github ingestion',
 		up: `
 			CREATE TABLE IF NOT EXISTS pull_requests (
-				number      INTEGER PRIMARY KEY,
-				title       TEXT NOT NULL,
-				state       TEXT NOT NULL,
-				author      TEXT NOT NULL,
-				body        TEXT,
-				base_ref    TEXT,
-				head_ref    TEXT,
-				created_at  INTEGER NOT NULL,
-				updated_at  INTEGER NOT NULL,
-				merged_at   INTEGER,
-				url         TEXT NOT NULL
+				number         INTEGER PRIMARY KEY,
+				title          TEXT NOT NULL,
+				state          TEXT NOT NULL,
+				author         TEXT NOT NULL,
+				body           TEXT,
+				base_ref       TEXT,
+				head_ref       TEXT,
+				created_at     INTEGER NOT NULL,
+				updated_at     INTEGER NOT NULL,
+				merged_at      INTEGER,
+				url            TEXT NOT NULL,
+				files_complete INTEGER NOT NULL DEFAULT 0
 			);
 			CREATE INDEX IF NOT EXISTS idx_pr_state ON pull_requests(state);
 			CREATE INDEX IF NOT EXISTS idx_pr_updated ON pull_requests(updated_at);

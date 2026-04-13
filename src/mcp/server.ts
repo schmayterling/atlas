@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { AtlasEngine } from '../core/engine.js'
+import { getOrCreateEngine } from '../core/engine-pool.js'
 import { log } from '../shared/logger.js'
 import {
 	formatBlast,
@@ -374,7 +375,10 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 }
 
 export async function startMcpServer(projectRoot: string) {
-	const engine = new AtlasEngine(projectRoot)
+	// route through the engine pool so `atlas use <id>` steers the stdio
+	// MCP server the same way it steers the CLI and web surfaces. falls
+	// back to projectRoot when no project is registered.
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	const server = createMcpServer(engine)
 	const transport = new StdioServerTransport()
 	await server.connect(transport)

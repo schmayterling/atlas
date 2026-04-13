@@ -1,9 +1,9 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { formatBytes, heading, label, outputJson } from '../formatters/common.js'
 
 export function statusCommand(projectRoot: string, json: boolean) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 
 	try {
 		const result = engine.status()

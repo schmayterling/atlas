@@ -1,5 +1,5 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { heading, outputJson } from '../formatters/common.js'
 import { renderDependencyTree } from '../formatters/tree.js'
 
@@ -9,7 +9,7 @@ export function depsCommand(
 	json: boolean,
 	opts: { direction?: string; depth?: number },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 
 	try {
 		const result = engine.deps(symbol, {

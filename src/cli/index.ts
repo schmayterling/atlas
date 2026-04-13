@@ -162,8 +162,8 @@ program
 	.description('show detected execution flows')
 	.action(() => {
 		const opts = program.opts()
-		const { AtlasEngine } = require('../core/engine.js')
-		const engine = new AtlasEngine(opts.project)
+		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const engine = getOrCreateEngine(undefined, opts.project)
 		const flows = engine.flows()
 		if (opts.json) { console.log(JSON.stringify(flows, null, 2)); engine.close(); return }
 		if (flows.length === 0) { console.log('no flows detected. run `atlas index` with Ollama to detect flows.'); engine.close(); return }
@@ -183,8 +183,8 @@ program
 	.option('--include-tests', 'include duplicate pairs in test files')
 	.action((cmdOpts) => {
 		const opts = program.opts()
-		const { AtlasEngine } = require('../core/engine.js')
-		const engine = new AtlasEngine(opts.project)
+		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const engine = getOrCreateEngine(undefined, opts.project)
 		const dups = engine.duplicates({ includeTests: cmdOpts.includeTests })
 		if (opts.json) { console.log(JSON.stringify(dups, null, 2)); engine.close(); return }
 		if (dups.length === 0) { console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.'); engine.close(); return }

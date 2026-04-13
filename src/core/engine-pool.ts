@@ -3,7 +3,6 @@ import {
 	getActiveProject,
 	getProject,
 	listProjects,
-	type ProjectEntry,
 } from './registry.js'
 import { log } from '../shared/logger.js'
 
@@ -42,13 +41,21 @@ export function getDefaultEngine(): { engine: AtlasEngine; projectId: string } |
 }
 
 export function getOrCreateEngine(projectId: string | undefined, fallbackRoot?: string): AtlasEngine {
-	// if projectId provided, look it up in registry
+	// explicit -p / ?project= wins over everything.
 	if (projectId) {
 		const engine = getEngine(projectId)
 		if (engine) return engine
 	}
 
-	// if no registry or project not found, use fallback root
+	// active project via `atlas use <id>` wins over the raw fallback root.
+	// this makes cli + stdio mcp + web all follow the same resolution
+	// order so `atlas use foo` actually steers all three.
+	const def = getDefaultEngine()
+	if (def) return def.engine
+
+	// last resort: spin up an engine rooted at whatever directory the
+	// caller had (cwd for CLI, projectRoot for MCP/web). used only when
+	// no project is registered at all.
 	if (fallbackRoot) {
 		const cached = engines.get(fallbackRoot)
 		if (cached) return cached
@@ -56,10 +63,6 @@ export function getOrCreateEngine(projectId: string | undefined, fallbackRoot?: 
 		engines.set(fallbackRoot, engine)
 		return engine
 	}
-
-	// try default project
-	const def = getDefaultEngine()
-	if (def) return def.engine
 
 	throw new Error('no project available. run `atlas projects add .` to register a project.')
 }
