@@ -328,7 +328,7 @@ export const MIGRATIONS: Migration[] = [
 	},
 	{
 		version: 12,
-		// "module" intentionally — atlas already uses "project" at the
+		// "module" intentionally: atlas already uses "project" at the
 		// registry scope (~/.atlas/registry.json). this table describes
 		// intra-repo package boundaries (go.mod, package.json, pyproject.toml)
 		// so we keep the two meanings distinct.

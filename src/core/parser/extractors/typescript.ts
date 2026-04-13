@@ -661,7 +661,7 @@ function extractApiEndpoints(
 		const func = node.childForFieldName('function')
 		const args = node.childForFieldName('arguments')
 		if (func && args) {
-			// detect fetch('/api/...') — no second-arg options inspection
+			// detect fetch('/api/...'). when the second arg is an object
 			// yet, so default the method to GET. previously we emitted
 			// null which fanned one client call out to every server verb
 			// at the same path in the cross-language linker.
@@ -720,7 +720,7 @@ function extractStringValue(node: SyntaxNode): string | null {
 		return text
 	}
 	if (node.type === 'template_string') {
-		// simple template with no interpolation — literal content only.
+		// simple template with no interpolation: literal content only.
 		if (node.namedChildCount === 0) {
 			return node.text.slice(1, -1) // strip backticks
 		}

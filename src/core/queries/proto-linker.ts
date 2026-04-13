@@ -32,7 +32,7 @@ const MESSAGE_KINDS = ['class', 'interface', 'type']
 const SERVICE_KINDS = ['class', 'interface']
 const RPC_KINDS = ['method']
 
-export interface ProtoSymbol {
+interface ProtoSymbol {
 	kind: 'message' | 'service' | 'rpc'
 	name: string
 	protoPath: string

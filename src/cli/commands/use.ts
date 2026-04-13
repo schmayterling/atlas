@@ -6,20 +6,20 @@ import {
 	setActiveProject,
 } from '../../core/registry.js'
 
-// `atlas use <id>` — set the active registered project. subsequent
+// `atlas use <id>`:set the active registered project. subsequent
 // cli invocations without -p and mcp tool calls without a project
 // argument will route to this project's engine.
 //
-// `atlas use --list` — show every registered project with the active
+// `atlas use --list`:show every registered project with the active
 // one marked. equivalent to `atlas projects list` but adds the active
 // marker and is easier to type when you just want to see state.
 //
-// `atlas use --clear` — unset the active project so the default falls
+// `atlas use --clear`:unset the active project so the default falls
 // back to first-registered.
-export async function useCommand(
+export function useCommand(
 	arg: string | undefined,
 	opts: { list?: boolean; clear?: boolean },
-): Promise<void> {
+): void {
 	if (opts.list) {
 		const projects = listProjects()
 		if (projects.length === 0) {

@@ -68,7 +68,7 @@ export async function runSubsystemPipeline(
 	// identical to the previous run we can reuse the persisted partition
 	// instead of re-running louvain. hot path for no-op re-indexes
 	// (docstring edits). full re-cluster still happens on every topology
-	// change — incremental re-assignment is deferred until a consumer
+	// change. incremental re-assignment is deferred until a consumer
 	// hits a real cost.
 	const withCoChange = opts?.withCoChange ?? false
 	const topologyHash = computeTopologyHash(store, withCoChange)

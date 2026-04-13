@@ -15,7 +15,7 @@ export interface ChangeSet {
 	modified: string[]
 	deleted: string[]
 	// renames detected from git diff -M. the old path is absent from
-	// deleted and the new path is absent from added — the rename handler
+	// deleted and the new path is absent from added: the rename handler
 	// in the indexer rewrites identity in place instead. rename-with-edit
 	// also appears in modified (same newPath) so step 5 re-parses the
 	// content, but step 4 still uses files.path so the cascade works.
@@ -98,7 +98,7 @@ function detectChangesViaGit(
 	// working tree to the commit, so it sees both committed deltas and
 	// uncommitted edits to tracked files. -M enables rename detection so
 	// R<score>\told\tnew rows surface instead of degrading to add+delete.
-	// untracked files are still missed by git diff — those are caught by
+	// untracked files are still missed by git diff; those are caught by
 	// the set diff against the store below.
 	const gitModified = new Set<string>()
 	const renames: FileRename[] = []
@@ -117,7 +117,7 @@ function detectChangesViaGit(
 			if (code === 'M' || code === 'T') {
 				gitModified.add(parts.join('\t'))
 			} else if (code === 'R' && parts.length >= 2) {
-				// R<score>\told\tnew — record the pair so the rename step
+				// R<score>\told\tnew. record the pair so the rename step
 				// in the indexer can rewrite identity, and also mark the new
 				// path as modified so content edits on top of the rename are
 				// re-parsed by step 5.
@@ -129,7 +129,7 @@ function detectChangesViaGit(
 		return null
 	}
 
-	// strip rename sources from "deleted" — the rename handler updates
+	// strip rename sources from "deleted": the rename handler updates
 	// the existing file row in place. rename targets do NOT get stripped
 	// from "added" or "modified": the rename handler rewrites FK tables
 	// keyed by stable_id, but content edits on top of the rename still

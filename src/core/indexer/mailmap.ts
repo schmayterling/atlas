@@ -20,12 +20,12 @@ import { log } from '../../shared/logger.js'
 // never falls through to name-only because the same name can belong to
 // different contributors across repos.
 
-export interface MailmapEntry {
+interface MailmapEntry {
 	canonicalName: string
 	canonicalEmail: string
 }
 
-export interface Mailmap {
+interface Mailmap {
 	byPair: Map<string, MailmapEntry>
 	byEmail: Map<string, MailmapEntry>
 }
@@ -107,7 +107,7 @@ export function applyMailmap(
 }
 
 // loads .mailmap from the given project root. returns null when absent
-// (quiet, expected) or unreadable (warn — operator should fix). missing
+// (quiet, expected) or unreadable (warn; operator should fix). missing
 // file = skip canonicalisation; present-but-broken file = warn so the
 // user knows why contributor dedup suddenly stopped working.
 export function loadMailmap(projectRoot: string): Mailmap | null {

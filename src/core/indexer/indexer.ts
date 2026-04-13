@@ -131,7 +131,7 @@ export class Indexer {
 	// pyproject.toml / setup.py). rows are upserted into repo_modules
 	// and files get their repo_module_id assigned in step 5 during
 	// extractOneFile. renamed "repo_modules" (schema) to avoid colliding
-	// with the registry scope's use of "project" — see the v12 migration
+	// with the registry scope's use of "project". see the v12 migration
 	// comment for the rationale.
 	private stepDetectRepoModules(state: IndexState): void {
 		const t = performance.now()
@@ -478,7 +478,7 @@ export class Indexer {
 	// and writes cross_project_edges rows with the 'local' sentinel.
 	// runs AFTER cross-file resolution so the symbol stable_ids
 	// referenced by api_endpoints point at resolved handlers where
-	// possible. fails soft — cross-language tracing degrades
+	// possible. fails soft: cross-language tracing degrades
 	// gracefully if something is wrong with the api_endpoints table.
 	private stepLinkCrossLanguageApis(state: IndexState): void {
 		try {
@@ -624,7 +624,7 @@ export class Indexer {
 
 	// optional: github pr + issue ingest, gated behind --with-github.
 	// off by default because it shells out to the gh cli and pings the
-	// github api — neither is wanted during normal local indexing.
+	// github api, neither of which is wanted during normal local indexing.
 	private async stepIngestGitHub(
 		state: IndexState,
 		opts: IndexOptions | undefined,

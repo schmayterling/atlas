@@ -242,8 +242,8 @@ program
 	.description('set or show the active registered project (cli, mcp, web all follow)')
 	.option('--list', 'list registered projects and mark the active one')
 	.option('--clear', 'unset the active project')
-	.action(async (id: string | undefined, cmdOpts: { list?: boolean; clear?: boolean }) => {
-		await useCommand(id, cmdOpts)
+	.action((id: string | undefined, cmdOpts: { list?: boolean; clear?: boolean }) => {
+		useCommand(id, cmdOpts)
 	})
 
 program

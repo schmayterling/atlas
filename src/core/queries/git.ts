@@ -3,7 +3,7 @@ import type { AtlasStore } from '../storage/store.js'
 
 // per-invocation cache for branch commit sets. the key is
 // `${projectRoot}::${branch}`; resolves to a Set<hash>. caches live
-// for the lifetime of one CLI invocation via the module singleton —
+// for the lifetime of one CLI invocation via the module singleton.
 // branches move in real repos, so persisting across runs is wrong.
 const branchCommitCache = new Map<string, Set<string>>()
 
@@ -19,7 +19,7 @@ export function clearBranchCommitCache(): void {
 //
 // security: the branch name flows in from user input (--branch on the
 // cli). before passing it to git log we validate it with
-// `git check-ref-format --branch` — this rejects dash-prefixed values
+// `git check-ref-format --branch`, which rejects dash-prefixed values
 // like `--exec=…` that git would otherwise parse as a flag. we still
 // use `--end-of-options` when invoking git log for defense in depth.
 export function getBranchCommits(

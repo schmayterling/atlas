@@ -157,7 +157,7 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 				const last = engine.lastChanged(symbol.filePath)
 				if (last) {
 					const date = new Date(last.authoredAt).toISOString().slice(0, 10)
-					md += `**Last changed:** ${date} by ${esc(last.authorName)} — ${esc(last.subject)}\n\n`
+					md += `**Last changed:** ${date} by ${esc(last.authorName)} (${esc(last.subject)})\n\n`
 				}
 				const contribs = engine.contributors(symbol.filePath).slice(0, 3)
 				if (contribs.length > 0) {

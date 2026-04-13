@@ -15,7 +15,7 @@ import type { AtlasStore } from '../storage/store.js'
 
 const LOCAL_SCOPE = 'local'
 
-export interface CrossLanguageLinkResult {
+interface CrossLanguageLinkResult {
 	edgesCreated: number
 }
 

@@ -11,7 +11,7 @@ interface GitHubRemote {
 	repo: string
 }
 
-export interface GitHubIngestResult {
+interface GitHubIngestResult {
 	prsFetched: number
 	issuesFetched: number
 	skipped: boolean

@@ -433,7 +433,7 @@ function getDocComment(node: SyntaxNode): string | null {
 // call sits inside; when the handler is a same-file function reference
 // (\`myHandler\` as the second arg), we upgrade to that function's qname
 // so api tracing resolves the edge. struct-receiver methods and
-// cross-file handlers need the go resolver (deferred) to resolve —
+// cross-file handlers need the go resolver (deferred) to resolve;
 // they currently fall back to the containing-function qname, which
 // still lets api tracing surface the route even if the exact handler
 // lookup misses.

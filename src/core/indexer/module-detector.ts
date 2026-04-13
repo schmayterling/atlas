@@ -19,7 +19,7 @@ export interface RepoModule {
 // walk the discovered file list looking for package manifest files.
 // only files already returned by file-discovery are considered, so
 // the usual include/exclude filters apply (no runaway node_modules
-// traversal). multiple manifests of the same kind are allowed — a
+// traversal). multiple manifests of the same kind are allowed: a
 // monorepo with apps/api/go.mod and apps/worker/go.mod gets two go
 // modules.
 export function detectRepoModules(
@@ -94,7 +94,7 @@ function probeManifest(
 				const real = realpathSync(absPath)
 				if (!isUnderRoot(real, projectRootReal)) {
 					log.warn(
-						`module detector: ignoring ${relManifest} — resolves outside project root`,
+						`module detector: ignoring ${relManifest}, resolves outside project root`,
 					)
 					continue
 				}
@@ -162,7 +162,7 @@ function parseManifest(kind: RepoModule['kind'], content: string): ParsedManifes
 		}
 	}
 	if (kind === 'python') {
-		// pyproject.toml or setup.py — we don't parse either fully.
+		// pyproject.toml or setup.py: we don't parse either fully.
 		// extract a plausible name from common shapes.
 		const pyproj = content.match(/^\s*name\s*=\s*["']([^"']+)["']/m)
 		if (pyproj) return { name: pyproj[1], modulePath: pyproj[1] }

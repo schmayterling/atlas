@@ -499,7 +499,7 @@ export class AtlasStore {
 	// re-parse emits the same predicted stable_id, so the FK targets line
 	// up with the fresh symbol rows and nothing orphans. symbols that were
 	// renamed inside the file during the same commit fall through to the
-	// existing delete+insert path and lose identity — same behaviour as
+	// existing delete+insert path and lose identity; same behaviour as
 	// before the rename step existed.
 	rewriteStableIdsForRename(oldPath: string, newPath: string): number {
 		// load old symbols up front so the UPDATE on files.path (which
@@ -531,7 +531,7 @@ export class AtlasStore {
 
 		for (const sym of oldSymbols) {
 			if (!sym.qualifiedName.startsWith(oldPrefix)) {
-				// non-standard qname shape — extractor didn't emit
+				// non-standard qname shape: extractor didn't emit
 				// relPath::Name. we can't compute the new stable_id without
 				// risking collision, so record the skip and keep going.
 				// caller logs the list so the operator can see it.
