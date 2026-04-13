@@ -373,6 +373,62 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			}),
 	)
 
+	// --- atlas_channels_list ---
+	// surfaces cross-language channel groups (#31). first channel is
+	// sql_table (#10); future channels (graphql, queue_topic, env_var,
+	// openapi) reuse the same table so this one tool serves them all.
+	server.tool(
+		'atlas_channels_list',
+		'list (kind, value) groups with 2+ symbols touching the same channel value',
+		{
+			kind: z.string().optional().describe('channel kind to list (default sql_table)'),
+		},
+		({ kind }) =>
+			safe(() => {
+				const actualKind = kind ?? 'sql_table'
+				const groups = engine.listChannels(actualKind)
+				if (groups.length === 0) {
+					return {
+						content: [{ type: 'text' as const, text: `no ${actualKind} groups. run atlas index first.` }],
+					}
+				}
+				const lines = groups.map(
+					(g) => `${String(g.symbolStableIds.length).padStart(3)} symbols  ${g.value}`,
+				)
+				return {
+					content: [
+						{ type: 'text' as const, text: `${actualKind} groups (${groups.length}):\n${lines.join('\n')}` },
+					],
+				}
+			}),
+	)
+
+	// --- atlas_channels_show ---
+	server.tool(
+		'atlas_channels_show',
+		'list every symbol that touches a given channel value (kind + value lookup)',
+		{
+			kind: z.string().describe('channel kind (e.g. sql_table)'),
+			value: z.string().describe('channel value (e.g. users for a sql_table query)'),
+		},
+		({ kind, value }) =>
+			safe(() => {
+				const result = engine.showChannel(kind, value)
+				if (result.symbols.length === 0) {
+					return {
+						content: [{ type: 'text' as const, text: `no symbols touch ${kind}:${value}` }],
+					}
+				}
+				const lines = [
+					`${kind}:${value} (${result.symbols.length} symbols)`,
+					...result.symbols.map(
+						(s) => `  ${s.name.padEnd(30)}  ${s.filePath}:${s.lineStart}`,
+					),
+				]
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
 	return server
 }
 

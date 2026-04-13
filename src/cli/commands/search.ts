@@ -1,6 +1,11 @@
 import pc from 'picocolors'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
-import { listProjects } from '../../core/registry.js'
+import {
+	getActiveProject,
+	getProjectLinks,
+	listProjects,
+	type ProjectEntry,
+} from '../../core/registry.js'
 import { log } from '../../shared/logger.js'
 import type { SymbolKind, SymbolResult } from '../../shared/types.js'
 import { badge, fileRef, outputJson } from '../formatters/common.js'
@@ -12,6 +17,10 @@ interface SearchOpts {
 	semantic?: boolean
 	includeTests?: boolean
 	allProjects?: boolean
+	// #33: limit fan-out to projects reachable via the explicit
+	// linkProjects graph (rooted at the active project), not every
+	// project in the registry. implies --all-projects for shape.
+	linked?: boolean
 }
 
 export async function searchCommand(
@@ -20,7 +29,7 @@ export async function searchCommand(
 	json: boolean,
 	opts: SearchOpts,
 ) {
-	if (opts.allProjects) {
+	if (opts.allProjects || opts.linked) {
 		await searchAllProjects(query, json, opts)
 		return
 	}
@@ -77,12 +86,18 @@ export async function searchCommand(
 // this wrapper just preserves the relative order within each
 // project, prefixed with [project-id] in the terminal output.
 async function searchAllProjects(query: string, json: boolean, opts: SearchOpts) {
-	const projects = listProjects()
+	let projects = listProjects()
+	if (opts.linked) {
+		projects = linkedProjectSet(projects)
+	}
 	if (projects.length === 0) {
 		if (json) {
 			outputJson({ total: 0, results: [] })
 		} else {
-			console.log(pc.yellow('no registered projects. run `atlas projects add <path>` first.'))
+			const msg = opts.linked
+				? 'no linked projects. run `atlas use <id>` and `atlas projects link <from> <to>` first.'
+				: 'no registered projects. run `atlas projects add <path>` first.'
+			console.log(pc.yellow(msg))
 		}
 		return
 	}
@@ -194,6 +209,38 @@ async function runSingleSemantic(
 		console.log(`  ${' '.repeat(12)} ${ref}  ${dist}`)
 		console.log()
 	}
+}
+
+// #33: restrict the federation fan-out to projects reachable via the
+// linkProjects graph rooted at the active project. walks outward via
+// BFS (treating links as undirected so `link a b` lets a search from
+// either project fan out to the other). falls back to the full
+// registry when no active project is set, mirroring the CLI's
+// default resolution order.
+function linkedProjectSet(allProjects: ProjectEntry[]): ProjectEntry[] {
+	const rootId = getActiveProject()
+	if (!rootId) return allProjects
+	const links = getProjectLinks()
+	const adj = new Map<string, Set<string>>()
+	for (const link of links) {
+		if (!adj.has(link.from)) adj.set(link.from, new Set())
+		if (!adj.has(link.to)) adj.set(link.to, new Set())
+		adj.get(link.from)!.add(link.to)
+		adj.get(link.to)!.add(link.from)
+	}
+	const visited = new Set<string>([rootId])
+	const queue = [rootId]
+	while (queue.length > 0) {
+		const id = queue.shift()!
+		const neighbours = adj.get(id)
+		if (!neighbours) continue
+		for (const next of neighbours) {
+			if (visited.has(next)) continue
+			visited.add(next)
+			queue.push(next)
+		}
+	}
+	return allProjects.filter((p) => visited.has(p.id))
 }
 
 function printSymbol(sym: SymbolResult) {

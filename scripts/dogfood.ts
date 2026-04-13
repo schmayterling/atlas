@@ -45,12 +45,22 @@ interface Metrics {
 	tracePaths: number
 	deadCode: number
 	searchResults: number
+	// number of sql_table channel_hit groups on atlas itself. doubles as a
+	// minimum smoke test that the sql-linker ran during indexing. see #36.
+	channelHitGroups: number
 	queryMs: {
 		deps: number
 		blast: number
 		search: number
 		trace: number
 		deadCode: number
+		// new paths added in #36. each is a ms/call over 50 runs.
+		// channelHitGroups: store.findChannelHitGroups('sql_table')
+		// hotspots: findHotspots({ limit: 20 }) (covers hotspots.ts path)
+		// hotFragile: findHotFragile({ limit: 20 }) (covers test-coverage.ts)
+		channelHitGroups: number
+		hotspots: number
+		hotFragile: number
 	}
 }
 
@@ -89,12 +99,21 @@ async function run(): Promise<void> {
 		return (performance.now() - start) / runs
 	}
 
+	// pull the underlying store for channel_hits queries. findChannelHitGroups
+	// is not exposed through engine (it's a store-level hot path used by
+	// future cli surfaces) so the bench hits store directly. see #36.
+	const storeForBench = engine.getStoreForCrossProject()
+	const channelGroups = storeForBench.findChannelHitGroups('sql_table')
+
 	const queryMs = {
 		deps: bench(() => engine.deps('blastCommand')),
 		blast: bench(() => engine.blast('blastCommand')),
 		search: bench(() => engine.search('AtlasEngine')),
 		trace: bench(() => engine.trace('blastCommand', 'blast')),
 		deadCode: bench(() => engine.deadCode()),
+		channelHitGroups: bench(() => storeForBench.findChannelHitGroups('sql_table')),
+		hotspots: bench(() => engine.hotspots({ limit: 20 })),
+		hotFragile: bench(() => engine.hotFragile({ limit: 20 })),
 	}
 
 	engine.close()
@@ -112,12 +131,16 @@ async function run(): Promise<void> {
 		tracePaths: traceResult?.stats.totalPaths ?? 0,
 		deadCode: deadResult.stats.total,
 		searchResults: searchResult.total,
+		channelHitGroups: channelGroups.length,
 		queryMs: {
 			deps: round(queryMs.deps),
 			blast: round(queryMs.blast),
 			search: round(queryMs.search),
 			trace: round(queryMs.trace),
 			deadCode: round(queryMs.deadCode),
+			channelHitGroups: round(queryMs.channelHitGroups),
+			hotspots: round(queryMs.hotspots),
+			hotFragile: round(queryMs.hotFragile),
 		},
 	}
 
@@ -142,6 +165,11 @@ async function run(): Promise<void> {
 		{ name: 'deps edges', value: current.depsEdges, min: 1, baseline: baseline?.depsEdges },
 		{ name: 'trace paths', value: current.tracePaths, min: 1, baseline: baseline?.tracePaths },
 		{ name: 'dead code', value: current.deadCode, min: 0, baseline: baseline?.deadCode },
+		// min 0 is a smoke check: sql-linker ran without crashing. on
+		// atlas itself the sql-table hits come from migration strings
+		// in schema.ts — the linker currently returns zero groups
+		// there, so we pin the shape without failing the run. see #36.
+		{ name: 'channel groups', value: current.channelHitGroups, min: 0, baseline: baseline?.channelHitGroups },
 	]
 
 	let allPass = true
@@ -168,6 +196,9 @@ async function run(): Promise<void> {
 		{ name: 'search', value: current.queryMs.search, baseline: baseline?.queryMs.search },
 		{ name: 'trace', value: current.queryMs.trace, baseline: baseline?.queryMs.trace },
 		{ name: 'dead-code', value: current.queryMs.deadCode, baseline: baseline?.queryMs.deadCode },
+		{ name: 'channel-hits', value: current.queryMs.channelHitGroups, baseline: baseline?.queryMs.channelHitGroups },
+		{ name: 'hotspots', value: current.queryMs.hotspots, baseline: baseline?.queryMs.hotspots },
+		{ name: 'hot-fragile', value: current.queryMs.hotFragile, baseline: baseline?.queryMs.hotFragile },
 	]
 
 	for (const p of perfChecks) {

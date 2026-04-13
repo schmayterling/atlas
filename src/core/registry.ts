@@ -25,36 +25,23 @@ interface RegistryData {
 	active?: string | null
 }
 
-// the default registry lives at $HOME/.atlas/registry.json and is resolved
-// once at module load. existing tests set process.env.HOME before importing
-// this module and rely on the path being pinned to their fake home for the
-// rest of the process. tests that need to switch registries mid-process
-// call setRegistryPathForTests instead.
-const DEFAULT_REGISTRY_DIR = join(process.env.HOME ?? '~', '.atlas')
-const DEFAULT_REGISTRY_PATH = join(DEFAULT_REGISTRY_DIR, 'registry.json')
-
-let activeRegistryDir = DEFAULT_REGISTRY_DIR
-let activeRegistryPath = DEFAULT_REGISTRY_PATH
-
+// the registry lives at $HOME/.atlas/registry.json. HOME is read on
+// every call (lazy) rather than snapshotted at module load so tests
+// that mutate process.env.HOME inside beforeEach / beforeAll see the
+// updated value without a second import step. that's required for
+// multi-file test safety: bun test parses every test file during
+// discovery and executes top-level code, so any module-level
+// setRegistryPathForTests() used to leak across test files. see #38.
+//
+// tests that need an isolated registry should set process.env.HOME to
+// a fresh tmp dir inside a beforeEach/beforeAll and restore it in
+// afterEach/afterAll. there is no longer a mid-process override API.
 function getRegistryDir(): string {
-	return activeRegistryDir
+	return join(process.env.HOME ?? '~', '.atlas')
 }
 
 function getRegistryPath(): string {
-	return activeRegistryPath
-}
-
-// test-only: point the registry at a different directory without mutating
-// process.env.HOME. used by tests that need a clean registry mid-process.
-// call resetRegistryPathForTests to restore the default.
-export function setRegistryPathForTests(dir: string): void {
-	activeRegistryDir = dir
-	activeRegistryPath = join(dir, 'registry.json')
-}
-
-export function resetRegistryPathForTests(): void {
-	activeRegistryDir = DEFAULT_REGISTRY_DIR
-	activeRegistryPath = DEFAULT_REGISTRY_PATH
+	return join(getRegistryDir(), 'registry.json')
 }
 
 function readRegistry(): RegistryData {

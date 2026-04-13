@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
-import { isVectorSearchAvailable, loadVecExtension } from './sqlite-ext.js'
+import { loadVecExtension } from './sqlite-ext.js'
 import type {
 	ChannelHit,
 	ChannelHitGroup,
@@ -76,6 +76,7 @@ export class AtlasStore {
 	private stmtEdgesToKind!: ReturnType<Database['query']>
 	private stmtFindSymbolInFile!: ReturnType<Database['query']>
 	private stmtFindSymbolInFileKind!: ReturnType<Database['query']>
+	private stmtSymbolContainingByte!: ReturnType<Database['query']>
 
 	constructor(dbPath: string) {
 		const dir = dirname(dbPath)
@@ -122,6 +123,13 @@ export class AtlasStore {
 		)
 		this.stmtFindSymbolInFileKind = this.db.query(
 			`${SYMBOL_SELECT} WHERE file_id = (SELECT id FROM files WHERE path = ?) AND name = ? AND kind = ? ORDER BY line_start LIMIT 1`,
+		)
+		// used by channel linkers to credit a byte-offset hit to its
+		// enclosing symbol. hot path: one call per regex match per
+		// file. backed by idx_symbols_byte_range (migration v16). see #52.
+		this.stmtSymbolContainingByte = this.db.query(
+			`${SYMBOL_SELECT} WHERE file_id = ? AND byte_start <= ? AND byte_end >= ?
+			 ORDER BY (byte_end - byte_start) ASC LIMIT 1`,
 		)
 	}
 
@@ -177,22 +185,9 @@ export class AtlasStore {
 		)
 		if (pending.length === 0) return
 
-		// migrations whose failure is recoverable. v2 introduces vec0 (sqlite-vec
-		// extension may be unavailable). v7 recreates the same vec0 table at a
-		// new dimension. v15 backfills pull_requests.files_complete via ALTER
-		// TABLE, which is a no-op (duplicate column error) for v13-born dbs
-		// that already have the column. all other migrations introduce
-		// required tables and must fail loudly.
-		const OPTIONAL_MIGRATIONS = new Set([2, 7, 15])
-		// v15 should ONLY absorb the specific "duplicate column name"
-		// error. any other failure (locked table, corrupted schema) must
-		// propagate so the operator sees it instead of having the
-		// migration silently re-attempted on every startup.
-		const isAcceptableOptionalFailure = (version: number, err: unknown): boolean => {
-			if (version !== 15) return true
-			return String(err).includes('duplicate column')
-		}
-
+		// migration optionality lives on the Migration entries themselves
+		// in schema.ts (via optional + acceptableErrors). authors see the
+		// failure mode on the same line as the SQL. see #56.
 		for (const m of pending) {
 			try {
 				log.info(`applying migration v${m.version}: ${m.description}`)
@@ -208,8 +203,13 @@ export class AtlasStore {
 					throw innerErr
 				}
 			} catch (e) {
-				if (!OPTIONAL_MIGRATIONS.has(m.version)) throw e
-				if (!isAcceptableOptionalFailure(m.version, e)) throw e
+				if (!m.optional) throw e
+				// when acceptableErrors is set, ONLY matching failures
+				// are swallowed. empty / unset means "any failure
+				// acceptable" (v2, v7 where vec0 may be missing).
+				if (m.acceptableErrors && !m.acceptableErrors.some((re) => re.test(String(e)))) {
+					throw e
+				}
 				log.debug(`migration v${m.version} failed (non-fatal, optional): ${e}`)
 				continue
 			}
@@ -848,6 +848,47 @@ export class AtlasStore {
 		)
 	}
 
+	// delete heuristic call edges at the given (file, line, col)
+	// positions. used by the go-resolver after upgrading a call site
+	// to a resolved edge, so the stale heuristic target stable_id
+	// (a synthesized hash of `${filePath}::pkg.Foo`) doesn't coexist
+	// with the real target in blast-radius / deps output. see #40.
+	deleteHeuristicCallEdgesAt(fileId: number, positions: { line: number; col: number }[]): number {
+		if (positions.length === 0) return 0
+		let deleted = 0
+		const stmt = this.db.prepare(
+			`DELETE FROM edges
+			 WHERE file_id = ? AND line = ? AND col = ?
+			   AND kind = 'calls' AND confidence = 'heuristic'`,
+		)
+		for (const pos of positions) {
+			const res = stmt.run(fileId, pos.line, pos.col)
+			deleted += Number(res.changes ?? 0)
+		}
+		return deleted
+	}
+
+	// imports rows with NULL target_file_id, joined to their source
+	// file's path so callers can re-run ts.resolveModuleName against
+	// the current filesystem state. used by the incremental-index
+	// backfill to repair imports that were cascaded to NULL when a
+	// previously-imported file was deleted and re-inserted with a
+	// new file_id in step 4/5. see #35.
+	getNullTargetImports(): { id: number; sourceFilePath: string; importPath: string }[] {
+		return this.db
+			.query<{ id: number; sourceFilePath: string; importPath: string }, []>(
+				`SELECT i.id as id, f.path as sourceFilePath, i.import_path as importPath
+				 FROM imports i
+				 JOIN files f ON f.id = i.source_file_id
+				 WHERE i.target_file_id IS NULL`,
+			)
+			.all()
+	}
+
+	updateImportTargetFileId(importId: number, targetFileId: number) {
+		this.db.run('UPDATE imports SET target_file_id = ? WHERE id = ?', [targetFileId, importId])
+	}
+
 	// bulk insert with transaction
 	bulkInsert(operations: () => void) {
 		this.db.transaction(operations)()
@@ -961,7 +1002,7 @@ export class AtlasStore {
 		const out: ChannelHitGroup[] = []
 		for (const [value, set] of byValue) {
 			if (set.size < 2) continue
-			out.push({ kind, value, symbolStableIds: Array.from(set).sort() })
+			out.push({ value, symbolStableIds: Array.from(set).sort() })
 		}
 		out.sort((a, b) => a.value.localeCompare(b.value))
 		return out
@@ -971,25 +1012,14 @@ export class AtlasStore {
 	// byte offset (typically from a regex match inside a string
 	// literal) and need to credit the hit to the smallest symbol that
 	// covers it. falls back to file-level if no symbol wraps the
-	// offset (e.g. top-level module strings).
+	// offset (e.g. top-level module strings). uses the prepared
+	// statement + byte-range composite index. see #52.
 	getSymbolContainingByte(fileId: number, byteOffset: number): SymbolRecord | null {
-		return (
-			(this.db
-				.query<SymbolRecord, [number, number, number]>(
-					`SELECT id, stable_id as stableId, file_id as fileId, name,
-					       qualified_name as qualifiedName, kind, visibility,
-					       is_exported as isExported, line_start as lineStart,
-					       line_end as lineEnd, col_start as colStart, col_end as colEnd,
-					       byte_start as byteStart, byte_end as byteEnd,
-					       parent_id as parentId, signature, doc_comment as docComment,
-					       metadata
-					 FROM symbols
-					 WHERE file_id = ? AND byte_start <= ? AND byte_end >= ?
-					 ORDER BY (byte_end - byte_start) ASC
-					 LIMIT 1`,
-				)
-				.get(fileId, byteOffset, byteOffset) as SymbolRecord | null) ?? null
-		)
+		return (this.stmtSymbolContainingByte as any).get(
+			fileId,
+			byteOffset,
+			byteOffset,
+		) as SymbolRecord | null
 	}
 
 	// reconcile files.is_test against the current testPatterns from the
@@ -1066,6 +1096,13 @@ export class AtlasStore {
 	// a non-test file. used by step 6.5 to populate the 'called' confidence
 	// rows in a single query.
 	getTestCalledSymbolPairs(): { testFileId: number; symbolStableId: string }[] {
+		// passed_as edges are credited as 'called' coverage because
+		// handler/middleware registration in a test file (e.g.
+		// router.Use(MiddlewareAuth) or r.GET(path, handler)) is a
+		// legitimate coverage signal: the test is asserting against
+		// behaviour that flows through the registered function. see
+		// #58. the srcf.is_test=1 guard prevents production
+		// passed_as edges from inflating coverage.
 		return this.db
 			.query<{ testFileId: number; symbolStableId: string }, []>(
 				`SELECT DISTINCT src.file_id as testFileId, tgt.stable_id as symbolStableId
@@ -1074,7 +1111,7 @@ export class AtlasStore {
 				 JOIN symbols tgt ON tgt.stable_id = e.target_id
 				 JOIN files srcf ON srcf.id = src.file_id
 				 JOIN files tgtf ON tgtf.id = tgt.file_id
-				 WHERE e.kind = 'calls'
+				 WHERE e.kind IN ('calls', 'passed_as')
 				 AND srcf.is_test = 1
 				 AND tgtf.is_test = 0`,
 			)

@@ -7,11 +7,6 @@ export interface ExtractionResult {
 	edges: ExtractedEdge[]
 	imports: ExtractedImport[]
 	apiEndpoints?: ExtractedApiEndpoint[]
-	// go-only: the package declared via `package foo` at the top of the
-	// file. consumed by the go-resolver to map import paths back to
-	// directories within the same go.mod. null for ts/python/jsx where the
-	// concept does not apply. see #3.
-	packageName?: string | null
 }
 
 export interface ExtractedApiEndpoint {
@@ -185,19 +180,21 @@ function extractClassDeclaration(
 		docComment: getDocComment(node),
 	})
 
-	// extract class body members
+	// extract class body members. methods and properties inherit the
+	// class's isExported so tests importing an exported class reach
+	// every method via the same coverage signal. see #34.
 	const body = node.childForFieldName('body')
 	if (!body) return
 
 	for (const member of body.namedChildren) {
-		extractClassMember(member, filePath, classQName, symbols, edges)
+		extractClassMember(member, classQName, isExported, symbols, edges)
 	}
 }
 
 function extractClassMember(
 	node: SyntaxNode,
-	filePath: string,
 	classQName: string,
+	classIsExported: boolean,
 	symbols: ExtractedSymbol[],
 	edges: ExtractedEdge[],
 ) {
@@ -213,7 +210,7 @@ function extractClassMember(
 			name,
 			qualifiedName: memberQName,
 			kind,
-			isExported: false,
+			isExported: classIsExported,
 			visibility: getAccessModifier(node),
 			...nodeSpan(node),
 			parentQualifiedName: classQName,
@@ -243,7 +240,7 @@ function extractClassMember(
 			name,
 			qualifiedName: memberQName,
 			kind: 'property',
-			isExported: false,
+			isExported: classIsExported,
 			visibility: getAccessModifier(node),
 			...nodeSpan(node),
 			parentQualifiedName: classQName,
@@ -288,7 +285,10 @@ function extractInterfaceDeclaration(
 		docComment: getDocComment(node),
 	})
 
-	// extract interface members
+	// extract interface members. same propagation rule as class
+	// members: an exported interface reaches its method/property
+	// signatures via any importer, so they inherit is_exported. see
+	// #34.
 	const body = node.childForFieldName('body')
 	if (!body) return
 
@@ -305,7 +305,7 @@ function extractInterfaceDeclaration(
 				name: memberName,
 				qualifiedName: memberQName,
 				kind: isMethod ? 'method' : 'property',
-				isExported: false,
+				isExported,
 				visibility: null,
 				...nodeSpan(member),
 				parentQualifiedName: ifaceQName,

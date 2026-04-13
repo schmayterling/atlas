@@ -148,12 +148,29 @@ interface Migration {
 	version: number
 	description: string
 	up: string
+	// optional: true migrations swallow their failure instead of throwing.
+	// used for schema extensions that may be unavailable (sqlite-vec) or
+	// no-op on dbs that already have the target state (duplicate column
+	// on an ALTER TABLE that landed in an earlier CREATE). store.ts reads
+	// this field directly so migration authors see optionality on the
+	// same line as the SQL. see #56.
+	optional?: boolean
+	// acceptableErrors: regex list of error messages that are treated as
+	// a successful no-op for an optional migration. any other failure
+	// propagates loudly. set only when optional is true and the caller
+	// wants to narrow which failures are swallowed (e.g. v15 absorbs
+	// /duplicate column/ but nothing else).
+	acceptableErrors?: RegExp[]
 }
 
 export const MIGRATIONS: Migration[] = [
 	{
 		version: 2,
 		description: 'add symbol_embeddings for semantic search',
+		// optional: uses sqlite-vec (vec0) which may be unavailable on
+		// some installs. failure degrades semantic search but does not
+		// block the core indexer.
+		optional: true,
 		up: `
 			CREATE VIRTUAL TABLE IF NOT EXISTS symbol_embeddings USING vec0(
 				embedding float[384]
@@ -246,6 +263,9 @@ export const MIGRATIONS: Migration[] = [
 	{
 		version: 7,
 		description: 'recreate symbol_embeddings at 768 dim for nomic-embed-text',
+		// optional: same rationale as v2. if sqlite-vec is unavailable
+		// the DROP/CREATE skips cleanly and the indexer continues.
+		optional: true,
 		up: `
 			DROP TABLE IF EXISTS symbol_embeddings;
 			CREATE VIRTUAL TABLE symbol_embeddings USING vec0(
@@ -429,12 +449,36 @@ export const MIGRATIONS: Migration[] = [
 		// CREATE hit a "no such column" on the github-ingest INSERT
 		// (surfaced by #48 flipping github ingest to default-on).
 		// the ALTER fails on newer dbs that already have the column
-		// ("duplicate column name"); add v15 to OPTIONAL_MIGRATIONS
-		// in store.ts so that failure mode is swallowed as a no-op
-		// for v13-born databases. both populations converge on the
-		// same column state after this migration.
+		// ("duplicate column name"); mark optional with a narrow
+		// acceptableErrors filter so the failure is swallowed ONLY
+		// for that specific case. any other v15 failure (locked
+		// table, corrupted schema) propagates loudly.
+		optional: true,
+		acceptableErrors: [/duplicate column/],
 		up: `
 			ALTER TABLE pull_requests ADD COLUMN files_complete INTEGER NOT NULL DEFAULT 0;
+		`,
+	},
+	{
+		version: 16,
+		description: 'add byte-range index on symbols for getSymbolContainingByte',
+		// hot-path channel linker lookup: find the smallest symbol
+		// whose byte range contains an offset. previously a linear scan
+		// over every symbol in the file. see #52.
+		up: `
+			CREATE INDEX IF NOT EXISTS idx_symbols_byte_range
+				ON symbols(file_id, byte_start, byte_end);
+		`,
+	},
+	{
+		version: 17,
+		description: 'add confidence index on test_links for dead-code CTE seed',
+		// dead-code recursive reachability seeds from
+		// test_links WHERE confidence = 'called'. without this index
+		// sqlite falls back to a table scan. see #51.
+		up: `
+			CREATE INDEX IF NOT EXISTS idx_test_links_confidence
+				ON test_links(confidence, source_symbol_stable_id);
 		`,
 	},
 ]

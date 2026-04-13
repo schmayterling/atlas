@@ -139,3 +139,86 @@ describe('sql-linker', () => {
 		expect(tables).toContain('users')
 	})
 })
+
+describe('sql-linker extended syntax (#39)', () => {
+	let extRoot: string
+	let extEngine: AtlasEngine
+
+	beforeEach(async () => {
+		extRoot = mkdtempSync(join(tmpdir(), 'atlas-sql-linker-ext-'))
+		mkdirSync(join(extRoot, 'src'))
+
+		// T-SQL bracketed identifiers, schema-qualified names, and a
+		// CTE that must not surface as a table. each function lives
+		// in its own file so the symbol containment doesn't cross.
+		writeFileSync(
+			join(extRoot, 'src/tsql.ts'),
+			`export function readUserData() {
+	return \`SELECT * FROM [user_data] WHERE active = 1\`
+}
+
+export function readAuditLog() {
+	return \`SELECT id FROM [dbo].[audit_log]\`
+}
+
+export function readPublic() {
+	return 'SELECT * FROM public.orders WHERE status = 1'
+}
+
+export function withCte() {
+	return \`WITH recent AS (SELECT * FROM shipments)
+	SELECT id FROM recent WHERE id > 0\`
+}
+`,
+		)
+
+		extEngine = new AtlasEngine(extRoot)
+		await extEngine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
+	})
+
+	afterEach(() => {
+		extEngine.close()
+		rmSync(extRoot, { recursive: true, force: true })
+	})
+
+	test('matches T-SQL bracketed identifiers: FROM [user_data]', () => {
+		const store = extEngine.getStoreForCrossProject()
+		const rows = store.queryRaw<{ value: string }>(
+			`SELECT value FROM channel_hits WHERE kind = 'sql_table'`,
+		)
+		const tables = rows.map((r) => r.value)
+		expect(tables).toContain('user_data')
+	})
+
+	test('strips schema prefix: FROM [dbo].[audit_log] -> audit_log', () => {
+		const store = extEngine.getStoreForCrossProject()
+		const rows = store.queryRaw<{ value: string }>(
+			`SELECT value FROM channel_hits WHERE kind = 'sql_table'`,
+		)
+		const tables = rows.map((r) => r.value)
+		expect(tables).toContain('audit_log')
+		expect(tables).not.toContain('dbo')
+	})
+
+	test('strips schema prefix: FROM public.orders -> orders', () => {
+		const store = extEngine.getStoreForCrossProject()
+		const rows = store.queryRaw<{ value: string }>(
+			`SELECT value FROM channel_hits WHERE kind = 'sql_table'`,
+		)
+		const tables = rows.map((r) => r.value)
+		expect(tables).toContain('orders')
+		expect(tables).not.toContain('public')
+	})
+
+	test('filters CTE names: WITH recent AS (...) does not surface `recent`', () => {
+		const store = extEngine.getStoreForCrossProject()
+		const rows = store.queryRaw<{ value: string }>(
+			`SELECT value FROM channel_hits WHERE kind = 'sql_table'`,
+		)
+		const tables = rows.map((r) => r.value)
+		// the CTE'd FROM shipments is a real table reference
+		expect(tables).toContain('shipments')
+		// the CTE body's FROM recent must be filtered out
+		expect(tables).not.toContain('recent')
+	})
+})

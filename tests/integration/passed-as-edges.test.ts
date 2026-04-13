@@ -60,6 +60,59 @@ export function registerRoutes(router: any): void {
 	})
 })
 
+describe('test-mapping credits passed_as as called (#58)', () => {
+	test('test file registering a handler via passed_as counts as called coverage', async () => {
+		mkdirSync(join(projectRoot, 'tests'), { recursive: true })
+		writeFileSync(
+			join(projectRoot, 'src/handlers.ts'),
+			`export function authHandler(req: any, res: any): void {
+	res.send('auth')
+}
+`,
+		)
+		writeFileSync(
+			join(projectRoot, 'tests/auth.test.ts'),
+			`import { authHandler } from '../src/handlers.js'
+
+declare const describe: any
+declare const test: any
+declare const expect: any
+
+export function setupAuthRouter(router: { use: (fn: unknown) => void }): void {
+	router.use(authHandler)
+}
+
+describe('auth', () => {
+	test('register', () => {
+		const router = { use: (_fn: unknown) => {} }
+		setupAuthRouter(router)
+		expect(router).toBeDefined()
+	})
+})
+`,
+		)
+
+		engine = new AtlasEngine(projectRoot)
+		await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
+
+		const store = engine.getStoreForCrossProject()
+		// the test-mapping walker should credit authHandler with a
+		// 'called' row because the test registers it via passed_as.
+		const edgeRows = store.queryRaw<{ count: number }>(
+			`SELECT COUNT(*) as count FROM edges WHERE kind = 'passed_as'`,
+		)
+		expect(edgeRows[0]?.count ?? 0).toBeGreaterThan(0)
+		const rows = store.queryRaw<{ confidence: string }>(
+			`SELECT tl.confidence as confidence
+			 FROM test_links tl
+			 JOIN symbols s ON s.stable_id = tl.source_symbol_stable_id
+			 WHERE s.name = 'authHandler'`,
+		)
+		const called = rows.find((r) => r.confidence === 'called')
+		expect(called).toBeDefined()
+	})
+})
+
 describe('go passed_as', () => {
 	test('r.Use(MiddlewareAuth) produces a passed_as edge to MiddlewareAuth', async () => {
 		mkdirSync(join(projectRoot, 'cmd'), { recursive: true })

@@ -85,4 +85,16 @@ describe('go cross-package trace', () => {
 		)
 		expect(rows[0]?.count ?? 0).toBeGreaterThan(0)
 	})
+
+	test('three-hop trace main -> New -> Connect finds a path (#45)', () => {
+		// this pins the prod scenario: a non-trivial cross-package
+		// chain where deps finds the edges but trace has historically
+		// returned 0 paths. the fix landed via the #49/#50 edgeKinds
+		// expansion in flow-trace.ts (calls + passed_as +
+		// dispatches_to). this assertion makes sure #45 stays closed
+		// even as edgeKinds drifts.
+		const result = engine.trace('main', 'Connect')
+		expect(result).not.toBeNull()
+		expect(result?.stats.totalPaths ?? 0).toBeGreaterThan(0)
+	})
 })

@@ -32,16 +32,32 @@ type SyntaxNode = Parser.SyntaxNode
 // would break the intra-file stable_id round-trip). instead, this
 // resolver splits inside its own walker and writes a cross-file edge
 // with `confidence: 'resolved'` that points at the real symbol.
+// positions of heuristic call edges that were upgraded to resolved
+// cross-file edges. the indexer's step 6 wiring consumes this to
+// issue targeted deletes against the edges table before bulk-inserting
+// the resolved rows, so a single call site never shows up as both
+// a heuristic and a resolved edge. see #40.
+export interface HeuristicUpgradePosition {
+	fileId: number
+	line: number
+	col: number
+}
+
 export function resolveGoProject(
 	projectRoot: string,
 	absoluteFilePaths: string[],
 	store: AtlasStore,
 	repoModules: RepoModule[],
-): { edges: ResolvedEdge[]; imports: ResolvedImport[] } {
+): {
+	edges: ResolvedEdge[]
+	imports: ResolvedImport[]
+	heuristicUpgrades: HeuristicUpgradePosition[]
+} {
 	const edges: ResolvedEdge[] = []
 	const imports: ResolvedImport[] = []
+	const heuristicUpgrades: HeuristicUpgradePosition[] = []
 	if (absoluteFilePaths.length === 0) {
-		return { edges, imports }
+		return { edges, imports, heuristicUpgrades }
 	}
 
 	// only go modules matter for import-path resolution. filter once up
@@ -51,13 +67,16 @@ export function resolveGoProject(
 		// a repo with .go files but no go.mod is unusual but not worth
 		// warning about here; it just means the resolver has nothing to
 		// do and the pipeline continues with heuristic edges only.
-		return { edges, imports }
+		return { edges, imports, heuristicUpgrades }
 	}
 
 	// cache resolved package directories across files so a monorepo
 	// with many files importing the same package only walks the dir
 	// once per resolver run.
 	const dirListCache = new Map<string, string[]>()
+	// cache package names per dir so we only read/parse the target
+	// package's package_clause once per resolver run. see #28.
+	const packageNameCache = new Map<string, string | null>()
 
 	for (const absPath of absoluteFilePaths) {
 		const relPath = toForwardSlash(relative(projectRoot, absPath))
@@ -75,16 +94,33 @@ export function resolveGoProject(
 		const tree = parseSource(source, 'go')
 		const root = tree.rootNode
 
-		// build (local name -> import path) map from this file's import
-		// declarations. handles plain imports, aliased imports, and the
-		// `_ "pkg"` side-effect form. dot imports (`. "pkg"`) are not
-		// resolved because they inject names into the file's namespace
-		// without a package qualifier, which is out of scope for the
-		// MVP — see the scope comment at the top of the file.
-		const localToPath = new Map<string, string>()
+		// collect raw imports (path + optional alias) then bind each
+		// to a local name via the target package_clause. handles
+		// plain imports, aliased imports, and `_ "pkg"` side-effect
+		// form. dot imports (`. "pkg"`) are skipped — they inject
+		// names into the file's namespace without a package qualifier.
+		const rawImports: RawImport[] = []
 		for (const child of root.namedChildren) {
 			if (child.type !== 'import_declaration') continue
-			collectImports(child, localToPath)
+			collectImports(child, rawImports)
+		}
+		const localToPath = new Map<string, string>()
+		for (const raw of rawImports) {
+			if (raw.alias) {
+				localToPath.set(raw.alias, raw.importPath)
+				continue
+			}
+			// un-aliased import: bind the local name to the target
+			// file's declared package, falling back to the path's
+			// last component when we can't resolve the directory
+			// (external / unresolved). see #28.
+			const dir = resolveImportPath(raw.importPath, goModules, projectRoot)
+			let localName: string | null = null
+			if (dir) {
+				localName = discoverPackageName(dir, packageNameCache, dirListCache)
+			}
+			if (!localName) localName = basename(raw.importPath)
+			localToPath.set(localName, raw.importPath)
 		}
 
 		// map each import path to an absolute directory via the longest-matching
@@ -155,19 +191,38 @@ export function resolveGoProject(
 
 		// walk the body of every function/method and emit resolved
 		// cross-file edges for `pkg.Foo()` calls and `pkg.MyStruct`
-		// type refs.
-		walkAndResolve(root, relPath, localToPath, pathToDir, store, projectRoot, edges)
+		// type refs. call sites that upgrade from heuristic to
+		// resolved record their (file_id, line, col) so the indexer
+		// can delete the old heuristic edge before inserting the
+		// resolved one. see #40.
+		walkAndResolve(
+			root,
+			relPath,
+			fileRecord.id,
+			localToPath,
+			pathToDir,
+			store,
+			projectRoot,
+			edges,
+			heuristicUpgrades,
+		)
 	}
 
-	return { edges, imports }
+	return { edges, imports, heuristicUpgrades }
 }
 
 // ---
 
-// fill localToPath with (localName -> importPath) entries for a single
-// import_declaration. handles `import "x"`, `import alias "x"`, and
-// `import ( "x"; alias "y" )` grouped forms.
-function collectImports(decl: SyntaxNode, localToPath: Map<string, string>) {
+// raw import entries collected from a single import_declaration. we
+// defer binding the local name until pathToDir is resolved so we can
+// read the target file's actual `package foo` clause instead of
+// assuming basename(importPath) == packageName. see #28.
+interface RawImport {
+	importPath: string
+	alias: string | null
+}
+
+function collectImports(decl: SyntaxNode, out: RawImport[]): void {
 	for (const spec of decl.descendantsOfType('import_spec')) {
 		const pathNode = spec.childForFieldName('path')
 		if (!pathNode) continue
@@ -176,17 +231,51 @@ function collectImports(decl: SyntaxNode, localToPath: Map<string, string>) {
 		if (aliasNode) {
 			const alias = aliasNode.text
 			if (alias === '_' || alias === '.') continue // side-effect or dot import
-			localToPath.set(alias, importPath)
+			out.push({ importPath, alias })
 		} else {
-			// no alias: the local name is the package's last path
-			// component. this is a go convention, not a guarantee (the
-			// package declaration inside the target file may differ),
-			// but it's the dominant case and lines up with the
-			// resolver's best-effort scope.
-			const last = basename(importPath)
-			localToPath.set(last, importPath)
+			out.push({ importPath, alias: null })
 		}
 	}
+}
+
+// discover the `package foo` declaration of a go package directory by
+// peeking at the first .go file and reading its package_clause. used
+// by collectImports to bind an un-aliased import to the correct local
+// name when the directory basename and the declared package name
+// diverge (e.g. cmd/app/main.go with `package main`). caches per dir
+// so every importer only parses the target once. see #28.
+function discoverPackageName(
+	dir: string,
+	cache: Map<string, string | null>,
+	dirListCache: Map<string, string[]>,
+): string | null {
+	const cached = cache.get(dir)
+	if (cached !== undefined) return cached
+	const files = listGoFilesCached(dir, dirListCache)
+	for (const name of files) {
+		let source: string
+		try {
+			source = readFileSync(join(dir, name), 'utf-8')
+		} catch {
+			continue
+		}
+		// tree-sitter parse is overkill for a 1-line lookup; a
+		// line-wise regex over the first 50 non-comment lines is
+		// enough and avoids pulling in another parse pass.
+		let lines = 0
+		for (const rawLine of source.split('\n')) {
+			const line = rawLine.trim()
+			if (!line || line.startsWith('//') || line.startsWith('/*')) continue
+			if (lines++ > 50) break
+			const m = line.match(/^package\s+(\w+)/)
+			if (m) {
+				cache.set(dir, m[1])
+				return m[1]
+			}
+		}
+	}
+	cache.set(dir, null)
+	return null
 }
 
 // resolve an import path to an absolute directory on disk via the
@@ -235,11 +324,13 @@ function listGoFilesCached(dir: string, cache: Map<string, string[]>): string[] 
 function walkAndResolve(
 	root: SyntaxNode,
 	sourceRelPath: string,
+	sourceFileId: number,
 	localToPath: Map<string, string>,
 	pathToDir: Map<string, string | null>,
 	store: AtlasStore,
 	projectRoot: string,
 	edges: ResolvedEdge[],
+	heuristicUpgrades: HeuristicUpgradePosition[],
 ) {
 	// tracks the nearest enclosing function/method so call edges get a
 	// meaningful source stable_id. mirrors the go extractor's intra-file
@@ -250,8 +341,64 @@ function walkAndResolve(
 		kind: ContainerKind
 	}
 
-	const walk = (node: SyntaxNode, container: Container | null) => {
-		// enter function/method scope
+	// the type inferred for a receiver variable. `pkgAlias` is the
+	// import's local name (so we can reach the right dir via
+	// localToPath/pathToDir), and `typeName` is the go type identifier
+	// the dot-lookup should search for. see #27.
+	interface ReceiverType {
+		pkgAlias: string
+		typeName: string
+	}
+
+	// a stack of block-scoped variable type maps. short_var_decl and
+	// var_decl inside a block push entries into the innermost frame;
+	// entering a new `block`/`if_statement`/`for_statement` pushes a
+	// frame, exiting pops. a new function_declaration / method_declaration
+	// starts an entirely new stack so outer functions don't leak.
+	type ScopeStack = Map<string, ReceiverType>[]
+
+	const trackLocalType = (
+		nameNode: SyntaxNode | null,
+		valueNode: SyntaxNode | null,
+		scope: ScopeStack,
+	) => {
+		if (!nameNode || !valueNode || scope.length === 0) return
+		const name = nameNode.text
+		const frame = scope[scope.length - 1]
+		// the MVP shape we handle: `x := pkg.NewFoo()` or
+		// `x := pkg.NewFoo(args)`. the value side is a call_expression
+		// on a selector_expression whose operand is an imported pkg
+		// alias. tree-sitter-go models `pkg.NewFoo()` as
+		// call_expression(function: selector_expression).
+		if (valueNode.type !== 'call_expression') return
+		const funcNode = valueNode.childForFieldName('function')
+		if (!funcNode || funcNode.type !== 'selector_expression') return
+		const operand = funcNode.childForFieldName('operand')
+		const field = funcNode.childForFieldName('field')
+		if (!operand || !field || operand.type !== 'identifier') return
+		// heuristic: constructor-style names starting with New or Make
+		// return the package's eponymous type (pkg.NewFoo() -> pkg.Foo).
+		// this covers the dominant server/handler pattern without a
+		// real type checker. see #27 scope note.
+		const ctorName = field.text
+		let inferredType: string | null = null
+		if (ctorName.startsWith('New')) inferredType = ctorName.slice(3)
+		else if (ctorName.startsWith('Make')) inferredType = ctorName.slice(4)
+		if (!inferredType) return
+		frame.set(name, { pkgAlias: operand.text, typeName: inferredType })
+	}
+
+	const lookupLocalType = (name: string, scope: ScopeStack): ReceiverType | null => {
+		for (let i = scope.length - 1; i >= 0; i--) {
+			const hit = scope[i].get(name)
+			if (hit) return hit
+		}
+		return null
+	}
+
+	const walk = (node: SyntaxNode, container: Container | null, scope: ScopeStack) => {
+		// enter function/method scope — reset the local type stack
+		// so outer bindings don't leak into nested function bodies.
 		if (node.type === 'function_declaration') {
 			const nameNode = node.childForFieldName('name')
 			if (nameNode) {
@@ -259,7 +406,8 @@ function walkAndResolve(
 					qname: `${sourceRelPath}::${nameNode.text}`,
 					kind: 'function',
 				}
-				for (const child of node.namedChildren) walk(child, next)
+				const freshScope: ScopeStack = [new Map()]
+				for (const child of node.namedChildren) walk(child, next, freshScope)
 				return
 			}
 		}
@@ -273,19 +421,66 @@ function walkAndResolve(
 						qname: `${sourceRelPath}::${recvType}.${nameNode.text}`,
 						kind: 'method',
 					}
-					for (const child of node.namedChildren) walk(child, next)
+					const freshScope: ScopeStack = [new Map()]
+					for (const child of node.namedChildren) walk(child, next, freshScope)
 					return
 				}
 			}
 		}
 
-		// package-qualified call: `pkg.Foo(...)`
+		// push a new frame on block entry so shadowing works.
+		if (node.type === 'block' && container && scope.length > 0) {
+			const frame = new Map<string, ReceiverType>()
+			scope.push(frame)
+			for (const child of node.namedChildren) walk(child, container, scope)
+			scope.pop()
+			return
+		}
+
+		// `x := pkg.NewFoo()` — short variable declaration binds the
+		// receiver type into the current scope frame. tree-sitter-go
+		// names these `short_var_declaration` with `left` and `right`
+		// fields. left is an expression_list of identifiers; right is
+		// an expression_list of values. we handle the common 1:1 case.
+		if (node.type === 'short_var_declaration') {
+			const left = node.childForFieldName('left')
+			const right = node.childForFieldName('right')
+			if (left && right) {
+				const lefts = left.namedChildren
+				const rights = right.namedChildren
+				for (let i = 0; i < Math.min(lefts.length, rights.length); i++) {
+					trackLocalType(lefts[i], rights[i], scope)
+				}
+			}
+		}
+		// `var x = pkg.NewFoo()` — var_spec inside var_declaration has
+		// name + value fields shaped differently.
+		if (node.type === 'var_spec') {
+			const nameList = node.childForFieldName('name')
+			const valueList = node.childForFieldName('value')
+			if (nameList && valueList) {
+				const names = nameList.type === 'identifier' ? [nameList] : nameList.namedChildren
+				const values =
+					valueList.type === 'expression_list' ? valueList.namedChildren : [valueList]
+				for (let i = 0; i < Math.min(names.length, values.length); i++) {
+					trackLocalType(names[i], values[i], scope)
+				}
+			}
+		}
+
+		// package-qualified call: `pkg.Foo(...)` or receiver-method
+		// call: `recv.Method(...)` where recv's type was declared
+		// earlier in scope via `recv := pkg.NewFoo()`.
 		if (node.type === 'call_expression' && container) {
 			const func = node.childForFieldName('function')
 			if (func && func.type === 'selector_expression') {
 				const recv = func.childForFieldName('operand')
 				const field = func.childForFieldName('field')
 				if (recv && field && recv.type === 'identifier') {
+					const line = node.startPosition.row + 1
+					const col = node.startPosition.column
+					// path 1: package-qualified call. recv is an
+					// imported alias, field is the exported function.
 					const importPath = localToPath.get(recv.text)
 					const dir = importPath ? pathToDir.get(importPath) ?? null : null
 					if (dir) {
@@ -305,10 +500,52 @@ function walkAndResolve(
 								),
 								targetStableId: resolved,
 								kind: 'calls',
-								line: node.startPosition.row + 1,
-								col: node.startPosition.column,
+								line,
+								col,
 								confidence: 'resolved',
 							})
+							heuristicUpgrades.push({ fileId: sourceFileId, line, col })
+						}
+					} else {
+						// path 2: receiver-method call. recv is a local
+						// variable whose type we inferred earlier via
+						// `recv := pkgAlias.NewType()`. resolve the
+						// method against the inferred type's package
+						// directory. see #27.
+						const recvType = lookupLocalType(recv.text, scope)
+						if (recvType) {
+							const rtImportPath = localToPath.get(recvType.pkgAlias)
+							const rtDir = rtImportPath
+								? pathToDir.get(rtImportPath) ?? null
+								: null
+							if (rtDir) {
+								const resolved = findSymbolAcrossDir(
+									store,
+									rtDir,
+									projectRoot,
+									field.text,
+									['method'],
+								)
+								if (resolved) {
+									edges.push({
+										sourceStableId: stableSymbolId(
+											sourceRelPath,
+											container.kind,
+											container.qname,
+										),
+										targetStableId: resolved,
+										kind: 'calls',
+										line,
+										col,
+										confidence: 'resolved',
+									})
+									heuristicUpgrades.push({
+										fileId: sourceFileId,
+										line,
+										col,
+									})
+								}
+							}
 						}
 					}
 				}
@@ -353,10 +590,10 @@ function walkAndResolve(
 			}
 		}
 
-		for (const child of node.namedChildren) walk(child, container)
+		for (const child of node.namedChildren) walk(child, container, scope)
 	}
 
-	for (const child of root.namedChildren) walk(child, null)
+	for (const child of root.namedChildren) walk(child, null, [])
 }
 
 // iterate every .go file in `dir` and return the stable_id of the

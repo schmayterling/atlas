@@ -23,16 +23,64 @@ import type { AtlasStore } from '../storage/store.js'
 // channel rows are written inside a single transaction via
 // insertChannelHits.
 
-// the FROM pattern already matches `DELETE FROM users` so a separate
+// table-name patterns. accepts:
+//   - plain identifiers: FROM users
+//   - ascii quoted identifiers: FROM "users", 'users', `users`
+//   - T-SQL brackets, optionally schema-qualified: FROM [users],
+//     FROM [dbo].[audit_log]
+//   - bare schema qualification: FROM public.users
+//
+// the capture group takes the full qualified name including brackets
+// and schema; normaliseTableName() strips both. the regex is
+// deliberately tolerant — rare false positives are caught later by
+// the string-literal containment check and the blocklist.
+//
+// the FROM pattern already matches `DELETE FROM users`, so a separate
 // DELETE FROM pattern would emit duplicate hits at the same (symbol,
 // value, line) coordinate — the channel_hits UNIQUE constraint would
 // swallow them, but building the redundant match is pure waste.
+const TABLE_TOKEN = '(?:\\[[\\w.]+\\]|[\\w.]+)(?:\\.(?:\\[[\\w.]+\\]|[\\w.]+))?'
 const SQL_KEYWORD_PATTERNS: RegExp[] = [
-	/\bFROM\s+(?:["'`])?(\w+)(?:["'`])?/gi,
-	/\bJOIN\s+(?:["'`])?(\w+)(?:["'`])?/gi,
-	/\bINTO\s+(?:["'`])?(\w+)(?:["'`])?/gi,
-	/\bUPDATE\s+(?:["'`])?(\w+)(?:["'`])?/gi,
+	new RegExp(`\\bFROM\\s+(?:["'\`])?(${TABLE_TOKEN})(?:["'\`])?`, 'gi'),
+	new RegExp(`\\bJOIN\\s+(?:["'\`])?(${TABLE_TOKEN})(?:["'\`])?`, 'gi'),
+	new RegExp(`\\bINTO\\s+(?:["'\`])?(${TABLE_TOKEN})(?:["'\`])?`, 'gi'),
+	new RegExp(`\\bUPDATE\\s+(?:["'\`])?(${TABLE_TOKEN})(?:["'\`])?`, 'gi'),
 ]
+
+// detect CTE names declared in a `WITH name AS (...)` clause so the
+// post-processor can filter them out of the hit set. T-SQL CTEs can
+// chain via commas: `WITH a AS (...), b AS (...)`. we accept both
+// forms via a single non-global regex applied to the line head up
+// to the current match. see #39.
+const WITH_CTE_PATTERN = /\bWITH\s+(?:RECURSIVE\s+)?([\w,\s]+?)\s+AS\s*\(/gi
+
+// prefer the right-hand token when a schema-qualified name slips
+// through (e.g. `public.users` or `dbo.orders`). strips bracket
+// wrappers if present since the regex above already handled the
+// outer brackets but nested identifiers may still carry them.
+function normaliseTableName(raw: string): string {
+	const unbracketed = raw.replace(/^\[|\]$/g, '')
+	const dot = unbracketed.lastIndexOf('.')
+	return dot >= 0 ? unbracketed.slice(dot + 1).replace(/^\[|\]$/g, '') : unbracketed
+}
+
+// collect CTE names declared earlier in the source (before the
+// match offset). called per-hit because CTEs live within a single
+// statement and we want the filter to apply file-wide: every `WITH
+// recent AS (...)` in the file masks `recent` as a "table" match
+// downstream from it.
+function collectCteNames(source: string): Set<string> {
+	const names = new Set<string>()
+	for (const m of source.matchAll(WITH_CTE_PATTERN)) {
+		const header = m[1]
+		if (!header) continue
+		for (const part of header.split(',')) {
+			const trimmed = part.trim()
+			if (trimmed) names.add(trimmed.toLowerCase())
+		}
+	}
+	return names
+}
 
 // reserved words that sometimes appear after FROM / JOIN etc. but
 // are NEVER real table names. dropping them cuts false positives
@@ -117,12 +165,22 @@ export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: n
 		// instead of O(N) for the previous character-by-character scan.
 		const lineOffsets = buildLineOffsets(source)
 
+		// CTE filter (#39): collect every `WITH name AS (...)`
+		// identifier in the file. these alias a query fragment, not
+		// a real table, so they must be dropped from the hit set.
+		const cteNames = collectCteNames(source)
+
 		for (const pattern of SQL_KEYWORD_PATTERNS) {
 			for (const m of source.matchAll(pattern)) {
-				const table = m[1]
+				const raw = m[1]
 				const matchIndex = m.index
-				if (!table || matchIndex === undefined) continue
+				if (!raw || matchIndex === undefined) continue
+
+				// normalise schema-qualified names: `public.users` -> `users`
+				const table = normaliseTableName(raw)
+				if (!table) continue
 				if (SQL_KEYWORD_BLOCKLIST.has(table.toLowerCase())) continue
+				if (cteNames.has(table.toLowerCase())) continue
 				if (!isInsideStringLiteral(source, matchIndex)) continue
 
 				const line = offsetToLine(lineOffsets, matchIndex) + 1

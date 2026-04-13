@@ -30,6 +30,8 @@ describe('mcp server tool registration', () => {
 		expect(names).toContain('atlas_subsystem')
 		expect(names).toContain('atlas_test_coverage')
 		expect(names).toContain('atlas_hot_fragile')
+		expect(names).toContain('atlas_channels_list')
+		expect(names).toContain('atlas_channels_show')
 	})
 
 	test('server instructions advertise the new tier-4 tools', async () => {
