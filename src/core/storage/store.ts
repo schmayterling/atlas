@@ -1076,6 +1076,13 @@ export class AtlasStore {
 	// a non-test file. used by step 6.5 to populate the 'called' confidence
 	// rows in a single query.
 	getTestCalledSymbolPairs(): { testFileId: number; symbolStableId: string }[] {
+		// passed_as edges are credited as 'called' coverage because
+		// handler/middleware registration in a test file (e.g.
+		// router.Use(MiddlewareAuth) or r.GET(path, handler)) is a
+		// legitimate coverage signal: the test is asserting against
+		// behaviour that flows through the registered function. see
+		// #58. the srcf.is_test=1 guard prevents production
+		// passed_as edges from inflating coverage.
 		return this.db
 			.query<{ testFileId: number; symbolStableId: string }, []>(
 				`SELECT DISTINCT src.file_id as testFileId, tgt.stable_id as symbolStableId
@@ -1084,7 +1091,7 @@ export class AtlasStore {
 				 JOIN symbols tgt ON tgt.stable_id = e.target_id
 				 JOIN files srcf ON srcf.id = src.file_id
 				 JOIN files tgtf ON tgtf.id = tgt.file_id
-				 WHERE e.kind = 'calls'
+				 WHERE e.kind IN ('calls', 'passed_as')
 				 AND srcf.is_test = 1
 				 AND tgtf.is_test = 0`,
 			)
