@@ -76,6 +76,7 @@ export class AtlasStore {
 	private stmtEdgesToKind!: ReturnType<Database['query']>
 	private stmtFindSymbolInFile!: ReturnType<Database['query']>
 	private stmtFindSymbolInFileKind!: ReturnType<Database['query']>
+	private stmtSymbolContainingByte!: ReturnType<Database['query']>
 
 	constructor(dbPath: string) {
 		const dir = dirname(dbPath)
@@ -122,6 +123,13 @@ export class AtlasStore {
 		)
 		this.stmtFindSymbolInFileKind = this.db.query(
 			`${SYMBOL_SELECT} WHERE file_id = (SELECT id FROM files WHERE path = ?) AND name = ? AND kind = ? ORDER BY line_start LIMIT 1`,
+		)
+		// used by channel linkers to credit a byte-offset hit to its
+		// enclosing symbol. hot path: one call per regex match per
+		// file. backed by idx_symbols_byte_range (migration v16). see #52.
+		this.stmtSymbolContainingByte = this.db.query(
+			`${SYMBOL_SELECT} WHERE file_id = ? AND byte_start <= ? AND byte_end >= ?
+			 ORDER BY (byte_end - byte_start) ASC LIMIT 1`,
 		)
 	}
 
@@ -963,25 +971,14 @@ export class AtlasStore {
 	// byte offset (typically from a regex match inside a string
 	// literal) and need to credit the hit to the smallest symbol that
 	// covers it. falls back to file-level if no symbol wraps the
-	// offset (e.g. top-level module strings).
+	// offset (e.g. top-level module strings). uses the prepared
+	// statement + byte-range composite index. see #52.
 	getSymbolContainingByte(fileId: number, byteOffset: number): SymbolRecord | null {
-		return (
-			(this.db
-				.query<SymbolRecord, [number, number, number]>(
-					`SELECT id, stable_id as stableId, file_id as fileId, name,
-					       qualified_name as qualifiedName, kind, visibility,
-					       is_exported as isExported, line_start as lineStart,
-					       line_end as lineEnd, col_start as colStart, col_end as colEnd,
-					       byte_start as byteStart, byte_end as byteEnd,
-					       parent_id as parentId, signature, doc_comment as docComment,
-					       metadata
-					 FROM symbols
-					 WHERE file_id = ? AND byte_start <= ? AND byte_end >= ?
-					 ORDER BY (byte_end - byte_start) ASC
-					 LIMIT 1`,
-				)
-				.get(fileId, byteOffset, byteOffset) as SymbolRecord | null) ?? null
-		)
+		return (this.stmtSymbolContainingByte as any).get(
+			fileId,
+			byteOffset,
+			byteOffset,
+		) as SymbolRecord | null
 	}
 
 	// reconcile files.is_test against the current testPatterns from the

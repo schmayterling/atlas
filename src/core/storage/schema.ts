@@ -459,4 +459,26 @@ export const MIGRATIONS: Migration[] = [
 			ALTER TABLE pull_requests ADD COLUMN files_complete INTEGER NOT NULL DEFAULT 0;
 		`,
 	},
+	{
+		version: 16,
+		description: 'add byte-range index on symbols for getSymbolContainingByte',
+		// hot-path channel linker lookup: find the smallest symbol
+		// whose byte range contains an offset. previously a linear scan
+		// over every symbol in the file. see #52.
+		up: `
+			CREATE INDEX IF NOT EXISTS idx_symbols_byte_range
+				ON symbols(file_id, byte_start, byte_end);
+		`,
+	},
+	{
+		version: 17,
+		description: 'add confidence index on test_links for dead-code CTE seed',
+		// dead-code recursive reachability seeds from
+		// test_links WHERE confidence = 'called'. without this index
+		// sqlite falls back to a table scan. see #51.
+		up: `
+			CREATE INDEX IF NOT EXISTS idx_test_links_confidence
+				ON test_links(confidence, source_symbol_stable_id);
+		`,
+	},
 ]
