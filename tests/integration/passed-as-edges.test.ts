@@ -44,7 +44,7 @@ export function registerRoutes(router: any): void {
 		)
 
 		engine = new AtlasEngine(projectRoot)
-		await engine.index({ noEmbed: true, noSummarize: true, force: true })
+		await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
 
 		const store = engine.getStoreForCrossProject()
 		const rows = store.queryRaw<{ count: number }>(
@@ -81,7 +81,7 @@ func Use(fn func(func()) func()) {}
 		)
 
 		engine = new AtlasEngine(projectRoot)
-		await engine.index({ noEmbed: true, noSummarize: true, force: true })
+		await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
 
 		const store = engine.getStoreForCrossProject()
 		const rows = store.queryRaw<{ count: number }>(

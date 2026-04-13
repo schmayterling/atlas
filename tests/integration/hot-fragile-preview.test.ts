@@ -44,7 +44,7 @@ beforeAll(async () => {
 	)
 
 	engine = new AtlasEngine(projectRoot)
-	await engine.index({ noEmbed: true, noSummarize: true, force: true })
+	await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
 
 	// fake churn so hot-fragile surfaces these files. findHotFragile joins
 	// file_changes via file_path so we insert commits and file_changes rows

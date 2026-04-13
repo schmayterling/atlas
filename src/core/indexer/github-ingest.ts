@@ -81,6 +81,23 @@ function isGhAvailable(): boolean {
 	}
 }
 
+// deeper capability check: gh is usable only if it's installed AND
+// the user is authenticated against github.com. `gh auth status`
+// exits non-zero when not authed. without this probe, the default
+// --no-github=false path on a machine with gh installed but
+// unauthenticated would warning-storm every atlas index run.
+function isGhAuthenticated(): boolean {
+	try {
+		const result = Bun.spawnSync(['gh', 'auth', 'status'], {
+			stdout: 'pipe',
+			stderr: 'pipe',
+		})
+		return result.exitCode === 0
+	} catch {
+		return false
+	}
+}
+
 // `gh api --paginate` prints each page as a separate JSON document
 // concatenated in stdout. feeding that to JSON.parse throws on the
 // second `[`, which silently loses all rows past page 1. `--slurp`
@@ -125,6 +142,21 @@ const META_PR_WATERMARK = 'github_prs_updated_after'
 const META_ISSUES_WATERMARK = 'github_issues_updated_after'
 
 export function ingestGitHub(projectRoot: string, store: AtlasStore): GitHubIngestResult {
+	// probe git remote FIRST so we exit fast on projects that have no
+	// git directory at all. this keeps test fixtures and non-git
+	// directories from paying the gh-cli spawn cost on every index
+	// run; #48's opt-out flip made default-on, so cheap early exits
+	// matter more than they used to.
+	const remote = detectRemote(projectRoot)
+	if (!remote) {
+		return {
+			prsFetched: 0,
+			issuesFetched: 0,
+			skipped: true,
+			reason: 'not a github repo',
+		}
+	}
+
 	if (!isGhAvailable()) {
 		return {
 			prsFetched: 0,
@@ -133,14 +165,15 @@ export function ingestGitHub(projectRoot: string, store: AtlasStore): GitHubInge
 			reason: 'gh cli not installed',
 		}
 	}
-
-	const remote = detectRemote(projectRoot)
-	if (!remote) {
+	// capability probe so default-on ingestion stays silent on
+	// machines with gh installed but not authenticated. without this
+	// check every index run on such a machine would fire warnings.
+	if (!isGhAuthenticated()) {
 		return {
 			prsFetched: 0,
 			issuesFetched: 0,
 			skipped: true,
-			reason: 'not a github repo',
+			reason: 'gh cli not authenticated (run `gh auth login` to enable github ingest)',
 		}
 	}
 

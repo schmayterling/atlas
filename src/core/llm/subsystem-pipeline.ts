@@ -70,7 +70,10 @@ export async function runSubsystemPipeline(
 	// (docstring edits). full re-cluster still happens on every topology
 	// change. incremental re-assignment is deferred until a consumer
 	// hits a real cost.
-	const withCoChange = opts?.withCoChange ?? false
+	// default-on: co-change weighting always runs unless the user
+	// explicitly flips --no-cochange. subsystem modularity is
+	// noticeably better with co-change data on real repos; see #48.
+	const withCoChange = opts?.withCoChange !== false
 	const topologyHash = computeTopologyHash(store, withCoChange)
 	const lastHash = store.getMeta('last_subsystem_topology_hash')
 	if (lastHash && topologyHash === lastHash) {

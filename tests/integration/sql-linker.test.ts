@@ -66,7 +66,7 @@ export function seed() {
 	)
 
 	engine = new AtlasEngine(projectRoot)
-	await engine.index({ noEmbed: true, noSummarize: true, force: true })
+	await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
 })
 
 afterEach(() => {
@@ -119,7 +119,7 @@ describe('sql-linker', () => {
 			`SELECT COUNT(*) as count FROM channel_hits WHERE kind = 'sql_table'`,
 		)[0].count
 
-		await engine.index({ noEmbed: true, noSummarize: true, force: true })
+		await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
 
 		const after = store.queryRaw<{ count: number }>(
 			`SELECT COUNT(*) as count FROM channel_hits WHERE kind = 'sql_table'`,

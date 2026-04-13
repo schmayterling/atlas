@@ -56,7 +56,7 @@ func main() {
 	)
 
 	engine = new AtlasEngine(projectRoot)
-	await engine.index({ noEmbed: true, noSummarize: true, force: true })
+	await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
 })
 
 afterEach(() => {

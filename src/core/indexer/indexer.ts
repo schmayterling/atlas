@@ -697,12 +697,17 @@ export class Indexer {
 
 	// optional: github pr + issue ingest, gated behind --with-github.
 	// off by default because it shells out to the gh cli and pings the
-	// github api, neither of which is wanted during normal local indexing.
+	// github ingest is default-on now: users can opt out via
+	// `--no-github`. ingestGitHub performs its own capability probe
+	// (gh installed, gh auth status succeeds, repo has a github
+	// remote) and returns a clean skipped result when any of those
+	// fail, so default-on doesn't emit a warning storm on machines
+	// without gh auth. see #48.
 	private async stepIngestGitHub(
 		state: IndexState,
 		opts: IndexOptions | undefined,
 	): Promise<void> {
-		if (!opts?.withGitHub) return
+		if (opts?.withGitHub === false) return
 		try {
 			const { ingestGitHub } = await import('./github-ingest.js')
 			const result = ingestGitHub(this.projectRoot, this.store)
