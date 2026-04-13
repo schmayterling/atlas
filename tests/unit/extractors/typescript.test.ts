@@ -38,6 +38,41 @@ describe('typescript extractor', () => {
 		expect(sym!.isExported).toBe(false)
 	})
 
+	test('methods of an exported class inherit isExported=true (#34)', () => {
+		const result = extractTS(`
+			export class AtlasStore {
+				getSymbol(id: string): void {}
+				insertEdge(e: unknown): void {}
+			}
+		`)
+		const methods = result.symbols.filter((s) => s.kind === 'method')
+		expect(methods.length).toBe(2)
+		for (const m of methods) expect(m.isExported).toBe(true)
+	})
+
+	test('methods of a non-exported class stay non-exported (#34)', () => {
+		const result = extractTS(`
+			class Private {
+				helper(): void {}
+			}
+		`)
+		const methods = result.symbols.filter((s) => s.kind === 'method')
+		expect(methods.length).toBe(1)
+		expect(methods[0].isExported).toBe(false)
+	})
+
+	test('methods of an exported interface inherit isExported=true (#34)', () => {
+		const result = extractTS(`
+			export interface Store {
+				get(id: string): void
+				set(id: string, v: string): void
+			}
+		`)
+		const methods = result.symbols.filter((s) => s.kind === 'method')
+		expect(methods.length).toBe(2)
+		for (const m of methods) expect(m.isExported).toBe(true)
+	})
+
 	test('extracts interfaces', () => {
 		const result = extractTS(`export interface User { id: string; email: string }`)
 		const iface = result.symbols.find((s) => s.kind === 'interface' && s.name === 'User')
