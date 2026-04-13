@@ -84,6 +84,7 @@ program
 	.option('-s, --semantic', 'semantic search (natural language, requires embeddings)')
 	.option('-n, --limit <n>', 'max results', '20')
 	.option('--include-tests', 'include symbols from test files')
+	.option('--all-projects', 'fan the search out across every registered atlas project')
 	.action(async (query, cmdOpts) => {
 		const opts = program.opts()
 		await searchCommand(opts.project, query, opts.json, {
@@ -92,6 +93,7 @@ program
 			semantic: cmdOpts.semantic,
 			limit: Number(cmdOpts.limit),
 			includeTests: cmdOpts.includeTests,
+			allProjects: cmdOpts.allProjects,
 		})
 	})
 
