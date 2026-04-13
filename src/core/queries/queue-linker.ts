@@ -1,9 +1,15 @@
-import { readFileSync, realpathSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { ChannelHit } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
-import { shouldKeepIdentifier } from './channel-utils.js'
+import {
+	buildLineOffsets,
+	isUnderRoot,
+	offsetToLine,
+	safeRealpath,
+	shouldKeepIdentifier,
+} from './channel-utils.js'
 
 // queue-topic channel linker (#30). detects publish/subscribe sites
 // across kafka, nats, rabbitmq, and redis pub/sub for both ts/js
@@ -66,7 +72,7 @@ export function linkQueueTopics(store: AtlasStore, projectRoot: string): { hits:
 	const files = store.getAllFiles().filter((f) => !f.isTest)
 	const hits: ChannelHit[] = []
 	const allowedExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.go', '.py'])
-	const rootReal = realpathOrNull(projectRoot) ?? projectRoot
+	const rootReal = safeRealpath(projectRoot) ?? projectRoot
 
 	for (const f of files) {
 		const dot = f.path.lastIndexOf('.')
@@ -75,7 +81,7 @@ export function linkQueueTopics(store: AtlasStore, projectRoot: string): { hits:
 		if (!allowedExtensions.has(ext)) continue
 
 		const resolved = resolvePath(projectRoot, f.path)
-		const resolvedReal = realpathOrNull(resolved)
+		const resolvedReal = safeRealpath(resolved)
 		if (resolvedReal && !isUnderRoot(resolvedReal, rootReal)) continue
 
 		let source: string
@@ -115,34 +121,3 @@ export function linkQueueTopics(store: AtlasStore, projectRoot: string): { hits:
 	return { hits: hits.length }
 }
 
-function buildLineOffsets(source: string): number[] {
-	const offsets = [0]
-	for (let i = 0; i < source.length; i++) {
-		if (source.charCodeAt(i) === 10) offsets.push(i + 1)
-	}
-	return offsets
-}
-
-function offsetToLine(offsets: number[], matchIndex: number): number {
-	let lo = 0
-	let hi = offsets.length - 1
-	while (lo < hi) {
-		const mid = (lo + hi + 1) >> 1
-		if (offsets[mid] <= matchIndex) lo = mid
-		else hi = mid - 1
-	}
-	return lo
-}
-
-function realpathOrNull(p: string): string | null {
-	try {
-		return realpathSync(p)
-	} catch {
-		return null
-	}
-}
-
-function isUnderRoot(abs: string, root: string): boolean {
-	const normRoot = root.endsWith('/') ? root : `${root}/`
-	return abs === root || abs.startsWith(normRoot)
-}

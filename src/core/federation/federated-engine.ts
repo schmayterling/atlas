@@ -1,60 +1,28 @@
 import type { AtlasEngine } from '../engine.js'
 import { getOrCreateEngine } from '../engine-pool.js'
-import { getActiveProject, getProjectLinks, getProject, listProjects, type ProjectEntry } from '../registry.js'
+import { getActiveProject, getProjectLinks, getProject, type ProjectEntry } from '../registry.js'
 import { log } from '../../shared/logger.js'
 
-// federation core for #32. exposes a small set of helpers used by
-// every federated cli command (deps, blast, trace, dead-code,
-// search semantic). intentionally NOT a class — speculative
-// abstraction is hard to justify when the consumers are six cli
-// commands and one mcp tool. prefer plain functions until a second
-// abstraction consumer appears.
+// federation core: a handful of plain functions used by every
+// federated cli command (deps, blast, trace, dead-code, search
+// semantic). intentionally NOT a class — single-consumer abstraction
+// isn't justified until a second consumer appears.
 //
 // scope:
-//   - resolve the set of projects to fan out across (--all-projects,
-//     --linked, or an explicit project list)
 //   - anchor a starting symbol in a single project so cross-project
 //     traversal has a fixed root (deps, blast, trace all need this)
 //   - walk cross_project_edges from the anchor and call back into the
 //     remote project's engine. the BFS itself stays inside each
 //     project's loadSubgraph; we only stitch results across boundaries
 //     at the federation layer.
+//   - merge per-project semantic search results into a single global
+//     distance-sorted list.
+//   - restrict a project list to the connected component reachable
+//     via linkProjects from the active project (--linked).
 
-export interface FederationOpts {
-	allProjects?: boolean
-	linked?: boolean
-	// the cli `-p <project>` value, used to anchor commands like deps
-	// and blast that need a single starting project. for trace, the
-	// caller supplies fromProject + toProject directly, so this is
-	// optional in that flow.
-	anchorProjectId?: string
-}
-
-// resolves the project list a federated query should fan out across.
-// honors --all-projects (every registered project), --linked (only
-// projects reachable via the linkProjects graph from the active
-// project), or returns just the one project when neither flag is set.
-export function resolveProjects(opts: FederationOpts): ProjectEntry[] {
-	const all = listProjects()
-	if (all.length === 0) return []
-	if (opts.linked) {
-		return linkedProjectSet(all)
-	}
-	if (opts.allProjects) {
-		return all
-	}
-	if (opts.anchorProjectId) {
-		const anchor = getProject(opts.anchorProjectId)
-		return anchor ? [anchor] : []
-	}
-	return []
-}
-
-// resolves an anchor symbol in a single project. used by deps, blast,
-// and any other command that needs to start from one stable_id and
-// walk outward. goes through engine.resolveSymbol so CLI/federation
-// stays on the engine api surface (CLAUDE.md: CLI/MCP/web never reach
-// into store.ts directly).
+// resolves an anchor symbol in a single project. goes through
+// engine.resolveSymbolIdentity so CLI/federation stays on the engine
+// api surface (CLI/MCP/web never reach into store.ts directly).
 export function anchorSymbol(
 	engine: AtlasEngine,
 	query: string,
@@ -63,24 +31,21 @@ export function anchorSymbol(
 }
 
 // fans out across cross_project_edges from a single anchor. for each
-// outbound edge to project X, calls the per-project callback with the
-// remote engine and the remote stable_id. the callback runs whatever
-// per-project query is appropriate (deps, blast, search). caller is
-// responsible for merging.
+// outbound edge to project X, calls the per-project callback with
+// the remote engine and the remote stable_id. the callback runs
+// whatever per-project query is appropriate (deps, blast, trace).
+// caller is responsible for merging.
 //
 // direction='outbound' walks "things this anchor depends on" across
 // projects. direction='inbound' walks "things that depend on this
-// anchor" across projects. both is the union.
+// anchor" across projects. 'both' is the union.
 export function fanOutDownstream<T>(
 	anchorEngine: AtlasEngine,
 	anchorProjectId: string,
 	anchorStableId: string,
 	direction: 'outbound' | 'inbound' | 'both',
-	fn: (remoteEngine: AtlasEngine, remoteProject: ProjectEntry, remoteStableId: string) => T,
+	fn: (remoteEngine: AtlasEngine, remoteStableId: string) => T,
 ): Array<{ project: string; result: T }> {
-	// use the stable_id-keyed lookup so we don't pay a resolveSymbol
-	// round-trip on the anchor side; callers passed a stable id directly
-	// from anchorSymbol().
 	const xEdges = anchorEngine.getCrossProjectEdgesByStableId(anchorProjectId, anchorStableId)
 	const seen = new Set<string>()
 	const out: Array<{ project: string; result: T }> = []
@@ -103,9 +68,13 @@ export function fanOutDownstream<T>(
 			}
 			try {
 				const remoteEngine = getOrCreateEngine(remoteProject.id, remoteProject.root)
-				out.push({ project: remoteProject.id, result: fn(remoteEngine, remoteProject, stableId) })
+				out.push({ project: remoteProject.id, result: fn(remoteEngine, stableId) })
 			} catch (e) {
-				log.warn(`federation: cross-project hop into "${project}" failed: ${e}`)
+				log.warn(
+					`federation: hop from ${anchorProjectId}::${anchorStableId} into ${project}::${stableId} failed: ${
+						e instanceof Error ? e.stack : e
+					}`,
+				)
 			}
 		}
 	}
@@ -121,9 +90,9 @@ export function fanOutDownstream<T>(
 }
 
 // merges a list of per-project semantic search results into a single
-// global ordering by distance ascending. the original per-project
-// loop returned top-N per project concatenated, which is wrong when
-// the user wants the N globally-best matches. see #32.
+// global ordering by distance ascending. the per-project loop
+// returns top-N per project concatenated, which is wrong when the
+// user wants the N globally-best matches.
 export function mergeSemanticResults<T extends { distance: number }>(
 	perProject: Array<{ project: string; results: T[] }>,
 	limit: number,
@@ -138,11 +107,10 @@ export function mergeSemanticResults<T extends { distance: number }>(
 	return merged.slice(0, limit)
 }
 
-// restricts a project list to the connected-component reachable via
-// linkProjects from the active project. lifted out of search.ts:220
-// so all federated commands share the same definition. falls back to
-// the full registry when no active project is set, mirroring the
-// cli's default resolution order.
+// restricts a project list to the connected component reachable via
+// linkProjects from the active project. lifted out of search.ts so
+// all federated commands share the same definition. falls back to
+// the full registry when no active project is set.
 export function linkedProjectSet(allProjects: ProjectEntry[]): ProjectEntry[] {
 	const rootId = getActiveProject()
 	if (!rootId) return allProjects

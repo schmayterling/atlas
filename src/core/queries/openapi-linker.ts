@@ -3,7 +3,7 @@ import { join, relative } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { ChannelHit } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
-import { shouldKeepIdentifier } from './channel-utils.js'
+import { isUnderRoot, safeRealpath, shouldKeepIdentifier } from './channel-utils.js'
 
 // openapi_type channel linker (#30b). extracts schema definitions
 // from openapi 3.x .yaml / .yml / .json files under the project root
@@ -227,15 +227,3 @@ function walkOpenApi(root: string, dir: string, out: OpenApiSchema[]): void {
 	}
 }
 
-function safeRealpath(p: string): string | null {
-	try {
-		return realpathSync(p)
-	} catch {
-		return null
-	}
-}
-
-function isUnderRoot(abs: string, root: string): boolean {
-	const normRoot = root.endsWith('/') ? root : `${root}/`
-	return abs === root || abs.startsWith(normRoot)
-}

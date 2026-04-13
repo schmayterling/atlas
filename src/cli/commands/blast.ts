@@ -134,7 +134,7 @@ function blastAllProjects(
 		// stable-id-keyed remote blast preserves the exact symbol the
 		// boundary edge resolved to. the prior name-based lookup could
 		// land on a same-named sibling in the remote project.
-		(remoteEngine, _project, remoteStableId) =>
+		(remoteEngine, remoteStableId) =>
 			remoteEngine.blastByStableId(remoteStableId, {
 				depth: opts.depth,
 				includeTests: opts.tests,

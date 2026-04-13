@@ -1,9 +1,15 @@
-import { readFileSync, realpathSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { ChannelHit } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
-import { shouldKeepIdentifier } from './channel-utils.js'
+import {
+	buildLineOffsets,
+	isUnderRoot,
+	offsetToLine,
+	safeRealpath,
+	shouldKeepIdentifier,
+} from './channel-utils.js'
 
 // graphql_type channel linker (#30b). extracts type / input / enum /
 // interface definitions from `gql\`...\`` template literals embedded
@@ -48,9 +54,15 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 			log.warn(`graphql-linker: read ${f.path}: ${e}`)
 			continue
 		}
+		// cheap pre-filter: skip the regex pass entirely for files that
+		// don't reference the gql template tag at all. typical ts/js
+		// projects have a handful of files that use gql and many that
+		// don't, so this avoids allocating the match iterator for the
+		// common case.
+		if (!source.includes('gql`') && !source.includes('gql `')) continue
+		const lineOffsets = buildLineOffsets(source)
 		for (const tagMatch of source.matchAll(TEMPLATE_TAG_RE)) {
 			const literalContent = tagMatch[1]
-			if (!literalContent) continue
 			// the literal starts after the opening backtick; offsets
 			// inside literalContent need to be added to literalStart to
 			// recover the absolute offset in source.
@@ -58,18 +70,16 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 			for (const m of literalContent.matchAll(GRAPHQL_DEF_RE)) {
 				const definition = m[1]
 				const name = m[2]
-				if (!definition || !name) continue
 				if (!shouldKeepIdentifier(name)) continue
 				const matchOffset = literalStart + (m.index ?? 0)
 				const enclosing = store.getSymbolContainingByte(f.id, matchOffset)
 				if (!enclosing) continue
-				const line = countNewlines(source.slice(0, matchOffset)) + 1
 				hits.push({
 					symbolStableId: enclosing.stableId,
 					fileId: f.id,
 					kind: 'graphql_type',
 					value: name,
-					line,
+					line: offsetToLine(lineOffsets, matchOffset) + 1,
 					metadata: JSON.stringify({ definition, source: 'template_literal' }),
 				})
 			}
@@ -78,23 +88,4 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 
 	if (hits.length > 0) store.insertChannelHits(hits)
 	return { hits: hits.length }
-}
-
-function countNewlines(s: string): number {
-	let count = 0
-	for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) count++
-	return count
-}
-
-function safeRealpath(p: string): string | null {
-	try {
-		return realpathSync(p)
-	} catch {
-		return null
-	}
-}
-
-function isUnderRoot(abs: string, root: string): boolean {
-	const normRoot = root.endsWith('/') ? root : `${root}/`
-	return abs === root || abs.startsWith(normRoot)
 }

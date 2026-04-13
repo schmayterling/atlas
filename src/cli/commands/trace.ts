@@ -168,8 +168,10 @@ function traceCrossProject(
 	console.log()
 	console.log(pc.bold(`${matchingHops.length} boundary hop${matchingHops.length === 1 ? '' : 's'}`))
 	for (const leg of result.legs) {
-		const trace = leg.trace
-		if (!trace || trace.paths.length === 0) {
+		// `trace` is non-null here: the upstream loop only pushes legs
+		// when traceByStableIds returned a result.
+		const trace = leg.trace!
+		if (trace.paths.length === 0) {
 			console.log(pc.dim('  no path through this boundary hop'))
 			continue
 		}

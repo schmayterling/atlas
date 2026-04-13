@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-	COMMON_STOPWORDS,
-	SQL_RESERVED_WORDS,
-	SQLITE_INTERNAL_TABLES,
-	findEnclosingStringLiteral,
 	getEnclosingLiteralContent,
 	shouldKeepIdentifier,
 } from '../../src/core/queries/channel-utils.js'
@@ -66,53 +62,22 @@ describe('shouldKeepIdentifier', () => {
 	})
 })
 
-describe('findEnclosingStringLiteral', () => {
-	test('returns the literal range when match is inside a single-quoted string', () => {
-		const src = `const q = 'SELECT * FROM users'`
-		const m = src.indexOf('users')
-		const range = findEnclosingStringLiteral(src, m)
-		expect(range).not.toBeNull()
-		expect(src.slice(range!.start, range!.end)).toBe('SELECT * FROM users')
-	})
-
-	test('returns the literal range when match is inside a double-quoted string', () => {
-		const src = `const q = "SELECT * FROM users"`
-		const m = src.indexOf('users')
-		const range = findEnclosingStringLiteral(src, m)
-		expect(range).not.toBeNull()
-		expect(range!.quote).toBe('"')
-	})
-
-	test('returns null when match is not inside a string literal', () => {
-		const src = `// SELECT * FROM users`
-		const m = src.indexOf('users')
-		const range = findEnclosingStringLiteral(src, m)
-		expect(range).toBeNull()
-	})
-})
-
 describe('getEnclosingLiteralContent', () => {
-	test('returns just the literal contents', () => {
+	test('returns the literal contents inside single quotes', () => {
 		const src = `const q = 'SELECT * FROM users WHERE id = 1'`
 		const content = getEnclosingLiteralContent(src, src.indexOf('users'))
 		expect(content).toBe('SELECT * FROM users WHERE id = 1')
+	})
+
+	test('returns the literal contents inside double quotes', () => {
+		const src = `const q = "SELECT * FROM users"`
+		const content = getEnclosingLiteralContent(src, src.indexOf('users'))
+		expect(content).toBe('SELECT * FROM users')
 	})
 
 	test('returns null for prose outside a string literal', () => {
 		const src = `// FROM users`
 		const content = getEnclosingLiteralContent(src, src.indexOf('users'))
 		expect(content).toBeNull()
-	})
-})
-
-describe('denylist exports are reachable', () => {
-	test('common stopwords set is non-empty', () => {
-		expect(COMMON_STOPWORDS.size).toBeGreaterThan(40)
-	})
-	test('sql reserved words set is non-empty', () => {
-		expect(SQL_RESERVED_WORDS.size).toBeGreaterThan(15)
-	})
-	test('sqlite internal tables set is non-empty', () => {
-		expect(SQLITE_INTERNAL_TABLES.size).toBeGreaterThan(0)
 	})
 })

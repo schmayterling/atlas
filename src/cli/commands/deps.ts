@@ -115,7 +115,7 @@ function depsAllProjects(
 		// at. the previous code looked up the name and re-resolved via
 		// resolveSymbol, which picks the first same-named hit and
 		// produces wrong results in projects with duplicate names.
-		(remoteEngine, _project, remoteStableId) =>
+		(remoteEngine, remoteStableId) =>
 			remoteEngine.depsByStableId(remoteStableId, {
 				direction: (opts.direction ?? 'both') as 'upstream' | 'downstream' | 'both',
 				depth: opts.depth,

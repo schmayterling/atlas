@@ -1,23 +1,14 @@
-// shared precision helpers for cross-language channel linkers (#10).
-// extracted from sql-linker.ts in the #30 precursor PR after codex
-// found that `atlas channels list` on atlas itself returned junk
-// groups like `and` and `the` because the linker matched
-// `FROM and to project IDs required` inside an error string and
-// `into the bigger picture` inside an llm prompt template. each
-// channel linker that scans source files for string-literal patterns
-// should run its raw matches through these checks before writing
-// channel_hits rows.
-//
-// the rules deliberately err on the side of false negatives. it is
-// better to miss a real `users` table reference than to ship a
-// `channels list` view full of nonsense words. a separate test in
-// tests/integration/channel-utils-precision.test.ts asserts that
-// none of the obvious junk values survive a self-index of atlas.
+import { realpathSync } from 'node:fs'
+
+// shared precision helpers and filesystem utilities for cross-
+// language channel linkers. rules deliberately err on the side of
+// false negatives: better to miss a real table reference than to
+// surface nonsense words in `channels list`.
 
 // english stopwords + sql connectives that occasionally land where
 // the linker expects an identifier. lowercased, compared
-// case-insensitively. see #30 precursor.
-export const COMMON_STOPWORDS = new Set<string>([
+// case-insensitively.
+const COMMON_STOPWORDS = new Set<string>([
 	'a',
 	'an',
 	'and',
@@ -91,7 +82,7 @@ export const COMMON_STOPWORDS = new Set<string>([
 // real table name (e.g. `FROM (SELECT ...)`, `JOIN ON`, `INTO TEMPORARY`).
 // these are technically valid sql but should never be classified as
 // table identifiers.
-export const SQL_RESERVED_WORDS = new Set<string>([
+const SQL_RESERVED_WORDS = new Set<string>([
 	'select',
 	'insert',
 	'update',
@@ -130,7 +121,7 @@ export const SQL_RESERVED_WORDS = new Set<string>([
 // additional sqlite internal table names that are real in the schema
 // but not project-meaningful. surfacing them in `channels list`
 // distracts from real table linking.
-export const SQLITE_INTERNAL_TABLES = new Set<string>([
+const SQLITE_INTERNAL_TABLES = new Set<string>([
 	'sqlite_master',
 	'sqlite_sequence',
 	'sqlite_stat1',
@@ -141,7 +132,7 @@ export const SQLITE_INTERNAL_TABLES = new Set<string>([
 // minimum length for a table/topic/env-var identifier. anything
 // shorter is almost certainly a false positive (1-2 char hits in
 // real corpora are noise). callers can override per channel kind.
-export const MIN_IDENTIFIER_LENGTH = 3
+const MIN_IDENTIFIER_LENGTH = 3
 
 // a precompiled denylist of "junk" identifiers used by every
 // channel linker. callers can pass an extra channel-specific set
@@ -188,7 +179,7 @@ export function shouldKeepIdentifier(
 // backtick template literals the scan continues across newlines so
 // multi-line `\`SELECT ... FROM users\`` queries still match. when
 // no enclosing literal is found on the line head, returns null.
-export function findEnclosingStringLiteral(
+function findEnclosingStringLiteral(
 	source: string,
 	matchIndex: number,
 ): { start: number; end: number; quote: string } | null {
@@ -262,4 +253,45 @@ export function getEnclosingLiteralContent(source: string, matchIndex: number): 
 	const range = findEnclosingStringLiteral(source, matchIndex)
 	if (!range) return null
 	return source.slice(range.start, range.end)
+}
+
+// precompute newline byte offsets once per file so per-match line
+// lookup is O(log N) via binary search instead of O(N) per hit.
+export function buildLineOffsets(source: string): number[] {
+	const offsets = [0]
+	for (let i = 0; i < source.length; i++) {
+		if (source.charCodeAt(i) === 10) offsets.push(i + 1)
+	}
+	return offsets
+}
+
+// binary-search the offset table for the line containing a byte
+// offset. returns a 0-indexed line number; add 1 for 1-indexed.
+export function offsetToLine(offsets: number[], matchIndex: number): number {
+	let lo = 0
+	let hi = offsets.length - 1
+	while (lo < hi) {
+		const mid = (lo + hi + 1) >> 1
+		if (offsets[mid] <= matchIndex) lo = mid
+		else hi = mid - 1
+	}
+	return lo
+}
+
+// wrapper around realpathSync that returns null on any error. used
+// by the symlink containment guard in every channel linker and the
+// schema file walkers.
+export function safeRealpath(p: string): string | null {
+	try {
+		return realpathSync(p)
+	} catch {
+		return null
+	}
+}
+
+// true when abs is inside root (exactly root, or a sub-path thereof).
+// used by linkers to reject symlink targets that escape the project.
+export function isUnderRoot(abs: string, root: string): boolean {
+	const normRoot = root.endsWith('/') ? root : `${root}/`
+	return abs === root || abs.startsWith(normRoot)
 }

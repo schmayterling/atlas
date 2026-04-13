@@ -8,9 +8,10 @@ import { closeAll, getOrCreateEngine } from '../../src/core/engine-pool.js'
 import {
 	anchorSymbol,
 	fanOutDownstream,
-	resolveProjects,
+	linkedProjectSet,
 	mergeSemanticResults,
 } from '../../src/core/federation/federated-engine.js'
+import { listProjects } from '../../src/core/registry.js'
 import { buildCrossProjectEdgesBySymbolName } from '../../src/core/queries/symbol-name-linker.js'
 
 // covers #32: the federation core helpers used by deps/blast/trace/
@@ -92,23 +93,10 @@ afterAll(() => {
 })
 
 describe('federation core helpers', () => {
-	test('resolveProjects honors --all-projects', () => {
-		const projects = resolveProjects({ allProjects: true })
+	test('linkedProjectSet returns every registered project when no active id is set', () => {
+		const projects = linkedProjectSet(listProjects())
 		const ids = projects.map((p) => p.id).sort()
 		expect(ids).toEqual([alphaId, betaId].sort())
-	})
-
-	test('resolveProjects honors --linked from active project', () => {
-		// linked walks the linkProjects graph from the active project.
-		// no active project is set, so it falls back to the full registry.
-		const projects = resolveProjects({ linked: true })
-		expect(projects.length).toBeGreaterThanOrEqual(2)
-	})
-
-	test('resolveProjects with explicit anchor returns just that project', () => {
-		const projects = resolveProjects({ anchorProjectId: alphaId })
-		expect(projects.length).toBe(1)
-		expect(projects[0].id).toBe(alphaId)
 	})
 
 	test('anchorSymbol resolves a known export to a stable id', () => {
@@ -142,7 +130,7 @@ describe('federation core helpers', () => {
 			alphaId,
 			anchor!.stableId,
 			'both',
-			(_remoteEngine, project, remoteStableId) => ({ project: project.id, remoteStableId }),
+			(_remoteEngine, remoteStableId) => ({ remoteStableId }),
 		)
 		// the symbol-name linker created a name_match edge between the
 		// two `processOrder` exports so the fan-out should hit beta
