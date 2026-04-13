@@ -5,6 +5,8 @@ import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
 import { isVectorSearchAvailable, loadVecExtension } from './sqlite-ext.js'
 import type {
+	ChannelHit,
+	ChannelHitGroup,
 	Confidence,
 	EdgeKind,
 	EdgeRecord,
@@ -897,6 +899,86 @@ export class AtlasStore {
 
 	deleteCrossProjectEdgesForProject(project: string) {
 		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
+	}
+
+	// --- channel_hits: generic cross-language channel linking (#10) ---
+
+	// bulk insert with INSERT OR IGNORE so the UNIQUE constraint
+	// absorbs re-runs without blowing up. callers are expected to
+	// delete-by-kind first when they want to rebuild a channel from
+	// scratch (mirrors the proto-linker idempotency pattern).
+	insertChannelHits(rows: ChannelHit[]): void {
+		if (rows.length === 0) return
+		const stmt = this.db.prepare(
+			'INSERT OR IGNORE INTO channel_hits (symbol_stable_id, file_id, kind, value, line, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+		)
+		this.bulkInsert(() => {
+			for (const r of rows) {
+				stmt.run(r.symbolStableId, r.fileId, r.kind, r.value, r.line, r.metadata)
+			}
+		})
+	}
+
+	// cleanup before a channel linker rewrites its rows on a fresh
+	// indexing pass. callers always pair this with insertChannelHits
+	// inside the same indexer step so the kind is never observed
+	// half-written by another reader.
+	deleteChannelHitsByKind(kind: string): void {
+		this.db.run('DELETE FROM channel_hits WHERE kind = ?', [kind])
+	}
+
+	// returns one ChannelHitGroup per (kind, value) that has at least
+	// 2 distinct symbols touching it. collapses the rows into an
+	// ordered list of stable_ids per group so consumers can present
+	// "these functions all touch table X" without materialising a
+	// quadratic cross_project_edges write path. used by future cli /
+	// mcp surfaces; the sql-linker itself just writes hits.
+	findChannelHitGroups(kind: string): ChannelHitGroup[] {
+		const rows = this.db
+			.query<{ value: string; stableId: string }, [string]>(
+				`SELECT value, symbol_stable_id as stableId
+				 FROM channel_hits
+				 WHERE kind = ?
+				 ORDER BY value, symbol_stable_id`,
+			)
+			.all(kind)
+		const byValue = new Map<string, Set<string>>()
+		for (const r of rows) {
+			if (!byValue.has(r.value)) byValue.set(r.value, new Set())
+			byValue.get(r.value)!.add(r.stableId)
+		}
+		const out: ChannelHitGroup[] = []
+		for (const [value, set] of byValue) {
+			if (set.size < 2) continue
+			out.push({ kind, value, symbolStableIds: Array.from(set).sort() })
+		}
+		out.sort((a, b) => a.value.localeCompare(b.value))
+		return out
+	}
+
+	// the enclosing symbol lookup used by channel linkers that have a
+	// byte offset (typically from a regex match inside a string
+	// literal) and need to credit the hit to the smallest symbol that
+	// covers it. falls back to file-level if no symbol wraps the
+	// offset (e.g. top-level module strings).
+	getSymbolContainingByte(fileId: number, byteOffset: number): SymbolRecord | null {
+		return (
+			(this.db
+				.query<SymbolRecord, [number, number, number]>(
+					`SELECT id, stable_id as stableId, file_id as fileId, name,
+					       qualified_name as qualifiedName, kind, visibility,
+					       is_exported as isExported, line_start as lineStart,
+					       line_end as lineEnd, col_start as colStart, col_end as colEnd,
+					       byte_start as byteStart, byte_end as byteEnd,
+					       parent_id as parentId, signature, doc_comment as docComment,
+					       metadata
+					 FROM symbols
+					 WHERE file_id = ? AND byte_start <= ? AND byte_end >= ?
+					 ORDER BY (byte_end - byte_start) ASC
+					 LIMIT 1`,
+				)
+				.get(fileId, byteOffset, byteOffset) as SymbolRecord | null) ?? null
+		)
 	}
 
 	// reconcile files.is_test against the current testPatterns from the

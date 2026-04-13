@@ -293,6 +293,30 @@ export interface TestCoverage {
 	coveredBy: TestConfidence | 'none'
 }
 
+// one recorded touch of a "cross-language channel" by a symbol. the
+// channel model replaced pairwise cross_project_edges for sql/graphql
+// etc. because "n symbols touch table X" blows up quadratically as
+// edges but stays linear as hits. the query surface is an on-demand
+// self-join over (kind, value). first consumer is the sql-linker; see
+// #10.
+export interface ChannelHit {
+	symbolStableId: string
+	fileId: number
+	kind: string
+	value: string
+	line: number
+	metadata: string | null
+}
+
+// aggregated view of channel_hits: "every symbol that touched value X
+// of kind Y at least once". returned from store.findChannelHitGroups
+// for consumers that want the pairwise view on demand.
+export interface ChannelHitGroup {
+	kind: string
+	value: string
+	symbolStableIds: string[]
+}
+
 export interface HotFragileEntry {
 	filePath: string
 	commits: number
