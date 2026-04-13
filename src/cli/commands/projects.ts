@@ -80,7 +80,7 @@ export function projectsCommand(action: string, args: string[], json: boolean) {
 			// args layout (positional + flags interleaved): --all picks
 			// every linked pair from the registry; --from/--to scopes
 			// to a single pair; --match-by-name additionally runs the
-			// heuristic name-match linker (off by default — see #8b).
+			// heuristic name-match linker (off by default).
 			const all = args.includes('--all')
 			const matchByName = args.includes('--match-by-name')
 			const fromIdx = args.indexOf('--from')

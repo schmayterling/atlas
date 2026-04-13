@@ -5,7 +5,7 @@ import { log } from '../../shared/logger.js'
 
 // federation core: a handful of plain functions used by every
 // federated cli command (deps, blast, trace, dead-code, search
-// semantic). intentionally NOT a class — single-consumer abstraction
+// semantic). intentionally NOT a class. single-consumer abstraction
 // isn't justified until a second consumer appears.
 //
 // scope:

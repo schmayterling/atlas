@@ -2,23 +2,37 @@ import pc from 'picocolors'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { fileRef, heading, outputJson } from '../formatters/common.js'
 
-// covers #31: CLI surface for the channel_hits table populated by the
-// sql-linker (and future graphql/queue/env/openapi linkers). three
-// subcommands:
+// CLI surface for the channel_hits table populated by the channel
+// linkers. two subcommands:
 //   atlas channels list [--kind sql_table]
 //   atlas channels show <kind> <value>
-//
-// kind defaults to sql_table when the list subcommand is called
-// without one, matching the single channel shipped so far (#10).
+// kind defaults to sql_table when --kind is omitted.
+
+const KNOWN_CHANNEL_KINDS = [
+	'sql_table',
+	'queue_topic',
+	'env_var',
+	'graphql_type',
+	'openapi_type',
+	'proto_ref',
+]
 
 export function channelsListCommand(
 	projectRoot: string,
 	json: boolean,
 	opts: { kind?: string },
 ) {
+	const kind = opts.kind ?? 'sql_table'
+	if (!KNOWN_CHANNEL_KINDS.includes(kind)) {
+		console.error(
+			pc.red(
+				`unknown channel kind: ${kind}. valid kinds: ${KNOWN_CHANNEL_KINDS.join(', ')}`,
+			),
+		)
+		process.exit(1)
+	}
 	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
-		const kind = opts.kind ?? 'sql_table'
 		const groups = engine.listChannels(kind)
 		if (json) {
 			outputJson({ kind, groups })
@@ -26,7 +40,7 @@ export function channelsListCommand(
 		}
 		heading(`channels (${kind}) - ${groups.length} groups`)
 		if (groups.length === 0) {
-			console.log(pc.dim('  no channel hits. run `atlas index` first.'))
+			console.log(pc.dim('  no channel hits. run `atlas index` to populate.'))
 			return
 		}
 		console.log()

@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { resolve as resolvePath } from 'node:path'
+import { lstatSync, readFileSync, readdirSync } from 'node:fs'
+import { join, resolve as resolvePath } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { ChannelHit } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
@@ -38,6 +38,18 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 
 	const hits: ChannelHit[] = []
 	const rootReal = safeRealpath(projectRoot) ?? projectRoot
+
+	// surface the standalone-schema-file gap to users: if the project
+	// has .graphql / .graphqls / .gql files but we only extract from
+	// gql`...` template literals, the user will see zero hits with no
+	// explanation. log a warning once when standalone schemas are
+	// present so they understand the limitation.
+	const standaloneCount = countStandaloneSchemas(rootReal)
+	if (standaloneCount > 0) {
+		log.warn(
+			`graphql-linker: found ${standaloneCount} standalone .graphql/.graphqls/.gql file(s); only gql\`\` template literals embedded in ts/js files are extracted in this MVP`,
+		)
+	}
 
 	const indexedFiles = store.getAllFiles().filter((f) => !f.isTest)
 	const tsExt = new Set(['.ts', '.tsx', '.js', '.jsx'])
@@ -88,4 +100,48 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 
 	if (hits.length > 0) store.insertChannelHits(hits)
 	return { hits: hits.length }
+}
+
+const STANDALONE_GRAPHQL_EXT = ['.graphql', '.graphqls', '.gql']
+const STANDALONE_SKIP_DIRS = new Set([
+	'node_modules',
+	'.git',
+	'dist',
+	'build',
+	'.atlas',
+	'vendor',
+	'target',
+	'.next',
+	'.nuxt',
+	'.output',
+	'coverage',
+])
+
+function countStandaloneSchemas(root: string): number {
+	let count = 0
+	const walk = (dir: string) => {
+		let entries: string[]
+		try {
+			entries = readdirSync(dir)
+		} catch {
+			return
+		}
+		for (const entry of entries) {
+			if (STANDALONE_SKIP_DIRS.has(entry)) continue
+			const abs = join(dir, entry)
+			let stat
+			try {
+				stat = lstatSync(abs)
+			} catch {
+				continue
+			}
+			if (stat.isDirectory()) {
+				walk(abs)
+				continue
+			}
+			if (STANDALONE_GRAPHQL_EXT.some((ext) => entry.endsWith(ext))) count++
+		}
+	}
+	walk(root)
+	return count
 }

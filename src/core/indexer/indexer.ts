@@ -581,92 +581,27 @@ export class Indexer {
 	// possible. fails soft: cross-language tracing degrades
 	// gracefully if something is wrong with the api_endpoints table.
 	private stepLinkCrossLanguageApis(state: IndexState): void {
-		try {
-			const result = linkInRepoApiEndpoints(this.store)
-			if (result.edgesCreated > 0) {
-				log.debug(`cross-language linker: wrote ${result.edgesCreated} edges`)
+		const runLinker = (label: string, fn: () => { hits?: number; edgesCreated?: number } | void) => {
+			try {
+				const result = fn()
+				if (result) {
+					const count = result.hits ?? result.edgesCreated ?? 0
+					if (count > 0) log.debug(`${label}: wrote ${count} channel hits`)
+				}
+			} catch (e) {
+				const detail = e instanceof Error ? e.stack ?? e.message : String(e)
+				state.warnings.push(`${label} failed: ${detail}`)
+				log.warn(`${label} failed: ${detail}`)
 			}
-		} catch (e) {
-			state.warnings.push(`cross-language linking failed: ${e}`)
-			log.warn(`cross-language linking failed: ${e}`)
 		}
 
-		// proto channel of the general cross-language linker (#10).
-		// matches symbol names against message/service/rpc definitions
-		// in any .proto file under the project. first channel to ship;
-		// graphql / queues / env vars follow per-channel.
-		try {
-			linkProtoSymbols(this.store, this.projectRoot)
-		} catch (e) {
-			state.warnings.push(`proto linking failed: ${e}`)
-			log.warn(`proto linking failed: ${e}`)
-		}
-
-		// sql-table channel. scans non-test source files for table
-		// names in FROM/JOIN/INTO/UPDATE/DELETE FROM string literals
-		// and writes channel_hits rows. idempotent via
-		// deleteChannelHitsByKind('sql_table') at the start.
-		try {
-			const result = linkSqlTables(this.store, this.projectRoot)
-			if (result.hits > 0) {
-				log.debug(`sql-linker: wrote ${result.hits} channel hits`)
-			}
-		} catch (e) {
-			state.warnings.push(`sql linking failed: ${e}`)
-			log.warn(`sql linking failed: ${e}`)
-		}
-
-		// queue-topic channel (#30). detects publish/subscribe sites
-		// across kafka, nats, rabbitmq, and redis pub/sub for ts/js
-		// and go drivers.
-		try {
-			const result = linkQueueTopics(this.store, this.projectRoot)
-			if (result.hits > 0) {
-				log.debug(`queue-linker: wrote ${result.hits} channel hits`)
-			}
-		} catch (e) {
-			state.warnings.push(`queue linking failed: ${e}`)
-			log.warn(`queue linking failed: ${e}`)
-		}
-
-		// env-var channel (#30). groups symbols by environment variable
-		// name (process.env.X, os.Getenv("X"), viper.GetString("x"),
-		// os.environ['X'], ...).
-		try {
-			const result = linkEnvVars(this.store, this.projectRoot)
-			if (result.hits > 0) {
-				log.debug(`env-linker: wrote ${result.hits} channel hits`)
-			}
-		} catch (e) {
-			state.warnings.push(`env linking failed: ${e}`)
-			log.warn(`env linking failed: ${e}`)
-		}
-
-		// graphql_type channel (#30b). extracts type/input/enum
-		// definitions from gql`...` template literals embedded in
-		// indexed ts/js files.
-		try {
-			const result = linkGraphqlTypes(this.store, this.projectRoot)
-			if (result.hits > 0) {
-				log.debug(`graphql-linker: wrote ${result.hits} channel hits`)
-			}
-		} catch (e) {
-			state.warnings.push(`graphql linking failed: ${e}`)
-			log.warn(`graphql linking failed: ${e}`)
-		}
-
-		// openapi_type channel (#30b). scans openapi 3.x / swagger 2.0
-		// yaml files under the project root and matches schema names
-		// against indexed ts/go interface/type/class symbols.
-		try {
-			const result = linkOpenApiTypes(this.store, this.projectRoot)
-			if (result.hits > 0) {
-				log.debug(`openapi-linker: wrote ${result.hits} channel hits`)
-			}
-		} catch (e) {
-			state.warnings.push(`openapi linking failed: ${e}`)
-			log.warn(`openapi linking failed: ${e}`)
-		}
+		runLinker('cross-language linker', () => linkInRepoApiEndpoints(this.store))
+		runLinker('proto-linker', () => linkProtoSymbols(this.store, this.projectRoot))
+		runLinker('sql-linker', () => linkSqlTables(this.store, this.projectRoot))
+		runLinker('queue-linker', () => linkQueueTopics(this.store, this.projectRoot))
+		runLinker('env-linker', () => linkEnvVars(this.store, this.projectRoot))
+		runLinker('graphql-linker', () => linkGraphqlTypes(this.store, this.projectRoot))
+		runLinker('openapi-linker', () => linkOpenApiTypes(this.store, this.projectRoot))
 	}
 
 	// step 6.5: test ↔ source mapping. depends on imports + edges from

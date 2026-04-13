@@ -61,9 +61,9 @@ export function traceApi(
 
 // build cross-project edges by matching client and server API endpoints
 // across projects. writes the same edge row to BOTH project dbs so a
-// federation fan-out started from either side sees the link — before
+// federation fan-out started from either side sees the link. before
 // this fix the edge only landed in `localStore` and a query rooted in
-// the remote project would silently miss it. see #8 / #8b.
+// the remote project would silently miss it.
 export function buildCrossProjectEdges(
 	localStore: AtlasStore,
 	localProjectId: string,

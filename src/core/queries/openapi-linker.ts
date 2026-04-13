@@ -5,21 +5,19 @@ import type { ChannelHit } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
 import { isUnderRoot, safeRealpath, shouldKeepIdentifier } from './channel-utils.js'
 
-// openapi_type channel linker (#30b). extracts schema definitions
-// from openapi 3.x .yaml / .yml / .json files under the project root
-// and matches them against ts/go symbols that already live in the
-// store with the same name. the linker does NOT pull in a yaml parser
-// dep — instead it does an indent-aware line scan to find the
-// `components.schemas.X:` keys, which is sufficient for the openapi
-// 3 schema layout. arbitrary yaml structures (custom anchors,
-// flow-style maps) will be missed; that is documented as a known
-// limitation.
+// openapi_type channel linker. extracts schema definitions from
+// openapi 3.x / swagger 2.0 yaml files (`.yaml`/`.yml`) under the
+// project root and matches them against indexed ts/go symbols that
+// share a name. no yaml parser dep: an indent-aware line scan picks
+// out `components.schemas.X:` keys, enough for the common openapi 3
+// layout. arbitrary yaml structures (custom anchors, flow-style maps)
+// are missed. openapi json specs are not yet covered.
 //
 // scope:
 //   - openapi 3.x components.schemas.* keys
-//   - swagger 2.0 definitions.* keys (legacy, included for compat)
-//   - matched against indexed ts/go symbols by exact name; the
-//     match is recorded as a heuristic name-link (no signature check)
+//   - swagger 2.0 definitions.* keys (legacy compat)
+//   - matches indexed ts/go symbols by exact name; recorded as a
+//     heuristic name-link with no signature check
 //
 // hits write to channel_hits with kind='openapi_type'. each hit is
 // attributed to the matching ts/go symbol's stable_id so the channels
