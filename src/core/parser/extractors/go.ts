@@ -19,12 +19,21 @@ export function extractGo(
 	const edges: ExtractedEdge[] = []
 	const imports: ExtractedImport[] = []
 	const apiEndpoints: ExtractedApiEndpoint[] = []
+	let packageName: string | null = null
 
 	const root = tree.rootNode
 
 	for (let i = 0; i < root.namedChildCount; i++) {
 		const child = root.namedChild(i)!
 		switch (child.type) {
+			case 'package_clause': {
+				// `package foo` — the identifier immediately following the
+				// keyword is the package name. used by the go-resolver to
+				// map import paths back to directories.
+				const ident = child.descendantsOfType('package_identifier')[0]
+				if (ident) packageName = ident.text
+				break
+			}
 			case 'function_declaration':
 				extractFunction(child, filePath, symbols, edges)
 				break
@@ -50,7 +59,7 @@ export function extractGo(
 	// matches call expressions by callee name + argument shape.
 	extractGoApiEndpoints(root, filePath, apiEndpoints)
 
-	return { symbols, edges, imports, apiEndpoints }
+	return { symbols, edges, imports, apiEndpoints, packageName }
 }
 
 function qname(filePath: string, name: string): string {

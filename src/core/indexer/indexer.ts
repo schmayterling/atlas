@@ -42,7 +42,12 @@ interface IndexState {
 	warnings: string[]
 	discovered: DiscoveredFile[]
 	changes: ChangeSet
+	// absolutePaths is the TS/JS resolver queue. kept as-is so existing
+	// call sites work unchanged. goAbsolutePaths is the parallel queue
+	// for the go-resolver which runs after the TS dispatch inside the
+	// same stepResolveCrossFile invocation. see #3.
 	absolutePaths: string[]
+	goAbsolutePaths: string[]
 	processedStableIds: string[]
 	generatedFileIds: Set<number>
 	repoModules: RepoModule[]
@@ -66,6 +71,7 @@ export class Indexer {
 			discovered: [],
 			changes: emptyChangeSet(),
 			absolutePaths: [],
+			goAbsolutePaths: [],
 			processedStableIds: [],
 			generatedFileIds: new Set(),
 			repoModules: [],
@@ -408,15 +414,39 @@ export class Indexer {
 		if (tsLangs.includes(parserLang)) {
 			state.absolutePaths.push(fileInfo.absolutePath)
 		}
+
+		// go files go through the go-resolver in step 6. persist the raw
+		// `imports` rows here (with target_file_id=null) so the resolver
+		// can upgrade them in place; this keeps atlas's import graph
+		// consistent with the rest of the pipeline even for go files that
+		// fail to resolve cross-file references. see #3.
+		if (parserLang === 'go') {
+			state.goAbsolutePaths.push(fileInfo.absolutePath)
+			for (const imp of result.imports) {
+				this.store.insertImport({
+					sourceFileId: fileId,
+					targetFileId: null,
+					importPath: imp.importPath,
+					isTypeOnly: false,
+					line: imp.line,
+				})
+			}
+		}
 	}
 
-	// step 6: cross-file resolution via TS compiler API. skipped only
-	// when there is nothing to process AND no deletions to clean up;
-	// the resolver itself is expensive but it also owns cleanup of
-	// stale cross-file edges that point to removed symbols.
+	// step 6: cross-file resolution. dispatches to the TS compiler API
+	// resolver for TS/JS files (resolveProject), then to the go-resolver
+	// for go files (resolveGoProject). skipped only when there is
+	// nothing to process AND no deletions to clean up; the resolver
+	// itself is expensive but it also owns cleanup of stale cross-file
+	// edges that point to removed symbols.
 	private stepResolveCrossFile(state: IndexState): void {
 		const t = performance.now()
-		if (state.absolutePaths.length === 0 && state.changes.deleted.length === 0) {
+		if (
+			state.absolutePaths.length === 0 &&
+			state.goAbsolutePaths.length === 0 &&
+			state.changes.deleted.length === 0
+		) {
 			log.debug('skipping cross-file resolution (no files processed, no deletions)')
 			return
 		}

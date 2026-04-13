@@ -433,6 +433,26 @@ export class AtlasStore {
 		}
 	}
 
+	// mirrors deleteCrossFileEdgesForSources but for the `imports` table,
+	// which is written in two passes for non-TS languages: step 5 inserts
+	// a row with target_file_id=null, and step 6's go-resolver upgrades
+	// it to a resolved row. without a cleanup pass re-indexing would
+	// accumulate duplicate rows on every run because `imports` has no
+	// unique constraint. callers pass the set of file ids being
+	// re-resolved; every import row whose source is in that set is
+	// deleted before the resolver writes fresh rows. see #3.
+	deleteImportsForSourceFiles(sourceFileIds: number[]) {
+		if (sourceFileIds.length === 0) return
+		for (let i = 0; i < sourceFileIds.length; i += 500) {
+			const chunk = sourceFileIds.slice(i, i + 500)
+			const placeholders = chunk.map(() => '?').join(',')
+			this.db.run(
+				`DELETE FROM imports WHERE source_file_id IN (${placeholders})`,
+				chunk,
+			)
+		}
+	}
+
 
 	deleteFilesByPaths(paths: string[]) {
 		if (paths.length === 0) return
