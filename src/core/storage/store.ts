@@ -900,18 +900,41 @@ export class AtlasStore {
 	// --- test links (test ↔ source mapping) ---
 
 	// returns one row per (test file, exported source symbol) where the
-	// test file imports the source symbol's containing file. used by step
-	// 6.5 to populate the 'imported' confidence rows in a single query.
+	// test file transitively imports the source symbol's containing file via
+	// the `imports` graph. used by step 6.5 to populate the 'imported'
+	// confidence rows in a single query.
+	//
+	// the walk is a recursive CTE keyed on `(test_id, file_id)` — NOT on
+	// `(test_id, file_id, depth)` — so cycle dedupe happens on the real
+	// identity. keeping `depth` in the tuple would make the same
+	// (test, file) pair visible at depths 1 and 2 look like distinct rows to
+	// `UNION`, defeating cycle termination. sqlite terminates the recursion
+	// when no new `(test, file)` pair appears on an iteration.
+	//
+	// the transitive walk matters because tests often reach their
+	// under-test subject through a helper file (e.g. `createTempStore` in
+	// tests/helpers/tmp-store.ts → src/core/storage/store.ts), so a
+	// one-hop imports join misses symbols the test exercises end-to-end.
+	// covers #23.
 	getTestImportedSymbolPairs(): { testFileId: number; symbolStableId: string }[] {
 		return this.db
 			.query<{ testFileId: number; symbolStableId: string }, []>(
-				`SELECT i.source_file_id as testFileId, s.stable_id as symbolStableId
-				 FROM files tf
-				 JOIN imports i ON i.source_file_id = tf.id
-				 JOIN symbols s ON s.file_id = i.target_file_id
-				 WHERE tf.is_test = 1
-				 AND i.target_file_id IS NOT NULL
-				 AND s.is_exported = 1`,
+				`WITH RECURSIVE reach(test_id, file_id) AS (
+					SELECT i.source_file_id, i.target_file_id
+					FROM imports i
+					JOIN files tf ON tf.id = i.source_file_id
+					WHERE tf.is_test = 1 AND i.target_file_id IS NOT NULL
+				  UNION
+					SELECT r.test_id, i2.target_file_id
+					FROM reach r
+					JOIN imports i2 ON i2.source_file_id = r.file_id
+					WHERE i2.target_file_id IS NOT NULL
+				)
+				SELECT DISTINCT r.test_id as testFileId, s.stable_id as symbolStableId
+				FROM reach r
+				JOIN files f ON f.id = r.file_id
+				JOIN symbols s ON s.file_id = f.id
+				WHERE f.is_test = 0 AND s.is_exported = 1`,
 			)
 			.all()
 	}
