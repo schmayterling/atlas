@@ -12,6 +12,26 @@ const BASELINE_PATH = join(ROOT, '.atlas', 'baseline.json')
 // dedicated dogfood db path so we never race atlas watch on .atlas/atlas.db
 const DB_PATH = join(ROOT, '.atlas', 'dogfood.db')
 
+// decides whether the current run is allowed to (over)write the baseline file.
+// rules:
+//   - never write when checks failed (the old behaviour blessed failing runs as
+//     the new baseline whenever baseline.json was absent)
+//   - write an initial baseline only when there was no baseline AND every check
+//     passed (first-run case)
+//   - overwrite an existing baseline only when --refresh-baseline is set AND
+//     every check passed
+// kept as a pure helper so tests can pin the branch table without running the
+// full indexer.
+export function shouldWriteBaseline(opts: {
+	allPass: boolean
+	hasBaseline: boolean
+	refreshFlag: boolean
+}): boolean {
+	if (!opts.allPass) return false
+	if (!opts.hasBaseline) return true
+	return opts.refreshFlag
+}
+
 interface Metrics {
 	timestamp: string
 	commit: string
@@ -35,6 +55,8 @@ interface Metrics {
 }
 
 async function run(): Promise<void> {
+	const refreshFlag = process.argv.includes('--refresh-baseline')
+
 	const { initSqliteExtensions } = await import('../src/core/storage/sqlite-ext.js')
 	initSqliteExtensions()
 
@@ -163,11 +185,21 @@ async function run(): Promise<void> {
 	console.log()
 	console.log(`  index time: ${current.indexMs}ms${baseline ? ` (baseline: ${baseline.indexMs}ms)` : ''}`)
 
-	// save or update baseline
-	if (!baseline) {
+	// baseline write is gated on allPass. a failing run must never overwrite
+	// baseline.json, otherwise `rm baseline.json && bun run dogfood` blesses
+	// a regression as the new target.
+	const writeBaseline = shouldWriteBaseline({
+		allPass,
+		hasBaseline: baseline !== null,
+		refreshFlag,
+	})
+	if (writeBaseline) {
 		writeFileSync(BASELINE_PATH, JSON.stringify(current, null, 2))
 		console.log()
-		console.log(`  baseline saved to ${BASELINE_PATH}`)
+		console.log(`  baseline ${baseline ? 'refreshed' : 'saved'} at ${BASELINE_PATH}`)
+	} else if (refreshFlag && !allPass) {
+		console.log()
+		console.log('\x1b[31m  --refresh-baseline refused: some checks failed\x1b[0m')
 	}
 
 	console.log()
