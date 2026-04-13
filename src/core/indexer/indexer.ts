@@ -11,6 +11,7 @@ import { linkInRepoApiEndpoints } from '../queries/cross-language-linker.js'
 import { detectDuplicatesFromEmbeddings } from '../queries/duplicate-detection.js'
 import { findGeneratedFileIds } from '../queries/generated-code.js'
 import { linkProtoSymbols } from '../queries/proto-linker.js'
+import { linkSqlTables } from '../queries/sql-linker.js'
 import type { AtlasStore } from '../storage/store.js'
 import {
 	type ChangeSet,
@@ -553,12 +554,26 @@ export class Indexer {
 		// proto channel of the general cross-language linker (#10).
 		// matches symbol names against message/service/rpc definitions
 		// in any .proto file under the project. first channel to ship;
-		// graphql / sql / queues / env vars follow per-channel.
+		// graphql / queues / env vars follow per-channel.
 		try {
 			linkProtoSymbols(this.store, this.projectRoot)
 		} catch (e) {
 			state.warnings.push(`proto linking failed: ${e}`)
 			log.warn(`proto linking failed: ${e}`)
+		}
+
+		// sql-table channel. scans non-test source files for table
+		// names in FROM/JOIN/INTO/UPDATE/DELETE FROM string literals
+		// and writes channel_hits rows. idempotent via
+		// deleteChannelHitsByKind('sql_table') at the start.
+		try {
+			const result = linkSqlTables(this.store, this.projectRoot)
+			if (result.hits > 0) {
+				log.debug(`sql-linker: wrote ${result.hits} channel hits`)
+			}
+		} catch (e) {
+			state.warnings.push(`sql linking failed: ${e}`)
+			log.warn(`sql linking failed: ${e}`)
 		}
 	}
 
