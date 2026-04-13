@@ -980,11 +980,45 @@ export class AtlasStore {
 	// drop every cross_project_edges row in this db. used by
 	// `atlas projects clear-edges` after a build-edges schema or
 	// linker change so users can rebuild from scratch without
-	// hand-editing sqlite. see #8a.
+	// hand-editing sqlite.
 	deleteAllCrossProjectEdges(): number {
 		const before = this.db.query('SELECT COUNT(*) AS n FROM cross_project_edges').get() as { n: number }
 		this.db.run('DELETE FROM cross_project_edges')
 		return before.n
+	}
+
+	// true when a symbol has at least one non-heuristic inbound
+	// cross_project_edges row. used by dead-code --all-projects to
+	// exclude symbols that still have a real cross-project consumer.
+	// heuristic edges (name_match from --match-by-name) are excluded
+	// because a coincidental name collision between two projects must
+	// not suppress an otherwise-dead symbol.
+	hasCrossProjectInbound(projectId: string, stableId: string): boolean {
+		const row = this.db
+			.query<{ n: number }, [string, string]>(
+				`SELECT COUNT(*) AS n FROM cross_project_edges
+				 WHERE target_project = ? AND target_stable_id = ?
+				   AND confidence != 'heuristic'`,
+			)
+			.get(projectId, stableId)
+		return (row?.n ?? 0) > 0
+	}
+
+	// look up a symbol's stable_id by its natural key (qualified name +
+	// kind + file path). stable_id is a content-addressed hash of
+	// exactly these three fields (see shared/identity.ts), so the
+	// lookup returns at most one row even when two symbols share a
+	// qualified name across different kinds.
+	findStableIdByNaturalKey(qualifiedName: string, kind: string, filePath: string): string | null {
+		const row = this.db
+			.query<{ stable_id: string }, [string, string, string]>(
+				`SELECT s.stable_id FROM symbols s
+				 JOIN files f ON f.id = s.file_id
+				 WHERE s.qualified_name = ? AND s.kind = ? AND f.path = ?
+				 LIMIT 1`,
+			)
+			.get(qualifiedName, kind, filePath)
+		return row?.stable_id ?? null
 	}
 
 	// --- channel_hits: generic cross-language channel linking (#10) ---

@@ -131,15 +131,14 @@ function blastAllProjects(
 		anchorProject.id,
 		anchor.stableId,
 		'inbound',
-		(remoteEngine, _project, remoteStableId) => {
-			const remoteStore = remoteEngine.getStoreForCrossProject()
-			const remoteSym = remoteStore.getSymbolByStableId(remoteStableId)
-			if (!remoteSym) return null
-			return remoteEngine.blast(remoteSym.name, {
+		// stable-id-keyed remote blast preserves the exact symbol the
+		// boundary edge resolved to. the prior name-based lookup could
+		// land on a same-named sibling in the remote project.
+		(remoteEngine, _project, remoteStableId) =>
+			remoteEngine.blastByStableId(remoteStableId, {
 				depth: opts.depth,
 				includeTests: opts.tests,
-			})
-		},
+			}),
 	)
 
 	if (json) {

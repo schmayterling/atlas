@@ -314,13 +314,26 @@ function resolveImportPath(
 	// the nearest go module and contains the imported package, return
 	// that path. the file-discovery pipeline already walks vendor/ when
 	// it isn't excluded so symbols and edges resolve normally.
+	//
+	// containment guard: tree-sitter hands us the raw import literal
+	// which a malicious source can set to `../../../etc`. path.join
+	// normalizes that to escape the vendor dir and eventually the repo
+	// root. reject any resolved vendor path that isn't inside its go
+	// module root.
 	for (const mod of goModules) {
 		const moduleAbsRoot = mod.rootDir ? join(projectRoot, mod.rootDir) : projectRoot
-		const vendoredDir = join(moduleAbsRoot, 'vendor', importPath)
+		const vendorRoot = join(moduleAbsRoot, 'vendor')
+		const vendoredDir = join(vendorRoot, importPath)
+		if (!isUnderRoot(vendoredDir, vendorRoot)) continue
 		if (directoryHasGoFiles(vendoredDir)) return vendoredDir
 	}
 
 	return null
+}
+
+function isUnderRoot(abs: string, root: string): boolean {
+	const normRoot = root.endsWith('/') ? root : `${root}/`
+	return abs === root || abs.startsWith(normRoot)
 }
 
 function directoryHasGoFiles(dir: string): boolean {

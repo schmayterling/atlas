@@ -116,8 +116,10 @@ function extractSchemasFromYaml(content: string, relPath: string): OpenApiSchema
 	let inComponents = false
 	let inSchemas = false
 	let inDefinitions = false
+	let componentsIndent = -1
 	let schemasIndent = -1
 	let definitionsIndent = -1
+	const schemaEntryRe = /^([A-Z][\w]+)\s*:/
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i]
@@ -130,28 +132,37 @@ function extractSchemasFromYaml(content: string, relPath: string): OpenApiSchema
 			inComponents = stripped.startsWith('components:')
 			inDefinitions = stripped.startsWith('definitions:')
 			inSchemas = false
-			if (inDefinitions) definitionsIndent = 0
+			componentsIndent = inComponents ? 0 : -1
+			schemasIndent = -1
+			definitionsIndent = inDefinitions ? 0 : -1
 			continue
 		}
 
-		if (inComponents && stripped.trim().startsWith('schemas:')) {
+		// when we pop back to a sibling of `schemas:` under `components:`
+		// (e.g. `responses:`, `parameters:`, `headers:`), exit the schemas
+		// scope so capitalized keys beneath those sections aren't
+		// mis-attributed. swagger 2.0 definitions are single-level so no
+		// equivalent handling is needed.
+		if (inSchemas && indent <= schemasIndent) {
+			inSchemas = false
+			schemasIndent = -1
+		}
+
+		if (inComponents && indent === componentsIndent + 2 && stripped.trim().startsWith('schemas:')) {
 			inSchemas = true
 			schemasIndent = indent
 			continue
 		}
 
 		if (inSchemas && indent === schemasIndent + 2) {
-			const m = stripped.trim().match(/^([A-Z][\w]+)\s*:/)
-			if (m) {
-				out.push({ name: m[1], relPath, line: i + 1 })
-			}
+			const m = stripped.trim().match(schemaEntryRe)
+			if (m) out.push({ name: m[1], relPath, line: i + 1 })
+			continue
 		}
 
 		if (inDefinitions && indent === definitionsIndent + 2) {
-			const m = stripped.trim().match(/^([A-Z][\w]+)\s*:/)
-			if (m) {
-				out.push({ name: m[1], relPath, line: i + 1 })
-			}
+			const m = stripped.trim().match(schemaEntryRe)
+			if (m) out.push({ name: m[1], relPath, line: i + 1 })
 		}
 	}
 
@@ -163,7 +174,7 @@ function walkOpenApi(root: string, dir: string, out: OpenApiSchema[]): void {
 	try {
 		entries = readdirSync(dir)
 	} catch (e) {
-		log.debug(`openapi-linker: readdir ${dir}: ${e}`)
+		log.warn(`openapi-linker: readdir ${dir}: ${e}`)
 		return
 	}
 	for (const entry of entries) {

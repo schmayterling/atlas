@@ -85,6 +85,14 @@ function traceCrossProject(
 		)
 		process.exit(1)
 	}
+	if (opts.fromProject === opts.toProject) {
+		console.error(
+			pc.red(
+				`--from-project and --to-project must differ. for a single-project trace, run \`atlas -p <path> trace ${from} ${to}\` without the project flags.`,
+			),
+		)
+		process.exit(1)
+	}
 	const fromProject = getProject(opts.fromProject)
 	const toProject = getProject(opts.toProject)
 	if (!fromProject || !toProject) {
@@ -137,18 +145,16 @@ function traceCrossProject(
 		return
 	}
 
-	// for each boundary hop, run a local trace inside the to-project from
-	// the remote stable_id to the to-anchor. cap depth to keep the search
-	// bounded.
+	// for each boundary hop, run a local trace inside the to-project
+	// using stable-id entry points on both ends. name-based resolution
+	// would pick the first same-named hit in the to-project, which is
+	// wrong when multiple symbols share a name.
 	for (const hop of matchingHops) {
-		const remoteStore = toEngine.getStoreForCrossProject()
-		const remoteSym = remoteStore.getSymbolByStableId(hop.targetStableId)
-		if (!remoteSym) continue
-		const trace = toEngine.trace(remoteSym.name, to, {
+		const trace = toEngine.traceByStableIds(hop.targetStableId, toAnchor.stableId, {
 			maxPaths: opts.maxPaths,
 			maxDepth: opts.depth ?? 5,
 		})
-		result.legs.push({ project: toProject.id, trace })
+		if (trace) result.legs.push({ project: toProject.id, trace })
 	}
 
 	if (json) {

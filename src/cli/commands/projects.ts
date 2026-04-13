@@ -90,6 +90,10 @@ export function projectsCommand(action: string, args: string[], json: boolean) {
 
 			const pairs: Array<{ from: { id: string; root: string }; to: { id: string; root: string } }> = []
 			if (explicitFrom && explicitTo) {
+				if (explicitFrom === explicitTo) {
+					console.error('--from and --to must differ; a project cannot be linked to itself')
+					process.exit(1)
+				}
 				const fromProject = getProject(explicitFrom)
 				const toProject = getProject(explicitTo)
 				if (!fromProject || !toProject) {
@@ -177,7 +181,7 @@ export function projectsCommand(action: string, args: string[], json: boolean) {
 			break
 		}
 		default:
-			console.error(`unknown action: ${action}. use: list, add, remove, link, clear-edges`)
+			console.error(`unknown action: ${action}. use: list, add, remove, link, build-edges, clear-edges`)
 			process.exit(1)
 	}
 }

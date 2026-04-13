@@ -110,18 +110,16 @@ function depsAllProjects(
 		(opts.direction ?? 'both') === 'upstream' ? 'inbound'
 			: (opts.direction ?? 'both') === 'downstream' ? 'outbound'
 			: 'both',
-		(remoteEngine, _project, remoteStableId) => {
-			// resolve the remote stable_id to a queryable symbol
-			// (deps takes a query string, not a stable_id) and run
-			// the same direction/depth on the remote engine
-			const remoteStore = remoteEngine.getStoreForCrossProject()
-			const remoteSym = remoteStore.getSymbolByStableId(remoteStableId)
-			if (!remoteSym) return null
-			return remoteEngine.deps(remoteSym.name, {
+		// dispatch directly to the stable-id-keyed engine variant to
+		// preserve the exact remote symbol the boundary edge pointed
+		// at. the previous code looked up the name and re-resolved via
+		// resolveSymbol, which picks the first same-named hit and
+		// produces wrong results in projects with duplicate names.
+		(remoteEngine, _project, remoteStableId) =>
+			remoteEngine.depsByStableId(remoteStableId, {
 				direction: (opts.direction ?? 'both') as 'upstream' | 'downstream' | 'both',
 				depth: opts.depth,
-			})
-		},
+			}),
 	)
 
 	if (json) {

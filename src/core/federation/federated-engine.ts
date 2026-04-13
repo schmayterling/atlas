@@ -52,16 +52,14 @@ export function resolveProjects(opts: FederationOpts): ProjectEntry[] {
 
 // resolves an anchor symbol in a single project. used by deps, blast,
 // and any other command that needs to start from one stable_id and
-// walk outward. fails loudly when the symbol is ambiguous across
-// projects so the user sees a clear error instead of a guess.
+// walk outward. goes through engine.resolveSymbol so CLI/federation
+// stays on the engine api surface (CLAUDE.md: CLI/MCP/web never reach
+// into store.ts directly).
 export function anchorSymbol(
 	engine: AtlasEngine,
 	query: string,
 ): { stableId: string; name: string } | null {
-	const store = engine.getStoreForCrossProject()
-	const sym = store.resolveSymbol(query)
-	if (!sym) return null
-	return { stableId: sym.stableId, name: sym.name }
+	return engine.resolveSymbolIdentity(query)
 }
 
 // fans out across cross_project_edges from a single anchor. for each

@@ -83,28 +83,14 @@ function deadCodeAllProjects(
 			path: opts.path,
 			includeTests: opts.includeTests,
 		})
-		const store = engine.getStoreForCrossProject()
 		for (const sym of result.symbols) {
-			// filter: a symbol is only dead if no other project depends on it.
-			// dead-code's SymbolResult doesn't carry stable_id, so look up
-			// by qualified_name + file path which is unique within a project
-			// db. cheap because dead-code lists are typically small (<100s).
-			const stableRow = store.queryRawWithParams<{ stable_id: string }>(
-				`SELECT s.stable_id FROM symbols s
-				 JOIN files f ON f.id = s.file_id
-				 WHERE s.qualified_name = ? AND f.path = ? LIMIT 1`,
-				sym.qualifiedName,
-				sym.filePath,
-			)
-			const stableId = stableRow[0]?.stable_id
-			if (stableId) {
-				const inbound = store.queryRawWithParams<{ n: number }>(
-					'SELECT COUNT(*) AS n FROM cross_project_edges WHERE target_project = ? AND target_stable_id = ?',
-					p.id,
-					stableId,
-				)
-				if ((inbound[0]?.n ?? 0) > 0) continue
-			}
+			// filter: a symbol is only dead if no other project depends on
+			// it via a non-heuristic cross_project_edges row. the engine
+			// does the uniqueness lookup using (qualifiedName, kind, path)
+			// because stable_id is derived from all three; using only
+			// qualifiedName + path can collide on merged symbols.
+			const stableId = engine.resolveStableIdFromResult(sym)
+			if (stableId && engine.hasCrossProjectInbound(p.id, stableId)) continue
 			merged.push({
 				project: p.id,
 				name: sym.name,
