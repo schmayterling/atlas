@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, resolve, basename } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import { log } from '../shared/logger.js'
 
 export interface ProjectEntry {
@@ -18,6 +18,10 @@ export interface ProjectLink {
 interface RegistryData {
 	projects: ProjectEntry[]
 	links: ProjectLink[]
+	// id of the active project. resolved by the CLI and MCP when no
+	// explicit project is passed. null or absent means "fall back to
+	// cwd-based default engine resolution".
+	active?: string | null
 }
 
 const REGISTRY_DIR = join(process.env.HOME ?? '~', '.atlas')
@@ -25,13 +29,15 @@ const REGISTRY_PATH = join(REGISTRY_DIR, 'registry.json')
 
 function readRegistry(): RegistryData {
 	if (!existsSync(REGISTRY_PATH)) {
-		return { projects: [], links: [] }
+		return { projects: [], links: [], active: null }
 	}
 	try {
-		return JSON.parse(readFileSync(REGISTRY_PATH, 'utf-8'))
+		const parsed = JSON.parse(readFileSync(REGISTRY_PATH, 'utf-8'))
+		// tolerate older registry files that pre-date the active field
+		return { active: null, ...parsed }
 	} catch (e) {
 		log.warn(`failed to read registry: ${e}`)
-		return { projects: [], links: [] }
+		return { projects: [], links: [], active: null }
 	}
 }
 
@@ -39,7 +45,13 @@ function writeRegistry(data: RegistryData) {
 	if (!existsSync(REGISTRY_DIR)) {
 		mkdirSync(REGISTRY_DIR, { recursive: true })
 	}
-	writeFileSync(REGISTRY_PATH, JSON.stringify(data, null, 2))
+	// atomic replace: write to a sibling temp file, fsync, then rename.
+	// protects against a half-written registry if a concurrent
+	// `atlas use` / `atlas projects add` races with this write. the
+	// rename is atomic on posix filesystems.
+	const tmp = `${REGISTRY_PATH}.tmp-${process.pid}-${Date.now()}`
+	writeFileSync(tmp, JSON.stringify(data, null, 2))
+	renameSync(tmp, REGISTRY_PATH)
 }
 
 function generateId(root: string): string {
@@ -117,4 +129,30 @@ export function getLinkedProjects(id: string): ProjectEntry[] {
 
 export function getProjectLinks(): ProjectLink[] {
 	return readRegistry().links
+}
+
+// returns the id of the currently-active registered project, or null
+// when no active project is set. consumers typically call this with a
+// fallback so a missing active id degrades to cwd resolution.
+export function getActiveProject(): string | null {
+	return readRegistry().active ?? null
+}
+
+// set the active project to the registered id. throws when the id is
+// not a registered project so `atlas use` can surface a clear error
+// instead of silently pointing at nothing.
+export function setActiveProject(id: string | null): ProjectEntry | null {
+	const data = readRegistry()
+	if (id === null) {
+		data.active = null
+		writeRegistry(data)
+		return null
+	}
+	const entry = data.projects.find((p) => p.id === id)
+	if (!entry) {
+		throw new Error(`no project with id "${id}" is registered`)
+	}
+	data.active = id
+	writeRegistry(data)
+	return entry
 }

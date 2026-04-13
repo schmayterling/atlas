@@ -12,6 +12,7 @@ import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
 import { watchCommand } from './commands/watch.js'
 import { projectsCommand } from './commands/projects.js'
+import { useCommand } from './commands/use.js'
 import {
 	churnCommand,
 	historyCommand,
@@ -20,7 +21,7 @@ import {
 	subsystemsCommand,
 	subsystemCommand,
 } from './commands/git-cmds.js'
-import { hotFragileCommand, testsCommand, untestedCommand } from './commands/test-cmds.js'
+import { hotFragileCommand, hotspotsCommand, testsCommand, untestedCommand } from './commands/test-cmds.js'
 
 const program = new Command()
 	.name('atlas')
@@ -52,6 +53,8 @@ program
 	.option('--no-embed', 'skip vector embedding generation')
 	.option('--no-summarize', 'skip LLM summary generation')
 	.option('--with-cochange', 'use git co-change as additional weight in subsystem clustering')
+	.option('--with-github', 'ingest github prs + issues (requires gh cli and a github remote)')
+	.option('--db <path>', 'override index db path (relative to project root or absolute)')
 	.action(async (cmdOpts) => {
 		const opts = program.opts()
 		await indexCommand(opts.project, opts.json, {
@@ -60,6 +63,8 @@ program
 			noEmbed: !cmdOpts.embed,
 			noSummarize: !cmdOpts.summarize,
 			withCoChange: cmdOpts.withCochange,
+			withGitHub: cmdOpts.withGithub,
+			db: cmdOpts.db,
 		})
 	})
 
@@ -157,8 +162,8 @@ program
 	.description('show detected execution flows')
 	.action(() => {
 		const opts = program.opts()
-		const { AtlasEngine } = require('../core/engine.js')
-		const engine = new AtlasEngine(opts.project)
+		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const engine = getOrCreateEngine(undefined, opts.project)
 		const flows = engine.flows()
 		if (opts.json) { console.log(JSON.stringify(flows, null, 2)); engine.close(); return }
 		if (flows.length === 0) { console.log('no flows detected. run `atlas index` with Ollama to detect flows.'); engine.close(); return }
@@ -178,8 +183,8 @@ program
 	.option('--include-tests', 'include duplicate pairs in test files')
 	.action((cmdOpts) => {
 		const opts = program.opts()
-		const { AtlasEngine } = require('../core/engine.js')
-		const engine = new AtlasEngine(opts.project)
+		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const engine = getOrCreateEngine(undefined, opts.project)
 		const dups = engine.duplicates({ includeTests: cmdOpts.includeTests })
 		if (opts.json) { console.log(JSON.stringify(dups, null, 2)); engine.close(); return }
 		if (dups.length === 0) { console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.'); engine.close(); return }
@@ -233,12 +238,22 @@ program
 	})
 
 program
+	.command('use [id]')
+	.description('set or show the active registered project (cli, mcp, web all follow)')
+	.option('--list', 'list registered projects and mark the active one')
+	.option('--clear', 'unset the active project')
+	.action((id: string | undefined, cmdOpts: { list?: boolean; clear?: boolean }) => {
+		useCommand(id, cmdOpts)
+	})
+
+program
 	.command('churn')
 	.description('show files ranked by commit count')
 	.option('-l, --limit <n>', 'max files to show', (v) => Number.parseInt(v, 10), 20)
 	.option('--path <prefix>', 'only files starting with this path prefix')
 	.option('--since-days <n>', 'only count commits from the last N days', (v) => Number.parseInt(v, 10), 0)
 	.option('--include-tests', 'include test files')
+	.option('--branch <name>', 'only count commits reachable along first-parent from <branch>')
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		churnCommand(opts.project, opts.json, {
@@ -246,15 +261,17 @@ program
 			path: cmdOpts.path,
 			sinceDays: cmdOpts.sinceDays,
 			includeTests: cmdOpts.includeTests,
+			branch: cmdOpts.branch,
 		})
 	})
 
 program
 	.command('history <file>')
 	.description('show git commit history for a file')
-	.action((file) => {
+	.option('--branch <name>', 'only commits reachable along first-parent from <branch>')
+	.action((file, cmdOpts) => {
 		const opts = program.opts()
-		historyCommand(opts.project, opts.json, file)
+		historyCommand(opts.project, opts.json, file, { branch: cmdOpts.branch })
 	})
 
 program
@@ -323,6 +340,20 @@ program
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		hotFragileCommand(opts.project, opts.json, { limit: cmdOpts.limit })
+	})
+
+program
+	.command('hotspots')
+	.description('rank exported symbols by fanin × churn × (1 - coverage)')
+	.option('-l, --limit <n>', 'max symbols to show', (v) => Number.parseInt(v, 10), 20)
+	.option('--coverage <level>', 'filter by coverage (called|imported|none)')
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		const coverage =
+			cmdOpts.coverage === 'called' || cmdOpts.coverage === 'imported' || cmdOpts.coverage === 'none'
+				? (cmdOpts.coverage as 'called' | 'imported' | 'none')
+				: undefined
+		hotspotsCommand(opts.project, opts.json, { limit: cmdOpts.limit, coverage })
 	})
 
 export { program }

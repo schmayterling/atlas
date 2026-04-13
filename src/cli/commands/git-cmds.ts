@@ -1,16 +1,28 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { heading, outputJson } from '../formatters/common.js'
 
 export function churnCommand(
 	projectRoot: string,
 	json: boolean,
-	opts: { limit?: number; path?: string; sinceDays?: number; includeTests?: boolean },
+	opts: {
+		limit?: number
+		path?: string
+		sinceDays?: number
+		includeTests?: boolean
+		branch?: string
+	},
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const since = opts.sinceDays ? Date.now() - opts.sinceDays * 86400_000 : undefined
-		const rows = engine.churn({ limit: opts.limit ?? 20, pathPrefix: opts.path, since, includeTests: opts.includeTests })
+		const rows = engine.churn({
+			limit: opts.limit ?? 20,
+			pathPrefix: opts.path,
+			since,
+			includeTests: opts.includeTests,
+			branch: opts.branch,
+		})
 
 		if (json) {
 			outputJson(rows)
@@ -34,10 +46,15 @@ export function churnCommand(
 	}
 }
 
-export function historyCommand(projectRoot: string, json: boolean, file: string) {
-	const engine = new AtlasEngine(projectRoot)
+export function historyCommand(
+	projectRoot: string,
+	json: boolean,
+	file: string,
+	opts?: { branch?: string },
+) {
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
-		const rows = engine.fileHistory(file)
+		const rows = engine.fileHistory(file, { branch: opts?.branch })
 		if (json) {
 			outputJson(rows)
 			return
@@ -62,7 +79,7 @@ export function historyCommand(projectRoot: string, json: boolean, file: string)
 }
 
 export function contributorsCommand(projectRoot: string, json: boolean, file?: string) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const rows = engine.contributors(file)
 		if (json) {
@@ -92,7 +109,7 @@ export function coChangeCommand(
 	json: boolean,
 	opts: { file?: string; limit?: number; minCount?: number; includeTests?: boolean },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const rows = engine.coChange({
 			filePath: opts.file,
@@ -121,7 +138,7 @@ export function coChangeCommand(
 }
 
 export function subsystemsCommand(projectRoot: string, json: boolean) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const rows = engine.subsystems()
 		if (json) {
@@ -148,7 +165,7 @@ export function subsystemsCommand(projectRoot: string, json: boolean) {
 }
 
 export function subsystemCommand(projectRoot: string, json: boolean, id: string) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 	try {
 		const detail = engine.subsystem(id)
 		if (!detail) {

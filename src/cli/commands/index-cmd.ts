@@ -1,5 +1,6 @@
 import pc from 'picocolors'
 import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { formatDuration, outputJson } from '../formatters/common.js'
 
 export async function indexCommand(
@@ -11,9 +12,16 @@ export async function indexCommand(
 		noEmbed?: boolean
 		noSummarize?: boolean
 		withCoChange?: boolean
+		withGitHub?: boolean
+		db?: string
 	},
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	// --db explicitly targets a dedicated sqlite file (dogfood, tmp
+	// benches) so it must not go through the shared engine pool. every
+	// other invocation resolves via the pool so `atlas use` steers it.
+	const engine = opts.db
+		? new AtlasEngine(projectRoot, { dbPath: opts.db })
+		: getOrCreateEngine(undefined, projectRoot)
 
 	try {
 		const result = await engine.index(opts)

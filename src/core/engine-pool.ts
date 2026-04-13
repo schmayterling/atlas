@@ -1,5 +1,9 @@
 import { AtlasEngine } from './engine.js'
-import { listProjects, getProject, type ProjectEntry } from './registry.js'
+import {
+	getActiveProject,
+	getProject,
+	listProjects,
+} from './registry.js'
 import { log } from '../shared/logger.js'
 
 const engines = new Map<string, AtlasEngine>()
@@ -17,6 +21,16 @@ export function getEngine(projectId: string): AtlasEngine | null {
 }
 
 export function getDefaultEngine(): { engine: AtlasEngine; projectId: string } | null {
+	// active project set via `atlas use` wins over first-registered. this
+	// keeps the cli, stdio mcp, and web ui all resolving to the same
+	// engine when no explicit project is passed.
+	const activeId = getActiveProject()
+	if (activeId) {
+		const engine = getEngine(activeId)
+		if (engine) return { engine, projectId: activeId }
+		log.warn(`active project "${activeId}" is not registered; falling back to first project`)
+	}
+
 	const projects = listProjects()
 	if (projects.length === 0) return null
 
@@ -27,13 +41,21 @@ export function getDefaultEngine(): { engine: AtlasEngine; projectId: string } |
 }
 
 export function getOrCreateEngine(projectId: string | undefined, fallbackRoot?: string): AtlasEngine {
-	// if projectId provided, look it up in registry
+	// explicit -p / ?project= wins over everything.
 	if (projectId) {
 		const engine = getEngine(projectId)
 		if (engine) return engine
 	}
 
-	// if no registry or project not found, use fallback root
+	// active project via `atlas use <id>` wins over the raw fallback root.
+	// this makes cli + stdio mcp + web all follow the same resolution
+	// order so `atlas use foo` actually steers all three.
+	const def = getDefaultEngine()
+	if (def) return def.engine
+
+	// last resort: spin up an engine rooted at whatever directory the
+	// caller had (cwd for CLI, projectRoot for MCP/web). used only when
+	// no project is registered at all.
 	if (fallbackRoot) {
 		const cached = engines.get(fallbackRoot)
 		if (cached) return cached
@@ -41,10 +63,6 @@ export function getOrCreateEngine(projectId: string | undefined, fallbackRoot?: 
 		engines.set(fallbackRoot, engine)
 		return engine
 	}
-
-	// try default project
-	const def = getDefaultEngine()
-	if (def) return def.engine
 
 	throw new Error('no project available. run `atlas projects add .` to register a project.')
 }

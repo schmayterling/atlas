@@ -1,5 +1,5 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { fileRef, heading, outputJson } from '../formatters/common.js'
 
 export function traceCommand(
@@ -9,7 +9,7 @@ export function traceCommand(
 	json: boolean,
 	opts: { maxPaths?: number; depth?: number },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 
 	try {
 		const result = engine.trace(from, to, {

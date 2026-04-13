@@ -220,7 +220,7 @@ export async function runSummaryPipeline(
 			}
 		}
 	} catch (e) {
-		log.debug(`file summaries failed: ${e}`)
+		log.warn(`file summaries failed: ${e}`)
 	}
 
 	return { generated, cached, skipped, fileSummaries }

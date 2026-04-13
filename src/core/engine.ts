@@ -27,6 +27,7 @@ import { findDeadCode } from './queries/dead-code.js'
 import { getDependencies } from './queries/dependencies.js'
 import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
+import { findHotspots, type HotspotEntry } from './queries/hotspots.js'
 import { findHotFragile, findUntestedSymbols, getTestCoverage } from './queries/test-coverage.js'
 import { traceApi, type ApiTraceResult } from './queries/api-trace.js'
 import { summarizeSymbol, type SummaryResult } from './llm/summarizer.js'
@@ -54,10 +55,12 @@ export class AtlasEngine {
 	private projectRoot: string
 	private dbPath: string
 
-	constructor(projectRoot: string) {
+	constructor(projectRoot: string, opts?: { dbPath?: string }) {
 		this.projectRoot = projectRoot
 		this.config = loadConfig(projectRoot)
-		this.dbPath = getDbPath(projectRoot, this.config)
+		this.dbPath = opts?.dbPath
+			? (opts.dbPath.startsWith('/') ? opts.dbPath : join(projectRoot, opts.dbPath))
+			: getDbPath(projectRoot, this.config)
 	}
 
 	private getStore(): AtlasStore {
@@ -128,6 +131,7 @@ export class AtlasEngine {
 		noEmbed?: boolean
 		noSummarize?: boolean
 		withCoChange?: boolean
+		withGitHub?: boolean
 	}): Promise<IndexResult> {
 		const store = this.getStore()
 		const indexer = new Indexer(this.projectRoot, this.config, store)
@@ -262,6 +266,12 @@ export class AtlasEngine {
 		return findHotFragile(this.getStore(), opts)
 	}
 
+	// ranks exported functions/methods by fanin × churn × (1 - coverage).
+	// see queries/hotspots.ts for the scoring formula.
+	hotspots(opts?: { limit?: number; coverage?: 'called' | 'imported' | 'none' }): HotspotEntry[] {
+		return findHotspots(this.getStore(), opts)
+	}
+
 	// --- semantic search ---
 
 	async semanticSearch(query: string, opts?: { limit?: number; includeTests?: boolean }): Promise<SemanticSearchResult> {
@@ -351,11 +361,17 @@ export class AtlasEngine {
 	// --- git history ---
 
 	churn(opts?: ChurnOpts) {
-		return gitChurn(this.getStore(), opts)
+		// thread projectRoot through so the optional branch filter in
+		// queries/git.ts can call getBranchCommits() without the caller
+		// passing both pieces.
+		return gitChurn(this.getStore(), { ...opts, projectRoot: this.projectRoot })
 	}
 
-	fileHistory(filePath: string) {
-		return gitFileHistory(this.getStore(), filePath)
+	fileHistory(filePath: string, opts?: { branch?: string }) {
+		return gitFileHistory(this.getStore(), filePath, {
+			branch: opts?.branch,
+			projectRoot: this.projectRoot,
+		})
 	}
 
 	contributors(filePath?: string) {

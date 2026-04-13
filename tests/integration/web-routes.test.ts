@@ -141,3 +141,28 @@ describe('GET /api/git/*', () => {
 		expect(Array.isArray(body)).toBe(true)
 	})
 })
+
+describe('GET /api/hot-fragile, /api/hotspots, /api/test-coverage', () => {
+	test('hot-fragile returns an array', async () => {
+		const { status, body } = await getJson('/api/hot-fragile?limit=5')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+	})
+
+	test('hotspots returns an array', async () => {
+		const { status, body } = await getJson('/api/hotspots?limit=5')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+	})
+
+	test('hotspots accepts --coverage filter', async () => {
+		const { status, body } = await getJson('/api/hotspots?limit=5&coverage=none')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+	})
+
+	test('test-coverage requires symbol param', async () => {
+		const { status } = await getJson('/api/test-coverage')
+		expect(status).toBe(400)
+	})
+})

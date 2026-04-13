@@ -1,5 +1,5 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import type { SymbolKind } from '../../shared/types.js'
 import { badge, fileRef, heading, outputJson } from '../formatters/common.js'
 
@@ -8,7 +8,7 @@ export function deadCodeCommand(
 	json: boolean,
 	opts: { kind?: string; path?: string; includeTests?: boolean },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 
 	try {
 		const result = engine.deadCode({

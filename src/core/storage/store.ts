@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
 import { isVectorSearchAvailable, loadVecExtension } from './sqlite-ext.js'
 import type {
@@ -440,6 +441,277 @@ export class AtlasStore {
 			for (const p of paths) del.run(p)
 		})
 		tx()
+	}
+
+	// --- repo modules (intra-repo package boundaries) ---
+
+	upsertRepoModule(mod: {
+		id: string
+		name: string
+		kind: string
+		manifestPath: string
+		rootDir: string
+		modulePath: string | null
+	}): void {
+		this.db.run(
+			`INSERT INTO repo_modules (id, name, kind, manifest_path, root_dir, module_path)
+			 VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET
+			   name = excluded.name,
+			   kind = excluded.kind,
+			   manifest_path = excluded.manifest_path,
+			   root_dir = excluded.root_dir,
+			   module_path = excluded.module_path`,
+			[mod.id, mod.name, mod.kind, mod.manifestPath, mod.rootDir, mod.modulePath],
+		)
+	}
+
+	deleteRepoModulesNotIn(ids: string[]): void {
+		if (ids.length === 0) {
+			this.db.run('DELETE FROM repo_modules')
+			return
+		}
+		const placeholders = ids.map(() => '?').join(',')
+		this.db.run(`DELETE FROM repo_modules WHERE id NOT IN (${placeholders})`, ids)
+	}
+
+	setFileRepoModule(fileId: number, moduleId: string | null): void {
+		this.db.run('UPDATE files SET repo_module_id = ? WHERE id = ?', [moduleId, fileId])
+	}
+
+	// rewrites stable-id columns across every FK table that references a
+	// symbol stable_id, then updates files.path in place. used when git
+	// reports a rename so the pre-rename identity survives: edges, test
+	// links, api endpoints, embeddings, summaries, flows and duplicates
+	// all keep pointing at the same logical symbols under their new path.
+	//
+	// returns the number of distinct (old → new) stable_id rewrites applied.
+	//
+	// how the mapping is computed: the store already has one symbol row per
+	// old-path symbol with a known (kind, qualified_name). the qualified
+	// name starts with "oldPath::" (atlas qname format, see indexer.ts and
+	// CLAUDE.md). we substitute the path prefix, recompute the stable_id
+	// with stableSymbolId(newPath, kind, newQname), and feed the resulting
+	// pairs into rewriteSymbolStableIdPairs.
+	//
+	// step 4/5 still re-parse the renamed file after this step runs. for
+	// symbols whose (kind, local-name) survived the rename unchanged, the
+	// re-parse emits the same predicted stable_id, so the FK targets line
+	// up with the fresh symbol rows and nothing orphans. symbols that were
+	// renamed inside the file during the same commit fall through to the
+	// existing delete+insert path and lose identity; same behaviour as
+	// before the rename step existed.
+	rewriteStableIdsForRename(oldPath: string, newPath: string): number {
+		// load old symbols up front so the UPDATE on files.path (which
+		// changes what the symbols join to) can't race the mapping build.
+		const oldSymbols = this.db
+			.query<
+				{ stableId: string; kind: string; qualifiedName: string; parentId: string | null },
+				[string]
+			>(
+				`SELECT s.stable_id as stableId, s.kind, s.qualified_name as qualifiedName, s.parent_id as parentId
+				 FROM symbols s JOIN files f ON f.id = s.file_id
+				 WHERE f.path = ?`,
+			)
+			.all(oldPath)
+
+		if (oldSymbols.length === 0) {
+			// no symbols for the old path (e.g. file was never indexed, or
+			// previously failed to parse). still rename the file row so
+			// file_changes + co-change inherit the prior history.
+			this.db.run('UPDATE files SET path = ? WHERE path = ?', [newPath, oldPath])
+			return 0
+		}
+
+		const mapping = new Map<string, string>()
+		const newQnames = new Map<string, string>()
+		const skipped: Array<{ stableId: string; qualifiedName: string }> = []
+		const oldPrefix = `${oldPath}::`
+		const newPrefix = `${newPath}::`
+
+		for (const sym of oldSymbols) {
+			if (!sym.qualifiedName.startsWith(oldPrefix)) {
+				// non-standard qname shape: extractor didn't emit
+				// relPath::Name. we can't compute the new stable_id without
+				// risking collision, so record the skip and keep going.
+				// caller logs the list so the operator can see it.
+				skipped.push({ stableId: sym.stableId, qualifiedName: sym.qualifiedName })
+				continue
+			}
+			const newQname = newPrefix + sym.qualifiedName.slice(oldPrefix.length)
+			const newStableId = stableSymbolId(newPath, sym.kind as SymbolKind, newQname)
+			if (newStableId === sym.stableId) continue
+			mapping.set(sym.stableId, newStableId)
+			newQnames.set(sym.stableId, newQname)
+		}
+
+		if (skipped.length > 0) {
+			log.warn(
+				`rename ${oldPath} -> ${newPath}: ${skipped.length} symbols with unexpected qname shape were not rewritten (stale refs may remain). first: ${skipped[0].qualifiedName}`,
+			)
+		}
+
+		if (mapping.size === 0) {
+			this.db.run('UPDATE files SET path = ? WHERE path = ?', [newPath, oldPath])
+			return 0
+		}
+
+		const updates = Array.from(mapping.entries())
+
+		// runs inside one transaction so a failure rolls back cleanly.
+		// order matters: symbols first so parent_id rewrites see the new
+		// ids, then aux tables, then files.path last so queries above that
+		// joined on oldPath still matched the row.
+		const tx = this.db.transaction(() => {
+			const updateSym = this.db.prepare(
+				'UPDATE symbols SET stable_id = ?, qualified_name = ? WHERE stable_id = ?',
+			)
+			for (const [oldId, newId] of updates) {
+				updateSym.run(newId, newQnames.get(oldId)!, oldId)
+			}
+
+			// parent_id in symbols can reference the renamed ids; rewrite
+			// independently of the above in case a child's parent lives in
+			// the same rewritten set.
+			const updateParent = this.db.prepare(
+				'UPDATE symbols SET parent_id = ? WHERE parent_id = ?',
+			)
+			for (const [oldId, newId] of updates) updateParent.run(newId, oldId)
+
+			const updateEdgeSrc = this.db.prepare(
+				'UPDATE edges SET source_id = ? WHERE source_id = ?',
+			)
+			const updateEdgeTgt = this.db.prepare(
+				'UPDATE edges SET target_id = ? WHERE target_id = ?',
+			)
+			for (const [oldId, newId] of updates) {
+				updateEdgeSrc.run(newId, oldId)
+				updateEdgeTgt.run(newId, oldId)
+			}
+
+			const updateApiSym = this.db.prepare(
+				'UPDATE api_endpoints SET symbol_stable_id = ? WHERE symbol_stable_id = ?',
+			)
+			for (const [oldId, newId] of updates) updateApiSym.run(newId, oldId)
+			this.db.run('UPDATE api_endpoints SET file_path = ? WHERE file_path = ?', [
+				newPath,
+				oldPath,
+			])
+
+			// test_links, embedding_meta, symbol_summaries, duplicates:
+			// these have UNIQUE / PK constraints on the stable_id column
+			// we're rewriting. a plain UPDATE can collide when the
+			// destination id already exists (rare, but possible when the
+			// new path was previously indexed and the row survived an
+			// earlier rewrite). OR IGNORE would leave the old row behind
+			// pointing at a stale id, so DELETE the conflicting new row
+			// first, THEN rewrite. this way the row survives the rename
+			// under exactly one stable_id.
+			const delTestLinks = this.db.prepare(
+				'DELETE FROM test_links WHERE source_symbol_stable_id = ?',
+			)
+			const updTestLinks = this.db.prepare(
+				'UPDATE test_links SET source_symbol_stable_id = ? WHERE source_symbol_stable_id = ?',
+			)
+			for (const [oldId, newId] of updates) {
+				delTestLinks.run(newId)
+				updTestLinks.run(newId, oldId)
+			}
+
+			const delEmbed = this.db.prepare(
+				'DELETE FROM embedding_meta WHERE symbol_stable_id = ?',
+			)
+			const updEmbed = this.db.prepare(
+				'UPDATE embedding_meta SET symbol_stable_id = ? WHERE symbol_stable_id = ?',
+			)
+			for (const [oldId, newId] of updates) {
+				delEmbed.run(newId)
+				updEmbed.run(newId, oldId)
+			}
+
+			const delSumm = this.db.prepare(
+				'DELETE FROM symbol_summaries WHERE symbol_stable_id = ?',
+			)
+			const updSumm = this.db.prepare(
+				'UPDATE symbol_summaries SET symbol_stable_id = ? WHERE symbol_stable_id = ?',
+			)
+			for (const [oldId, newId] of updates) {
+				delSumm.run(newId)
+				updSumm.run(newId, oldId)
+			}
+
+			const updateFlowRoot = this.db.prepare(
+				'UPDATE flows SET root_stable_id = ? WHERE root_stable_id = ?',
+			)
+			for (const [oldId, newId] of updates) updateFlowRoot.run(newId, oldId)
+
+			// flows.symbol_ids is a json array of stable_ids; scan each
+			// row and rewrite in-place where any mapping key appears.
+			const flowRows = this.db
+				.query<{ id: number; symbolIds: string }, []>(
+					'SELECT id, symbol_ids as symbolIds FROM flows',
+				)
+				.all()
+			const updateFlowBlob = this.db.prepare('UPDATE flows SET symbol_ids = ? WHERE id = ?')
+			for (const row of flowRows) {
+				let ids: unknown
+				try {
+					ids = JSON.parse(row.symbolIds)
+				} catch {
+					continue
+				}
+				if (!Array.isArray(ids)) continue
+				let changed = false
+				const next = ids.map((raw) => {
+					if (typeof raw !== 'string') return raw
+					const mapped = mapping.get(raw)
+					if (mapped) {
+						changed = true
+						return mapped
+					}
+					return raw
+				})
+				if (changed) updateFlowBlob.run(JSON.stringify(next), row.id)
+			}
+
+			// duplicates has UNIQUE(symbol_a_id, symbol_b_id). collision
+			// semantics: drop the conflicting destination row first, then
+			// rewrite. same reasoning as the aux tables above.
+			const delDupA = this.db.prepare(
+				'DELETE FROM duplicates WHERE symbol_a_id = ?',
+			)
+			const delDupB = this.db.prepare(
+				'DELETE FROM duplicates WHERE symbol_b_id = ?',
+			)
+			const updDupA = this.db.prepare(
+				'UPDATE duplicates SET symbol_a_id = ? WHERE symbol_a_id = ?',
+			)
+			const updDupB = this.db.prepare(
+				'UPDATE duplicates SET symbol_b_id = ? WHERE symbol_b_id = ?',
+			)
+			for (const [oldId, newId] of updates) {
+				delDupA.run(newId)
+				delDupB.run(newId)
+				updDupA.run(newId, oldId)
+				updDupB.run(newId, oldId)
+			}
+
+			const updateXSrc = this.db.prepare(
+				'UPDATE cross_project_edges SET source_stable_id = ? WHERE source_stable_id = ?',
+			)
+			const updateXTgt = this.db.prepare(
+				'UPDATE cross_project_edges SET target_stable_id = ? WHERE target_stable_id = ?',
+			)
+			for (const [oldId, newId] of updates) {
+				updateXSrc.run(newId, oldId)
+				updateXTgt.run(newId, oldId)
+			}
+
+			this.db.run('UPDATE files SET path = ? WHERE path = ?', [newPath, oldPath])
+		})
+		tx()
+
+		return mapping.size
 	}
 
 	insertFile(

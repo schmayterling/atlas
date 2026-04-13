@@ -128,6 +128,59 @@ describe('detectChanges (git path)', () => {
 		expect(changes.deleted).toEqual(['b.ts'])
 	})
 
+	test('committed rename appears as renames, not add+delete', () => {
+		const first = commit(repoRoot, { 'foo.ts': 'export function hello() { return 1 }\n' }, 'init')
+		store.insertFile('foo.ts', 'h-foo', 'typescript', 1)
+		store.setMeta('last_indexed_commit', first)
+		store.setMeta('last_branch', 'main')
+
+		git(['mv', 'foo.ts', 'bar.ts'], repoRoot)
+		commit(repoRoot, {}, 'rename foo -> bar')
+
+		const changes = detectChanges(repoRoot, [df(repoRoot, 'bar.ts')], store)
+		expect(changes.renames).toHaveLength(1)
+		expect(changes.renames[0]).toEqual({ oldPath: 'foo.ts', newPath: 'bar.ts' })
+		// old path is NOT in deleted; new path is NOT in added. the new path
+		// should appear in modified so step 5 can still re-parse in case of
+		// concurrent edits (git still reports R for pure renames).
+		expect(changes.deleted).not.toContain('foo.ts')
+		expect(changes.added).not.toContain('bar.ts')
+	})
+
+	test('rename + small content edit surfaces the pair and marks the new path modified', () => {
+		// write a file big enough that a single-line edit stays above git's
+		// default 50% similarity threshold for rename detection.
+		const body =
+			[
+				'export function hello() {',
+				'  const a = 1',
+				'  const b = 2',
+				'  const c = 3',
+				'  const d = 4',
+				'  const e = 5',
+				'  return a + b + c + d + e',
+				'}',
+				'',
+				'export function world() {',
+				'  return hello() * 2',
+				'}',
+				'',
+			].join('\n')
+		const first = commit(repoRoot, { 'foo.ts': body }, 'init')
+		store.insertFile('foo.ts', 'h-foo', 'typescript', body.length)
+		store.setMeta('last_indexed_commit', first)
+		store.setMeta('last_branch', 'main')
+
+		// rename-with-small-edit in one commit; git should still report R
+		git(['mv', 'foo.ts', 'bar.ts'], repoRoot)
+		writeFileSync(join(repoRoot, 'bar.ts'), body.replace('const a = 1', 'const a = 7'))
+		commit(repoRoot, {}, 'rename + edit')
+
+		const changes = detectChanges(repoRoot, [df(repoRoot, 'bar.ts')], store)
+		expect(changes.renames).toHaveLength(1)
+		expect(changes.renames[0]).toEqual({ oldPath: 'foo.ts', newPath: 'bar.ts' })
+	})
+
 	test('stale lastCommit (force-pushed-away) falls back to hash-based diff', () => {
 		// the watermark hash exists nowhere; git diff will fail and tryGitDiff
 		// must return null so the hash-based fallback handles detection.

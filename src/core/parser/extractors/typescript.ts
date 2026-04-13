@@ -661,7 +661,10 @@ function extractApiEndpoints(
 		const func = node.childForFieldName('function')
 		const args = node.childForFieldName('arguments')
 		if (func && args) {
-			// detect fetch('/api/...') or axios.get('/api/...')
+			// detect fetch('/api/...'). when the second arg is an object
+			// yet, so default the method to GET. previously we emitted
+			// null which fanned one client call out to every server verb
+			// at the same path in the cross-language linker.
 			if (func.type === 'identifier' && FETCH_NAMES.has(func.text)) {
 				const firstArg = args.namedChild(0)
 				if (firstArg?.type === 'string' || firstArg?.type === 'template_string') {
@@ -669,7 +672,7 @@ function extractApiEndpoints(
 					if (url && url.startsWith('/')) {
 						endpoints.push({
 							pathPattern: url,
-							httpMethod: null,
+							httpMethod: inferFetchMethod(args),
 							symbolQualifiedName: `${filePath}::${findContainingFunctionName(node) ?? 'module'}`,
 							role: 'client',
 							framework: 'fetch',
@@ -717,12 +720,63 @@ function extractStringValue(node: SyntaxNode): string | null {
 		return text
 	}
 	if (node.type === 'template_string') {
-		// only extract if it's a simple template without expressions
+		// simple template with no interpolation: literal content only.
 		if (node.namedChildCount === 0) {
 			return node.text.slice(1, -1) // strip backticks
 		}
+		// template with `${…}` placeholders: walk the underlying text and
+		// substitute each template_substitution with a single `{param}`
+		// segment so the downstream linker can normalise it against
+		// server-side `:param` / `{param}` routes.
+		//
+		// tree-sitter exposes the substitutions as named children. the
+		// text between them is the raw literal. we reconstruct the final
+		// path by slicing the original source around each substitution's
+		// byte range.
+		const raw = node.text // includes the surrounding backticks
+		const startByte = node.startIndex
+		let out = ''
+		let cursorByte = startByte + 1 // skip leading backtick
+		for (let i = 0; i < node.namedChildCount; i++) {
+			const child = node.namedChild(i)!
+			if (child.type !== 'template_substitution') continue
+			const before = raw.slice(cursorByte - startByte, child.startIndex - startByte)
+			out += before + '{param}'
+			cursorByte = child.endIndex
+		}
+		// trailing literal between the last substitution and the closing backtick.
+		out += raw.slice(cursorByte - startByte, node.endIndex - startByte - 1)
+		return out
 	}
 	return null
+}
+
+// inspects the second argument of a fetch(url, init) call to see if
+// it's an object literal with a `method:` property. returns the
+// uppercased verb when found, falls back to GET otherwise (which is
+// the fetch() default per the spec).
+function inferFetchMethod(args: SyntaxNode): string {
+	if (args.namedChildCount < 2) return 'GET'
+	const init = args.namedChild(1)
+	if (!init) return 'GET'
+	if (init.type !== 'object') return 'GET'
+	for (let i = 0; i < init.namedChildCount; i++) {
+		const prop = init.namedChild(i)!
+		if (prop.type !== 'pair') continue
+		const key = prop.childForFieldName('key')
+		if (!key) continue
+		const keyText =
+			key.type === 'string' || key.type === 'property_identifier'
+				? key.text.replace(/^["']|["']$/g, '')
+				: null
+		if (keyText !== 'method') continue
+		const value = prop.childForFieldName('value')
+		if (!value) continue
+		if (value.type === 'string') {
+			return value.text.replace(/^["']|["']$/g, '').toUpperCase()
+		}
+	}
+	return 'GET'
 }
 
 function findContainingFunctionName(node: SyntaxNode): string | null {

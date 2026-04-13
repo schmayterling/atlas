@@ -1,5 +1,5 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { badge, fileRef, heading, outputJson } from '../formatters/common.js'
 
 export function blastCommand(
@@ -8,7 +8,7 @@ export function blastCommand(
 	json: boolean,
 	opts: { depth?: number; tests?: boolean },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 
 	try {
 		const result = engine.blast(target, {

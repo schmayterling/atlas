@@ -1,5 +1,6 @@
 import { log } from '../../shared/logger.js'
 import type { AtlasStore } from '../storage/store.js'
+import { applyMailmap, loadMailmap } from './mailmap.js'
 
 export interface GitIngestResult {
 	commitsAdded: number
@@ -118,6 +119,9 @@ export function ingestGitHistory(
 	let commitCount = 0
 	let fileChangeCount = 0
 	const filterActive = relevantPaths !== undefined && relevantPaths.size > 0
+	// read .mailmap once so every commit inserted below gets canonicalised.
+	// absent or unreadable file returns null and applyMailmap falls through.
+	const mailmap = loadMailmap(projectRoot)
 
 	store.bulkInsert(() => {
 		for (const c of commits) {
@@ -134,11 +138,12 @@ export function ingestGitHistory(
 				: c.files
 			if (filterActive && relevantFiles.length === 0) continue
 
+			const canonical = applyMailmap(mailmap, c.authorName, c.authorEmail)
 			store.runRaw(
 				'INSERT OR IGNORE INTO commits (hash, author_name, author_email, authored_at, subject) VALUES (?, ?, ?, ?, ?)',
 				c.hash,
-				c.authorName,
-				c.authorEmail,
+				canonical.name,
+				canonical.email,
 				c.authoredAt,
 				c.subject,
 			)

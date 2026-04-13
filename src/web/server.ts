@@ -157,7 +157,7 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 				const last = engine.lastChanged(symbol.filePath)
 				if (last) {
 					const date = new Date(last.authoredAt).toISOString().slice(0, 10)
-					md += `**Last changed:** ${date} by ${esc(last.authorName)} — ${esc(last.subject)}\n\n`
+					md += `**Last changed:** ${date} by ${esc(last.authorName)} (${esc(last.subject)})\n\n`
 				}
 				const contribs = engine.contributors(symbol.filePath).slice(0, 3)
 				if (contribs.length > 0) {
@@ -260,6 +260,35 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 	app.get('/api/subsystems', (c) => {
 		try { return c.json(eng(c).subsystems()) }
 		catch (e) { log.error(`subsystems: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/hot-fragile', (c) => {
+		try {
+			const limit = parseIntParam(c.req.query('limit'), 500) ?? 20
+			return c.json(eng(c).hotFragile({ limit }))
+		} catch (e) { log.error(`hot-fragile: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/hotspots', (c) => {
+		try {
+			const limit = parseIntParam(c.req.query('limit'), 500) ?? 20
+			const coverageRaw = c.req.query('coverage')
+			const coverage =
+				coverageRaw === 'called' || coverageRaw === 'imported' || coverageRaw === 'none'
+					? (coverageRaw as 'called' | 'imported' | 'none')
+					: undefined
+			return c.json(eng(c).hotspots({ limit, coverage }))
+		} catch (e) { log.error(`hotspots: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	app.get('/api/test-coverage', (c) => {
+		const symbol = c.req.query('symbol')
+		if (!symbol) return c.json({ error: 'symbol required' }, 400)
+		try {
+			const result = eng(c).testCoverage(symbol)
+			if (!result) return c.json({ error: 'symbol not found' }, 404)
+			return c.json(result)
+		} catch (e) { log.error(`test-coverage: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
 	app.get('/api/subsystem', (c) => {

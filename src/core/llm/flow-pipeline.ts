@@ -5,7 +5,7 @@ import { findFlowRoots, traceFlowChain, storeFlow, clearFlows } from '../queries
 
 export async function runFlowPipeline(
 	store: AtlasStore,
-	opts?: { skipLLM?: boolean },
+	opts?: { skipLLM?: boolean; excludeFileIds?: Set<number> },
 ): Promise<{ detected: number; named: number }> {
 	// check if flows table exists
 	const tables = store.queryRaw<{ name: string }>(
@@ -14,7 +14,7 @@ export async function runFlowPipeline(
 	if (tables.length === 0) return { detected: 0, named: 0 }
 
 	// find flow roots (exported functions not called by anything)
-	const roots = findFlowRoots(store)
+	const roots = findFlowRoots(store, { excludeFileIds: opts?.excludeFileIds })
 	if (roots.length === 0) return { detected: 0, named: 0 }
 
 	// trace chains from each root
@@ -68,7 +68,7 @@ export async function runFlowPipeline(
 				if (lines.length >= 2) description = lines.slice(1).join(' ').trim()
 				named++
 			} catch (e) {
-				log.debug(`failed to name flow ${flow.rootName}: ${e}`)
+				log.warn(`failed to name flow ${flow.rootName}: ${e}`)
 			}
 		}
 

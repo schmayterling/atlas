@@ -9,7 +9,8 @@ import { join } from 'node:path'
 
 const ROOT = import.meta.dir + '/..'
 const BASELINE_PATH = join(ROOT, '.atlas', 'baseline.json')
-const DB_PATH = join(ROOT, '.atlas', 'atlas.db')
+// dedicated dogfood db path so we never race atlas watch on .atlas/atlas.db
+const DB_PATH = join(ROOT, '.atlas', 'dogfood.db')
 
 interface Metrics {
 	timestamp: string
@@ -46,9 +47,10 @@ async function run(): Promise<void> {
 	})
 	const commit = gitResult.stdout.toString().trim()
 
-	// fresh index
+	// fresh dogfood db (separate from production .atlas/atlas.db so we never race
+	// a concurrent `atlas watch`). safe to unlink because only dogfood writes here.
 	if (existsSync(DB_PATH)) unlinkSync(DB_PATH)
-	const engine = new AtlasEngine(ROOT)
+	const engine = new AtlasEngine(ROOT, { dbPath: DB_PATH })
 	const indexResult = await engine.index({ noEmbed: true, noSummarize: true })
 
 	// queries

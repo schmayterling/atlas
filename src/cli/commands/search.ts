@@ -1,5 +1,5 @@
 import pc from 'picocolors'
-import { AtlasEngine } from '../../core/engine.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import type { SymbolKind } from '../../shared/types.js'
 import { badge, fileRef, outputJson } from '../formatters/common.js'
 
@@ -9,7 +9,7 @@ export async function searchCommand(
 	json: boolean,
 	opts: { kind?: string; exact?: boolean; limit?: number; semantic?: boolean; includeTests?: boolean },
 ) {
-	const engine = new AtlasEngine(projectRoot)
+	const engine = getOrCreateEngine(undefined, projectRoot)
 
 	try {
 		if (opts.semantic) {
