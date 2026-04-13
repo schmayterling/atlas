@@ -347,6 +347,30 @@ export class AtlasStore {
 		)
 	}
 
+	// --- exports ---
+
+	// returns every exported, non-test symbol with name + kind + stable_id.
+	// used by the symbol-name cross-project linker (#8b) to match exports
+	// across two project dbs by (name, kind). intentionally avoids the
+	// expensive search/dependentCount path because the linker only needs
+	// identity, not result formatting.
+	listExportedSymbolsForLinking(): Array<{
+		name: string
+		kind: string
+		stableId: string
+	}> {
+		return this.db
+			.query<{ name: string; kind: string; stableId: string }, []>(
+				`SELECT s.name, s.kind, s.stable_id as stableId
+				FROM symbols s
+				JOIN files f ON f.id = s.file_id
+				WHERE s.is_exported = 1
+				  AND f.is_test = 0
+				  AND s.kind IN ('function', 'class', 'method', 'interface', 'type', 'enum', 'variable')`,
+			)
+			.all()
+	}
+
 	// --- search ---
 
 	searchSymbols(query: string, limit = 20, includeTests = false): SymbolResult[] {

@@ -1,5 +1,7 @@
-import { listProjects, addProject, removeProject, linkProjects, getProjectLinks } from '../../core/registry.js'
+import { listProjects, addProject, removeProject, linkProjects, getProjectLinks, getLinkedProjects, getProject } from '../../core/registry.js'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
+import { buildCrossProjectEdges } from '../../core/queries/api-trace.js'
+import { buildCrossProjectEdgesBySymbolName } from '../../core/queries/symbol-name-linker.js'
 import pc from 'picocolors'
 
 export function projectsCommand(action: string, args: string[], json: boolean) {
@@ -70,6 +72,83 @@ export function projectsCommand(action: string, args: string[], json: boolean) {
 				console.log(`linked: ${from} → ${to}`)
 			} else {
 				console.log('failed to link (project not found)')
+			}
+			break
+		}
+		case 'build-edges': {
+			// `atlas projects build-edges [--all] [--match-by-name] [--from <id> --to <id>]`
+			// args layout (positional + flags interleaved): --all picks
+			// every linked pair from the registry; --from/--to scopes
+			// to a single pair; --match-by-name additionally runs the
+			// heuristic name-match linker (off by default — see #8b).
+			const all = args.includes('--all')
+			const matchByName = args.includes('--match-by-name')
+			const fromIdx = args.indexOf('--from')
+			const toIdx = args.indexOf('--to')
+			const explicitFrom = fromIdx !== -1 ? args[fromIdx + 1] : undefined
+			const explicitTo = toIdx !== -1 ? args[toIdx + 1] : undefined
+
+			const pairs: Array<{ from: { id: string; root: string }; to: { id: string; root: string } }> = []
+			if (explicitFrom && explicitTo) {
+				const fromProject = getProject(explicitFrom)
+				const toProject = getProject(explicitTo)
+				if (!fromProject || !toProject) {
+					console.error(`unknown project id(s): ${[!fromProject && explicitFrom, !toProject && explicitTo].filter(Boolean).join(', ')}`)
+					process.exit(1)
+				}
+				pairs.push({ from: fromProject, to: toProject })
+			} else if (all) {
+				const projects = listProjects()
+				for (let i = 0; i < projects.length; i++) {
+					for (let j = i + 1; j < projects.length; j++) {
+						pairs.push({ from: projects[i], to: projects[j] })
+					}
+				}
+			} else {
+				const projects = listProjects()
+				const seen = new Set<string>()
+				for (const p of projects) {
+					const linked = getLinkedProjects(p.id)
+					for (const l of linked) {
+						const key = [p.id, l.id].sort().join('|')
+						if (seen.has(key)) continue
+						seen.add(key)
+						pairs.push({ from: p, to: l })
+					}
+				}
+			}
+
+			if (pairs.length === 0) {
+				console.error('no project pairs to link. add `--all` for cartesian, link projects with `atlas projects link`, or pass `--from <id> --to <id>`.')
+				process.exit(1)
+			}
+
+			const summary: Array<{
+				from: string
+				to: string
+				routeMatches: number
+				nameMatches: number
+			}> = []
+			for (const pair of pairs) {
+				const fromEngine = getOrCreateEngine(pair.from.id, pair.from.root)
+				const toEngine = getOrCreateEngine(pair.to.id, pair.to.root)
+				const fromStore = fromEngine.getStoreForCrossProject()
+				const toStore = toEngine.getStoreForCrossProject()
+				const routeMatches = buildCrossProjectEdges(fromStore, pair.from.id, toStore, pair.to.id)
+				const nameMatches = matchByName
+					? buildCrossProjectEdgesBySymbolName(fromStore, pair.from.id, toStore, pair.to.id)
+					: 0
+				summary.push({ from: pair.from.id, to: pair.to.id, routeMatches, nameMatches })
+			}
+
+			if (json) {
+				console.log(JSON.stringify(summary, null, 2))
+			} else {
+				for (const row of summary) {
+					console.log(
+						`${pc.cyan(row.from)} ↔ ${pc.cyan(row.to)}: ${pc.green(String(row.routeMatches))} route, ${pc.green(String(row.nameMatches))} name`,
+					)
+				}
 			}
 			break
 		}

@@ -59,7 +59,11 @@ export function traceApi(
 	return { query: pathPattern, clients, servers }
 }
 
-// build cross-project edges by matching client and server API endpoints across projects
+// build cross-project edges by matching client and server API endpoints
+// across projects. writes the same edge row to BOTH project dbs so a
+// federation fan-out started from either side sees the link — before
+// this fix the edge only landed in `localStore` and a query rooted in
+// the remote project would silently miss it. see #8 / #8b.
 export function buildCrossProjectEdges(
 	localStore: AtlasStore,
 	localProjectId: string,
@@ -81,13 +85,15 @@ export function buildCrossProjectEdges(
 			const clientProject = local.role === 'client' ? localProjectId : remoteProjectId
 			const serverProject = local.role === 'server' ? localProjectId : remoteProjectId
 
-			localStore.insertCrossProjectEdge({
+			const edge = {
 				sourceProject: clientProject,
 				sourceStableId: client.symbolStableId,
 				targetProject: serverProject,
 				targetStableId: server.symbolStableId,
 				kind: 'calls',
-			})
+			}
+			localStore.insertCrossProjectEdge(edge)
+			remoteStore.insertCrossProjectEdge(edge)
 			count++
 		}
 	}
