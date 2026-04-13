@@ -10,7 +10,9 @@ import { getExtractor } from '../parser/extractor-registry.js'
 import { linkInRepoApiEndpoints } from '../queries/cross-language-linker.js'
 import { detectDuplicatesFromEmbeddings } from '../queries/duplicate-detection.js'
 import { findGeneratedFileIds } from '../queries/generated-code.js'
+import { linkEnvVars } from '../queries/env-linker.js'
 import { linkProtoSymbols } from '../queries/proto-linker.js'
+import { linkQueueTopics } from '../queries/queue-linker.js'
 import { linkSqlTables } from '../queries/sql-linker.js'
 import type { AtlasStore } from '../storage/store.js'
 import {
@@ -610,6 +612,32 @@ export class Indexer {
 		} catch (e) {
 			state.warnings.push(`sql linking failed: ${e}`)
 			log.warn(`sql linking failed: ${e}`)
+		}
+
+		// queue-topic channel (#30). detects publish/subscribe sites
+		// across kafka, nats, rabbitmq, and redis pub/sub for ts/js
+		// and go drivers.
+		try {
+			const result = linkQueueTopics(this.store, this.projectRoot)
+			if (result.hits > 0) {
+				log.debug(`queue-linker: wrote ${result.hits} channel hits`)
+			}
+		} catch (e) {
+			state.warnings.push(`queue linking failed: ${e}`)
+			log.warn(`queue linking failed: ${e}`)
+		}
+
+		// env-var channel (#30). groups symbols by environment variable
+		// name (process.env.X, os.Getenv("X"), viper.GetString("x"),
+		// os.environ['X'], ...).
+		try {
+			const result = linkEnvVars(this.store, this.projectRoot)
+			if (result.hits > 0) {
+				log.debug(`env-linker: wrote ${result.hits} channel hits`)
+			}
+		} catch (e) {
+			state.warnings.push(`env linking failed: ${e}`)
+			log.warn(`env linking failed: ${e}`)
 		}
 	}
 
