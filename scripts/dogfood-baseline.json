@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-04-13T12:42:14.929Z",
+  "commit": "f078cdb",
+  "files": 147,
+  "symbols": 1273,
+  "edges": 2886,
+  "indexMs": 17110,
+  "warnings": 0,
+  "depsDown": 7,
+  "depsEdges": 79,
+  "tracePaths": 1,
+  "deadCode": 24,
+  "searchResults": 10,
+  "channelHitGroups": 22,
+  "queryMs": {
+    "deps": 1.224,
+    "blast": 0.063,
+    "search": 0.259,
+    "trace": 1.713,
+    "deadCode": 3.154,
+    "channelHitGroups": 0.107,
+    "hotspots": 6.519,
+    "hotFragile": 1.176
+  }
+}

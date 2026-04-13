@@ -8,7 +8,11 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = import.meta.dir + '/..'
-const BASELINE_PATH = join(ROOT, '.atlas', 'baseline.json')
+// baseline lives next to this script so it is tracked in git. previously
+// sat under .atlas/ which is gitignored, meaning every workspace had its
+// own baseline and CI couldn't gate on a known target. moved alongside
+// dogfood.ts so a --refresh-baseline run produces a tracked diff.
+const BASELINE_PATH = join(ROOT, 'scripts', 'dogfood-baseline.json')
 // dedicated dogfood db path so we never race atlas watch on .atlas/atlas.db
 const DB_PATH = join(ROOT, '.atlas', 'dogfood.db')
 
