@@ -200,6 +200,84 @@ describe('go-resolver MVP', () => {
 	})
 })
 
+describe('go-resolver receiver-method resolution (#27)', () => {
+	test('resolves recv.Method() across package boundary via local var type inference', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'atlas-go-recv-'))
+		try {
+			mkdirSync(join(root, 'lib/server'), { recursive: true })
+			mkdirSync(join(root, 'cmd/app'), { recursive: true })
+
+			writeFileSync(join(root, 'go.mod'), 'module example.com/recvtest\n\ngo 1.21\n')
+
+			writeFileSync(
+				join(root, 'lib/server/server.go'),
+				`package server
+
+type Server struct {
+	port int
+}
+
+func NewServer(port int) *Server {
+	return &Server{port: port}
+}
+
+func (s *Server) Handle(path string) string {
+	return path
+}
+`,
+			)
+
+			writeFileSync(
+				join(root, 'cmd/app/main.go'),
+				`package main
+
+import (
+	"example.com/recvtest/lib/server"
+)
+
+func run() {
+	s := server.NewServer(8080)
+	s.Handle("/api/foo")
+}
+`,
+			)
+
+			const recvEngine = new AtlasEngine(root)
+			try {
+				await recvEngine.index({
+					noEmbed: true,
+					noSummarize: true,
+					force: true,
+					withGitHub: false,
+					withCoChange: false,
+				})
+				const store = recvEngine.getStoreForCrossProject()
+
+				// s.Handle("/api/foo") must resolve to
+				// lib/server/server.go::Server.Handle via the
+				// local-var type inference (s := server.NewServer(...)).
+				const handleEdges = store.queryRaw<{ count: number }>(
+					`SELECT COUNT(*) as count
+					 FROM edges e
+					 JOIN symbols tgt ON tgt.stable_id = e.target_id
+					 JOIN files tgtf ON tgtf.id = tgt.file_id
+					 WHERE e.kind = 'calls'
+					   AND e.confidence = 'resolved'
+					   AND e.file_id IS NULL
+					   AND tgt.name = 'Handle'
+					   AND tgt.kind = 'method'
+					   AND tgtf.path = 'lib/server/server.go'`,
+				)
+				expect(handleEdges[0]?.count ?? 0).toBeGreaterThan(0)
+			} finally {
+				recvEngine.close()
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+})
+
 describe('go-resolver package_clause binding (#28)', () => {
 	test('binds un-aliased import via the target package declaration, not directory basename', async () => {
 		const root = mkdtempSync(join(tmpdir(), 'atlas-go-divergent-'))

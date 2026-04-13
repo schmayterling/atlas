@@ -341,8 +341,64 @@ function walkAndResolve(
 		kind: ContainerKind
 	}
 
-	const walk = (node: SyntaxNode, container: Container | null) => {
-		// enter function/method scope
+	// the type inferred for a receiver variable. `pkgAlias` is the
+	// import's local name (so we can reach the right dir via
+	// localToPath/pathToDir), and `typeName` is the go type identifier
+	// the dot-lookup should search for. see #27.
+	interface ReceiverType {
+		pkgAlias: string
+		typeName: string
+	}
+
+	// a stack of block-scoped variable type maps. short_var_decl and
+	// var_decl inside a block push entries into the innermost frame;
+	// entering a new `block`/`if_statement`/`for_statement` pushes a
+	// frame, exiting pops. a new function_declaration / method_declaration
+	// starts an entirely new stack so outer functions don't leak.
+	type ScopeStack = Map<string, ReceiverType>[]
+
+	const trackLocalType = (
+		nameNode: SyntaxNode | null,
+		valueNode: SyntaxNode | null,
+		scope: ScopeStack,
+	) => {
+		if (!nameNode || !valueNode || scope.length === 0) return
+		const name = nameNode.text
+		const frame = scope[scope.length - 1]
+		// the MVP shape we handle: `x := pkg.NewFoo()` or
+		// `x := pkg.NewFoo(args)`. the value side is a call_expression
+		// on a selector_expression whose operand is an imported pkg
+		// alias. tree-sitter-go models `pkg.NewFoo()` as
+		// call_expression(function: selector_expression).
+		if (valueNode.type !== 'call_expression') return
+		const funcNode = valueNode.childForFieldName('function')
+		if (!funcNode || funcNode.type !== 'selector_expression') return
+		const operand = funcNode.childForFieldName('operand')
+		const field = funcNode.childForFieldName('field')
+		if (!operand || !field || operand.type !== 'identifier') return
+		// heuristic: constructor-style names starting with New or Make
+		// return the package's eponymous type (pkg.NewFoo() -> pkg.Foo).
+		// this covers the dominant server/handler pattern without a
+		// real type checker. see #27 scope note.
+		const ctorName = field.text
+		let inferredType: string | null = null
+		if (ctorName.startsWith('New')) inferredType = ctorName.slice(3)
+		else if (ctorName.startsWith('Make')) inferredType = ctorName.slice(4)
+		if (!inferredType) return
+		frame.set(name, { pkgAlias: operand.text, typeName: inferredType })
+	}
+
+	const lookupLocalType = (name: string, scope: ScopeStack): ReceiverType | null => {
+		for (let i = scope.length - 1; i >= 0; i--) {
+			const hit = scope[i].get(name)
+			if (hit) return hit
+		}
+		return null
+	}
+
+	const walk = (node: SyntaxNode, container: Container | null, scope: ScopeStack) => {
+		// enter function/method scope — reset the local type stack
+		// so outer bindings don't leak into nested function bodies.
 		if (node.type === 'function_declaration') {
 			const nameNode = node.childForFieldName('name')
 			if (nameNode) {
@@ -350,7 +406,8 @@ function walkAndResolve(
 					qname: `${sourceRelPath}::${nameNode.text}`,
 					kind: 'function',
 				}
-				for (const child of node.namedChildren) walk(child, next)
+				const freshScope: ScopeStack = [new Map()]
+				for (const child of node.namedChildren) walk(child, next, freshScope)
 				return
 			}
 		}
@@ -364,19 +421,66 @@ function walkAndResolve(
 						qname: `${sourceRelPath}::${recvType}.${nameNode.text}`,
 						kind: 'method',
 					}
-					for (const child of node.namedChildren) walk(child, next)
+					const freshScope: ScopeStack = [new Map()]
+					for (const child of node.namedChildren) walk(child, next, freshScope)
 					return
 				}
 			}
 		}
 
-		// package-qualified call: `pkg.Foo(...)`
+		// push a new frame on block entry so shadowing works.
+		if (node.type === 'block' && container && scope.length > 0) {
+			const frame = new Map<string, ReceiverType>()
+			scope.push(frame)
+			for (const child of node.namedChildren) walk(child, container, scope)
+			scope.pop()
+			return
+		}
+
+		// `x := pkg.NewFoo()` — short variable declaration binds the
+		// receiver type into the current scope frame. tree-sitter-go
+		// names these `short_var_declaration` with `left` and `right`
+		// fields. left is an expression_list of identifiers; right is
+		// an expression_list of values. we handle the common 1:1 case.
+		if (node.type === 'short_var_declaration') {
+			const left = node.childForFieldName('left')
+			const right = node.childForFieldName('right')
+			if (left && right) {
+				const lefts = left.namedChildren
+				const rights = right.namedChildren
+				for (let i = 0; i < Math.min(lefts.length, rights.length); i++) {
+					trackLocalType(lefts[i], rights[i], scope)
+				}
+			}
+		}
+		// `var x = pkg.NewFoo()` — var_spec inside var_declaration has
+		// name + value fields shaped differently.
+		if (node.type === 'var_spec') {
+			const nameList = node.childForFieldName('name')
+			const valueList = node.childForFieldName('value')
+			if (nameList && valueList) {
+				const names = nameList.type === 'identifier' ? [nameList] : nameList.namedChildren
+				const values =
+					valueList.type === 'expression_list' ? valueList.namedChildren : [valueList]
+				for (let i = 0; i < Math.min(names.length, values.length); i++) {
+					trackLocalType(names[i], values[i], scope)
+				}
+			}
+		}
+
+		// package-qualified call: `pkg.Foo(...)` or receiver-method
+		// call: `recv.Method(...)` where recv's type was declared
+		// earlier in scope via `recv := pkg.NewFoo()`.
 		if (node.type === 'call_expression' && container) {
 			const func = node.childForFieldName('function')
 			if (func && func.type === 'selector_expression') {
 				const recv = func.childForFieldName('operand')
 				const field = func.childForFieldName('field')
 				if (recv && field && recv.type === 'identifier') {
+					const line = node.startPosition.row + 1
+					const col = node.startPosition.column
+					// path 1: package-qualified call. recv is an
+					// imported alias, field is the exported function.
 					const importPath = localToPath.get(recv.text)
 					const dir = importPath ? pathToDir.get(importPath) ?? null : null
 					if (dir) {
@@ -388,8 +492,6 @@ function walkAndResolve(
 							['function', 'method'],
 						)
 						if (resolved) {
-							const line = node.startPosition.row + 1
-							const col = node.startPosition.column
 							edges.push({
 								sourceStableId: stableSymbolId(
 									sourceRelPath,
@@ -402,11 +504,48 @@ function walkAndResolve(
 								col,
 								confidence: 'resolved',
 							})
-							// record the position so the indexer can
-							// delete the matching heuristic edge that
-							// the go extractor emitted at the same
-							// (file_id, line, col). see #40.
 							heuristicUpgrades.push({ fileId: sourceFileId, line, col })
+						}
+					} else {
+						// path 2: receiver-method call. recv is a local
+						// variable whose type we inferred earlier via
+						// `recv := pkgAlias.NewType()`. resolve the
+						// method against the inferred type's package
+						// directory. see #27.
+						const recvType = lookupLocalType(recv.text, scope)
+						if (recvType) {
+							const rtImportPath = localToPath.get(recvType.pkgAlias)
+							const rtDir = rtImportPath
+								? pathToDir.get(rtImportPath) ?? null
+								: null
+							if (rtDir) {
+								const resolved = findSymbolAcrossDir(
+									store,
+									rtDir,
+									projectRoot,
+									field.text,
+									['method'],
+								)
+								if (resolved) {
+									edges.push({
+										sourceStableId: stableSymbolId(
+											sourceRelPath,
+											container.kind,
+											container.qname,
+										),
+										targetStableId: resolved,
+										kind: 'calls',
+										line,
+										col,
+										confidence: 'resolved',
+									})
+									heuristicUpgrades.push({
+										fileId: sourceFileId,
+										line,
+										col,
+									})
+								}
+							}
 						}
 					}
 				}
@@ -451,10 +590,10 @@ function walkAndResolve(
 			}
 		}
 
-		for (const child of node.namedChildren) walk(child, container)
+		for (const child of node.namedChildren) walk(child, container, scope)
 	}
 
-	for (const child of root.namedChildren) walk(child, null)
+	for (const child of root.namedChildren) walk(child, null, [])
 }
 
 // iterate every .go file in `dir` and return the stable_id of the
