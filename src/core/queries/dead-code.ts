@@ -3,7 +3,12 @@ import type { AtlasStore } from '../storage/store.js'
 
 export function findDeadCode(
 	store: AtlasStore,
-	opts?: { path?: string; kind?: SymbolKind; includeTests?: boolean },
+	opts?: {
+		path?: string
+		kind?: SymbolKind
+		includeTests?: boolean
+		excludeFileIds?: Set<number>
+	},
 ): DeadCodeResult {
 	// build parameterized query to avoid SQL injection
 	let sql = `SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
@@ -26,6 +31,16 @@ export function findDeadCode(
 	}
 
 	const params: (string | number)[] = []
+
+	// generated / mock / fake files are filtered out via the engine-
+	// level cache (findGeneratedFileIds). without this filter counter-
+	// feiter fake_*.go files dominate dead-code output on real go
+	// codebases. see #44.
+	if (opts?.excludeFileIds && opts.excludeFileIds.size > 0) {
+		const placeholders = Array.from(opts.excludeFileIds, () => '?').join(',')
+		sql += ` AND f.id NOT IN (${placeholders})`
+		for (const id of opts.excludeFileIds) params.push(id)
+	}
 
 	if (opts?.path) {
 		const escapedPath = opts.path.replace(/%/g, '\\%').replace(/_/g, '\\_')

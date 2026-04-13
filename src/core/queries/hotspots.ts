@@ -46,9 +46,21 @@ interface HotspotRow {
 
 export function findHotspots(
 	store: AtlasStore,
-	opts?: { limit?: number; coverage?: 'called' | 'imported' | 'none' },
+	opts?: {
+		limit?: number
+		coverage?: 'called' | 'imported' | 'none'
+		excludeFileIds?: Set<number>
+	},
 ): HotspotEntry[] {
 	const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 500)
+
+	// generated-file exclusion is inlined into the WHERE clause so
+	// fake_*.go / mocks / counterfeiter output never dominates the
+	// hotspot ranking. see #44.
+	const excludeFilter =
+		opts?.excludeFileIds && opts.excludeFileIds.size > 0
+			? ` AND f.id NOT IN (${Array.from(opts.excludeFileIds).join(',')})`
+			: ''
 
 	// one scan of test_links + one scan of file_changes, both pre-
 	// aggregated into temp CTEs so the main join is index-friendly.
@@ -89,7 +101,7 @@ export function findHotspots(
 		LEFT JOIN coverage_per_symbol cov ON cov.stable_id = s.stable_id
 		LEFT JOIN commits_per_file cf ON cf.file_path = f.path
 		WHERE s.is_exported = 1
-		  AND f.is_test = 0
+		  AND f.is_test = 0${excludeFilter}
 		  AND s.kind IN ('function', 'method')
 		GROUP BY s.stable_id
 		HAVING COUNT(DISTINCT e.source_id) > 0

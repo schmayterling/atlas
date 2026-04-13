@@ -24,6 +24,7 @@ import type {
 import { Indexer } from './indexer/indexer.js'
 import { getBlastRadius } from './queries/blast-radius.js'
 import { findDeadCode } from './queries/dead-code.js'
+import { findGeneratedFileIds } from './queries/generated-code.js'
 import { getDependencies } from './queries/dependencies.js'
 import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
@@ -54,6 +55,12 @@ export class AtlasEngine {
 	private config: AtlasConfig
 	private projectRoot: string
 	private dbPath: string
+	// cached set of generated/mock/fake/codegen file ids. computed
+	// lazily via findGeneratedFileIds the first time any query that
+	// needs it is called, then reused across sibling queries in the
+	// same process. invalidated at the end of engine.index() because
+	// a reindex may have added or removed generated files. see #44.
+	private generatedFileIds: Set<number> | null = null
 
 	constructor(projectRoot: string, opts?: { dbPath?: string }) {
 		this.projectRoot = projectRoot
@@ -68,6 +75,17 @@ export class AtlasEngine {
 			this.store = new AtlasStore(this.dbPath)
 		}
 		return this.store
+	}
+
+	// lazy accessor for the generated-file filter used by dead-code,
+	// hot-fragile, and hotspots queries. computed once per process
+	// via `findGeneratedFileIds` (which walks the files table and
+	// checks path patterns + 4kb file headers). reset on reindex.
+	private getGeneratedFileIds(): Set<number> {
+		if (!this.generatedFileIds) {
+			this.generatedFileIds = findGeneratedFileIds(this.getStore(), this.projectRoot)
+		}
+		return this.generatedFileIds
 	}
 
 	close() {
@@ -135,7 +153,11 @@ export class AtlasEngine {
 	}): Promise<IndexResult> {
 		const store = this.getStore()
 		const indexer = new Indexer(this.projectRoot, this.config, store)
-		return indexer.index(opts)
+		const result = await indexer.index(opts)
+		// invalidate the cached generated-file set so subsequent query
+		// calls pick up any files added / removed by this reindex.
+		this.generatedFileIds = null
+		return result
 	}
 
 	// --- status ---
@@ -249,7 +271,7 @@ export class AtlasEngine {
 
 	deadCode(opts?: { path?: string; kind?: SymbolKind; includeTests?: boolean }): DeadCodeResult {
 		const store = this.getStore()
-		return findDeadCode(store, opts)
+		return findDeadCode(store, { ...opts, excludeFileIds: this.getGeneratedFileIds() })
 	}
 
 	// --- test coverage ---
@@ -263,13 +285,19 @@ export class AtlasEngine {
 	}
 
 	hotFragile(opts?: { limit?: number }): HotFragileEntry[] {
-		return findHotFragile(this.getStore(), opts)
+		return findHotFragile(this.getStore(), {
+			...opts,
+			excludeFileIds: this.getGeneratedFileIds(),
+		})
 	}
 
 	// ranks exported functions/methods by fanin × churn × (1 - coverage).
 	// see queries/hotspots.ts for the scoring formula.
 	hotspots(opts?: { limit?: number; coverage?: 'called' | 'imported' | 'none' }): HotspotEntry[] {
-		return findHotspots(this.getStore(), opts)
+		return findHotspots(this.getStore(), {
+			...opts,
+			excludeFileIds: this.getGeneratedFileIds(),
+		})
 	}
 
 	// --- semantic search ---

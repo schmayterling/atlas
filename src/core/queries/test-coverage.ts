@@ -99,10 +99,17 @@ export function findUntestedSymbols(
 // comma-separated list of types. see #24.
 export function findHotFragile(
 	store: AtlasStore,
-	opts?: { limit?: number },
+	opts?: { limit?: number; excludeFileIds?: Set<number> },
 ): HotFragileEntry[] {
 	const limit = opts?.limit ?? 20
 	const kindList = CALLABLE_KINDS.map((k) => `'${k}'`).join(',')
+	// generated-file exclusion inlined into the WHERE clause so
+	// fake_*.go / mocks/ / counterfeiter output never pollutes the
+	// hot-fragile ranking. see #44.
+	const excludeFilter =
+		opts?.excludeFileIds && opts.excludeFileIds.size > 0
+			? ` AND f.id NOT IN (${Array.from(opts.excludeFileIds).join(',')})`
+			: ''
 	type Row = Omit<HotFragileEntry, 'previewNames'> & { previewJson: string | null }
 	const rows = store.queryRawWithParams<Row>(
 		`WITH untested_ranked AS (
@@ -143,7 +150,7 @@ export function findHotFragile(
 		   AND tl.confidence = 'called'
 		 LEFT JOIN subsystems ss ON ss.id = f.subsystem_id
 		 LEFT JOIN preview p ON p.file_id = f.id
-		 WHERE f.is_test = 0
+		 WHERE f.is_test = 0${excludeFilter}
 		 GROUP BY f.id
 		 HAVING symbolCount > 0 AND untestedCount > 0
 		 ORDER BY commits * untestedCount DESC, commits DESC
