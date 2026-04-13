@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { log } from '../shared/logger.js'
@@ -24,15 +25,45 @@ interface RegistryData {
 	active?: string | null
 }
 
-const REGISTRY_DIR = join(process.env.HOME ?? '~', '.atlas')
-const REGISTRY_PATH = join(REGISTRY_DIR, 'registry.json')
+// the default registry lives at $HOME/.atlas/registry.json and is resolved
+// once at module load. existing tests set process.env.HOME before importing
+// this module and rely on the path being pinned to their fake home for the
+// rest of the process. tests that need to switch registries mid-process
+// call setRegistryPathForTests instead.
+const DEFAULT_REGISTRY_DIR = join(process.env.HOME ?? '~', '.atlas')
+const DEFAULT_REGISTRY_PATH = join(DEFAULT_REGISTRY_DIR, 'registry.json')
+
+let activeRegistryDir = DEFAULT_REGISTRY_DIR
+let activeRegistryPath = DEFAULT_REGISTRY_PATH
+
+function getRegistryDir(): string {
+	return activeRegistryDir
+}
+
+function getRegistryPath(): string {
+	return activeRegistryPath
+}
+
+// test-only: point the registry at a different directory without mutating
+// process.env.HOME. used by tests that need a clean registry mid-process.
+// call resetRegistryPathForTests to restore the default.
+export function setRegistryPathForTests(dir: string): void {
+	activeRegistryDir = dir
+	activeRegistryPath = join(dir, 'registry.json')
+}
+
+export function resetRegistryPathForTests(): void {
+	activeRegistryDir = DEFAULT_REGISTRY_DIR
+	activeRegistryPath = DEFAULT_REGISTRY_PATH
+}
 
 function readRegistry(): RegistryData {
-	if (!existsSync(REGISTRY_PATH)) {
+	const path = getRegistryPath()
+	if (!existsSync(path)) {
 		return { projects: [], links: [], active: null }
 	}
 	try {
-		const parsed = JSON.parse(readFileSync(REGISTRY_PATH, 'utf-8'))
+		const parsed = JSON.parse(readFileSync(path, 'utf-8'))
 		// tolerate older registry files that pre-date the active field
 		return { active: null, ...parsed }
 	} catch (e) {
@@ -42,20 +73,36 @@ function readRegistry(): RegistryData {
 }
 
 function writeRegistry(data: RegistryData) {
-	if (!existsSync(REGISTRY_DIR)) {
-		mkdirSync(REGISTRY_DIR, { recursive: true })
+	const dir = getRegistryDir()
+	const path = getRegistryPath()
+	if (!existsSync(dir)) {
+		mkdirSync(dir, { recursive: true })
 	}
 	// atomic replace: write to a sibling temp file, fsync, then rename.
 	// protects against a half-written registry if a concurrent
 	// `atlas use` / `atlas projects add` races with this write. the
 	// rename is atomic on posix filesystems.
-	const tmp = `${REGISTRY_PATH}.tmp-${process.pid}-${Date.now()}`
+	const tmp = `${path}.tmp-${process.pid}-${Date.now()}`
 	writeFileSync(tmp, JSON.stringify(data, null, 2))
-	renameSync(tmp, REGISTRY_PATH)
+	renameSync(tmp, path)
 }
 
-function generateId(root: string): string {
+function slugify(root: string): string {
 	return basename(root).toLowerCase().replace(/[^a-z0-9-]/g, '-')
+}
+
+// generates a collision-safe project id. two different repos whose basenames
+// slugify to the same value (e.g. `~/work/api` and `~/personal/api`) used to
+// alias to the same cached engine, which silently corrupted multi-project
+// queries. when a collision is detected against an existing registry entry
+// pointing at a different absolute root, a short stable hash of the new
+// root is appended (`api-a1b2c3`) so both projects remain addressable.
+function generateId(root: string, existing: ProjectEntry[]): string {
+	const base = slugify(root)
+	const clash = existing.find((p) => p.id === base && p.root !== root)
+	if (!clash) return base
+	const suffix = createHash('sha256').update(root).digest('hex').slice(0, 6)
+	return `${base}-${suffix}`
 }
 
 export function listProjects(): ProjectEntry[] {
@@ -74,7 +121,7 @@ export function addProject(root: string, name?: string): ProjectEntry {
 	const existing = data.projects.find((p) => p.root === absRoot)
 	if (existing) return existing
 
-	const id = generateId(absRoot)
+	const id = generateId(absRoot, data.projects)
 	const dbPath = join(absRoot, '.atlas', 'atlas.db')
 
 	const entry: ProjectEntry = {
