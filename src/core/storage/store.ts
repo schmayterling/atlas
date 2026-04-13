@@ -848,6 +848,27 @@ export class AtlasStore {
 		)
 	}
 
+	// imports rows with NULL target_file_id, joined to their source
+	// file's path so callers can re-run ts.resolveModuleName against
+	// the current filesystem state. used by the incremental-index
+	// backfill to repair imports that were cascaded to NULL when a
+	// previously-imported file was deleted and re-inserted with a
+	// new file_id in step 4/5. see #35.
+	getNullTargetImports(): { id: number; sourceFilePath: string; importPath: string }[] {
+		return this.db
+			.query<{ id: number; sourceFilePath: string; importPath: string }, []>(
+				`SELECT i.id as id, f.path as sourceFilePath, i.import_path as importPath
+				 FROM imports i
+				 JOIN files f ON f.id = i.source_file_id
+				 WHERE i.target_file_id IS NULL`,
+			)
+			.all()
+	}
+
+	updateImportTargetFileId(importId: number, targetFileId: number) {
+		this.db.run('UPDATE imports SET target_file_id = ? WHERE id = ?', [targetFileId, importId])
+	}
+
 	// bulk insert with transaction
 	bulkInsert(operations: () => void) {
 		this.db.transaction(operations)()

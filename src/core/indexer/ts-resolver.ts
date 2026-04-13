@@ -115,6 +115,54 @@ export function resolveProject(
 	return { edges, imports }
 }
 
+// re-run ts.resolveModuleName against the current filesystem state
+// for every imports row that has a NULL target_file_id, and update
+// the row in place when the import now resolves to a known file.
+//
+// this repairs the incremental-index hazard where a modified file's
+// step 4 delete cascades through the files.id FK and sets
+// imports.target_file_id to NULL for every unchanged importer; step
+// 6's resolveProject only re-resolves the modified files, so the
+// importer rows stay NULL until a full reindex. see #35.
+//
+// the walker uses a minimal CompilerOptions (bundler resolution,
+// allowJs) so it does not need to spin up a ts.Program. that keeps
+// the backfill O(orphaned imports) instead of O(all files).
+export function rebindNullTargetImports(
+	projectRoot: string,
+	store: AtlasStore,
+): { scanned: number; rebound: number } {
+	const rows = store.getNullTargetImports()
+	if (rows.length === 0) return { scanned: 0, rebound: 0 }
+	const options: ts.CompilerOptions = {
+		target: ts.ScriptTarget.ESNext,
+		module: ts.ModuleKind.ESNext,
+		moduleResolution: ts.ModuleResolutionKind.Bundler,
+		allowJs: true,
+		noEmit: true,
+	}
+	let rebound = 0
+	for (const row of rows) {
+		const absSource = `${projectRoot}/${row.sourceFilePath}`
+		let result: ts.ResolvedModuleWithFailedLookupLocations
+		try {
+			result = ts.resolveModuleName(row.importPath, absSource, options, ts.sys)
+		} catch (e) {
+			log.debug(`rebindNullTargetImports: resolve failed for ${row.importPath}: ${e}`)
+			continue
+		}
+		if (!result.resolvedModule) continue
+		const relPath = toForwardSlash(
+			relative(projectRoot, result.resolvedModule.resolvedFileName),
+		)
+		const target = store.getFileByPath(relPath)
+		if (!target) continue
+		store.updateImportTargetFileId(row.id, target.id)
+		rebound++
+	}
+	return { scanned: rows.length, rebound }
+}
+
 // one bucket of files sharing a tsconfig. extracted into its own
 // function so the ts.Program + TypeChecker + ModuleGraph (~150-300MB
 // resident on a mid-size workspace) go out of scope naturally at

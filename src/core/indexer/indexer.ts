@@ -22,7 +22,7 @@ import {
 } from './change-detector.js'
 import { type DiscoveredFile, discoverFiles } from './file-discovery.js'
 import { detectRepoModules, matchFileToModule, type RepoModule } from './module-detector.js'
-import { resolveProject } from './ts-resolver.js'
+import { rebindNullTargetImports, resolveProject } from './ts-resolver.js'
 import { resolveGoProject } from './go-resolver.js'
 
 // options recognised by the index pipeline. new flags land here so the
@@ -525,6 +525,24 @@ export class Indexer {
 			})
 
 			log.info(`resolved ${totalEdges} cross-file edges, ${totalImports} imports`)
+
+			// backfill: repair imports rows whose target_file_id was
+			// cascaded to NULL when a previously-imported file was
+			// deleted and reinserted in step 4/5. resolveProject above
+			// only runs over state.absolutePaths (the modified set),
+			// so unchanged importers of a modified file keep their
+			// orphaned NULL targets without this pass. see #35.
+			try {
+				const rebinder = rebindNullTargetImports(this.projectRoot, this.store)
+				if (rebinder.rebound > 0) {
+					log.info(
+						`rebind: ${rebinder.rebound}/${rebinder.scanned} orphaned imports resolved`,
+					)
+				}
+			} catch (e) {
+				state.warnings.push(`import rebind failed: ${e}`)
+				log.warn(`import rebind failed: ${e}`)
+			}
 		} catch (e) {
 			state.warnings.push(`cross-file resolution failed: ${e}`)
 			log.warn(`cross-file resolution failed: ${e}`)
