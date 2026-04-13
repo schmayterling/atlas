@@ -23,6 +23,67 @@ export interface ResolvedImport {
 	line: number
 }
 
+// the nearest tsconfig directory for a file. used by the monorepo
+// bucketing in resolveProject: each file lives under exactly one
+// tsconfig, and each tsconfig drives one ts.Program. cached per
+// directory so a fan of files in the same package only walks the
+// filesystem once.
+function findNearestTsconfig(fromDir: string, cache: Map<string, string | null>): string | null {
+	const cached = cache.get(fromDir)
+	if (cached !== undefined) return cached
+	let dir = fromDir
+	while (true) {
+		const candidate = `${dir}/tsconfig.json`
+		if (ts.sys.fileExists(candidate)) {
+			cache.set(fromDir, candidate)
+			return candidate
+		}
+		const parent = dir.replace(/[\\/][^\\/]+$/, '')
+		if (parent === dir || parent === '') {
+			cache.set(fromDir, null)
+			return null
+		}
+		dir = parent
+	}
+}
+
+// bucket file paths by their nearest tsconfig. files that share a
+// tsconfig are resolved together in one ts.Program so workspace-local
+// path aliases (paths, baseUrl) work. files without any tsconfig fall
+// into a single `null` bucket that uses default compiler options.
+function bucketByTsconfig(filePaths: string[]): Map<string | null, string[]> {
+	const cache = new Map<string, string | null>()
+	const buckets = new Map<string | null, string[]>()
+	for (const file of filePaths) {
+		const dir = file.replace(/[\\/][^\\/]+$/, '')
+		const config = findNearestTsconfig(dir, cache)
+		const key: string | null = config ?? null
+		const bucket = buckets.get(key)
+		if (bucket) bucket.push(file)
+		else buckets.set(key, [file])
+	}
+	return buckets
+}
+
+// parse a tsconfig path into TS compiler options. centralised so both
+// the bucketed and the fallback (null config) paths go through the
+// same parser with the same safety fallbacks.
+function readCompilerOptions(configPath: string | null, projectRoot: string): ts.CompilerOptions {
+	const defaults: ts.CompilerOptions = {
+		target: ts.ScriptTarget.ESNext,
+		module: ts.ModuleKind.ESNext,
+		moduleResolution: ts.ModuleResolutionKind.Bundler,
+		allowJs: true,
+		noEmit: true,
+	}
+	if (!configPath) return defaults
+	const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
+	if (configFile.error) return defaults
+	const configDir = configPath.replace(/[\\/][^\\/]+$/, '') || projectRoot
+	const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, configDir)
+	return { ...parsed.options, noEmit: true }
+}
+
 export function resolveProject(
 	projectRoot: string,
 	filePaths: string[],
@@ -33,46 +94,46 @@ export function resolveProject(
 	const edges: ResolvedEdge[] = []
 	const imports: ResolvedImport[] = []
 
-	// find and parse tsconfig
-	const configPath = ts.findConfigFile(projectRoot, ts.sys.fileExists, 'tsconfig.json')
-	let compilerOptions: ts.CompilerOptions = {
-		target: ts.ScriptTarget.ESNext,
-		module: ts.ModuleKind.ESNext,
-		moduleResolution: ts.ModuleResolutionKind.Bundler,
-		allowJs: true,
-		noEmit: true,
-	}
+	// group files by nearest tsconfig so a monorepo with apps/* each
+	// owning its own tsconfig.json resolves path aliases correctly.
+	// single-tsconfig repos (including atlas itself) fall into exactly
+	// one bucket and the behaviour is identical to the previous single
+	// ts.Program path. stable ids stay relative to projectRoot (the
+	// identity root) regardless of which bucket owns a file.
+	const buckets = bucketByTsconfig(filePaths)
 
-	if (configPath) {
-		const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
-		if (!configFile.error) {
-			const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, projectRoot)
-			compilerOptions = { ...parsed.options, noEmit: true }
+	for (const [configPath, bucketFiles] of buckets) {
+		const compilerOptions = readCompilerOptions(configPath, projectRoot)
+
+		let program: ts.Program
+		try {
+			program = ts.createProgram(bucketFiles, compilerOptions)
+		} catch (e) {
+			log.warn(`failed to create TS program for ${configPath ?? '<no tsconfig>'}: ${e}`)
+			continue
 		}
-	}
 
-	// create program
-	let program: ts.Program
-	try {
-		program = ts.createProgram(filePaths, compilerOptions)
-	} catch (e) {
-		log.warn(`failed to create TS program: ${e}`)
-		return { edges: [], imports: [] }
-	}
+		const checker = program.getTypeChecker()
 
-	const checker = program.getTypeChecker()
+		for (const filePath of bucketFiles) {
+			const sourceFile = program.getSourceFile(filePath)
+			if (!sourceFile) continue
 
-	// process each source file
-	for (const filePath of filePaths) {
-		const sourceFile = program.getSourceFile(filePath)
-		if (!sourceFile) continue
+			const relPath = toForwardSlash(relative(projectRoot, filePath))
+			const fileRecord = store.getFileByPath(relPath)
+			if (!fileRecord) continue
 
-		const relPath = toForwardSlash(relative(projectRoot, filePath))
-		const fileRecord = store.getFileByPath(relPath)
-		if (!fileRecord) continue
-
-		resolveImports(sourceFile, relPath, compilerOptions, projectRoot, fileRecord.id, store, imports)
-		resolveReferences(sourceFile, checker, relPath, projectRoot, fileRecord.id, store, edges)
+			resolveImports(
+				sourceFile,
+				relPath,
+				compilerOptions,
+				projectRoot,
+				fileRecord.id,
+				store,
+				imports,
+			)
+			resolveReferences(sourceFile, checker, relPath, projectRoot, fileRecord.id, store, edges)
+		}
 	}
 
 	return { edges, imports }
