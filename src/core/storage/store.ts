@@ -5,6 +5,8 @@ import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
 import { isVectorSearchAvailable, loadVecExtension } from './sqlite-ext.js'
 import type {
+	ChannelHit,
+	ChannelHitGroup,
 	Confidence,
 	EdgeKind,
 	EdgeRecord,
@@ -177,9 +179,19 @@ export class AtlasStore {
 
 		// migrations whose failure is recoverable. v2 introduces vec0 (sqlite-vec
 		// extension may be unavailable). v7 recreates the same vec0 table at a
-		// new dimension. all other migrations introduce required tables and
-		// must fail loudly.
-		const OPTIONAL_MIGRATIONS = new Set([2, 7])
+		// new dimension. v15 backfills pull_requests.files_complete via ALTER
+		// TABLE, which is a no-op (duplicate column error) for v13-born dbs
+		// that already have the column. all other migrations introduce
+		// required tables and must fail loudly.
+		const OPTIONAL_MIGRATIONS = new Set([2, 7, 15])
+		// v15 should ONLY absorb the specific "duplicate column name"
+		// error. any other failure (locked table, corrupted schema) must
+		// propagate so the operator sees it instead of having the
+		// migration silently re-attempted on every startup.
+		const isAcceptableOptionalFailure = (version: number, err: unknown): boolean => {
+			if (version !== 15) return true
+			return String(err).includes('duplicate column')
+		}
 
 		for (const m of pending) {
 			try {
@@ -197,6 +209,7 @@ export class AtlasStore {
 				}
 			} catch (e) {
 				if (!OPTIONAL_MIGRATIONS.has(m.version)) throw e
+				if (!isAcceptableOptionalFailure(m.version, e)) throw e
 				log.debug(`migration v${m.version} failed (non-fatal, optional): ${e}`)
 				continue
 			}
@@ -428,6 +441,26 @@ export class AtlasStore {
 			const placeholders = chunk.map(() => '?').join(',')
 			this.db.run(
 				`DELETE FROM edges WHERE file_id IS NULL AND source_id IN (${placeholders})`,
+				chunk,
+			)
+		}
+	}
+
+	// mirrors deleteCrossFileEdgesForSources but for the `imports` table,
+	// which is written in two passes for non-TS languages: step 5 inserts
+	// a row with target_file_id=null, and step 6's go-resolver upgrades
+	// it to a resolved row. without a cleanup pass re-indexing would
+	// accumulate duplicate rows on every run because `imports` has no
+	// unique constraint. callers pass the set of file ids being
+	// re-resolved; every import row whose source is in that set is
+	// deleted before the resolver writes fresh rows. see #3.
+	deleteImportsForSourceFiles(sourceFileIds: number[]) {
+		if (sourceFileIds.length === 0) return
+		for (let i = 0; i < sourceFileIds.length; i += 500) {
+			const chunk = sourceFileIds.slice(i, i + 500)
+			const placeholders = chunk.map(() => '?').join(',')
+			this.db.run(
+				`DELETE FROM imports WHERE source_file_id IN (${placeholders})`,
 				chunk,
 			)
 		}
@@ -879,6 +912,86 @@ export class AtlasStore {
 		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
 	}
 
+	// --- channel_hits: generic cross-language channel linking (#10) ---
+
+	// bulk insert with INSERT OR IGNORE so the UNIQUE constraint
+	// absorbs re-runs without blowing up. callers are expected to
+	// delete-by-kind first when they want to rebuild a channel from
+	// scratch (mirrors the proto-linker idempotency pattern).
+	insertChannelHits(rows: ChannelHit[]): void {
+		if (rows.length === 0) return
+		const stmt = this.db.prepare(
+			'INSERT OR IGNORE INTO channel_hits (symbol_stable_id, file_id, kind, value, line, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+		)
+		this.bulkInsert(() => {
+			for (const r of rows) {
+				stmt.run(r.symbolStableId, r.fileId, r.kind, r.value, r.line, r.metadata)
+			}
+		})
+	}
+
+	// cleanup before a channel linker rewrites its rows on a fresh
+	// indexing pass. callers always pair this with insertChannelHits
+	// inside the same indexer step so the kind is never observed
+	// half-written by another reader.
+	deleteChannelHitsByKind(kind: string): void {
+		this.db.run('DELETE FROM channel_hits WHERE kind = ?', [kind])
+	}
+
+	// returns one ChannelHitGroup per (kind, value) that has at least
+	// 2 distinct symbols touching it. collapses the rows into an
+	// ordered list of stable_ids per group so consumers can present
+	// "these functions all touch table X" without materialising a
+	// quadratic cross_project_edges write path. used by future cli /
+	// mcp surfaces; the sql-linker itself just writes hits.
+	findChannelHitGroups(kind: string): ChannelHitGroup[] {
+		const rows = this.db
+			.query<{ value: string; stableId: string }, [string]>(
+				`SELECT value, symbol_stable_id as stableId
+				 FROM channel_hits
+				 WHERE kind = ?
+				 ORDER BY value, symbol_stable_id`,
+			)
+			.all(kind)
+		const byValue = new Map<string, Set<string>>()
+		for (const r of rows) {
+			if (!byValue.has(r.value)) byValue.set(r.value, new Set())
+			byValue.get(r.value)!.add(r.stableId)
+		}
+		const out: ChannelHitGroup[] = []
+		for (const [value, set] of byValue) {
+			if (set.size < 2) continue
+			out.push({ kind, value, symbolStableIds: Array.from(set).sort() })
+		}
+		out.sort((a, b) => a.value.localeCompare(b.value))
+		return out
+	}
+
+	// the enclosing symbol lookup used by channel linkers that have a
+	// byte offset (typically from a regex match inside a string
+	// literal) and need to credit the hit to the smallest symbol that
+	// covers it. falls back to file-level if no symbol wraps the
+	// offset (e.g. top-level module strings).
+	getSymbolContainingByte(fileId: number, byteOffset: number): SymbolRecord | null {
+		return (
+			(this.db
+				.query<SymbolRecord, [number, number, number]>(
+					`SELECT id, stable_id as stableId, file_id as fileId, name,
+					       qualified_name as qualifiedName, kind, visibility,
+					       is_exported as isExported, line_start as lineStart,
+					       line_end as lineEnd, col_start as colStart, col_end as colEnd,
+					       byte_start as byteStart, byte_end as byteEnd,
+					       parent_id as parentId, signature, doc_comment as docComment,
+					       metadata
+					 FROM symbols
+					 WHERE file_id = ? AND byte_start <= ? AND byte_end >= ?
+					 ORDER BY (byte_end - byte_start) ASC
+					 LIMIT 1`,
+				)
+				.get(fileId, byteOffset, byteOffset) as SymbolRecord | null) ?? null
+		)
+	}
+
 	// reconcile files.is_test against the current testPatterns from the
 	// caller's perspective. used by the indexer at the start of each run so
 	// that schema migrations (v11 added is_test defaulted to 0) and
@@ -899,19 +1012,51 @@ export class AtlasStore {
 
 	// --- test links (test ↔ source mapping) ---
 
-	// returns one row per (test file, exported source symbol) where the
-	// test file imports the source symbol's containing file. used by step
-	// 6.5 to populate the 'imported' confidence rows in a single query.
+	// returns one row per (test file, reachable source symbol) where the
+	// test file transitively imports the source symbol's containing file via
+	// the `imports` graph. used by step 6.5 to populate the 'imported'
+	// confidence rows in a single query.
+	//
+	// the walk is a recursive CTE keyed on `(test_id, file_id)` — NOT on
+	// `(test_id, file_id, depth)` — so cycle dedupe happens on the real
+	// identity. keeping `depth` in the tuple would make the same
+	// (test, file) pair visible at depths 1 and 2 look like distinct rows to
+	// `UNION`, defeating cycle termination. sqlite terminates the recursion
+	// when no new `(test, file)` pair appears on an iteration.
+	//
+	// the transitive walk matters because tests often reach their
+	// under-test subject through a helper file (e.g. `createTempStore` in
+	// tests/helpers/tmp-store.ts → src/core/storage/store.ts), so a
+	// one-hop imports join misses symbols the test exercises end-to-end.
+	// covers #23.
+	//
+	// symbols are credited when EITHER the symbol itself is_exported=1
+	// OR it is a method/property on a parent that is_exported=1. atlas
+	// marks class methods with is_exported=0 even when the containing
+	// class is exported, so a naive `s.is_exported = 1` filter would
+	// systematically under-report coverage for every method-level
+	// symbol — which is exactly the bug #23 complains about.
 	getTestImportedSymbolPairs(): { testFileId: number; symbolStableId: string }[] {
 		return this.db
 			.query<{ testFileId: number; symbolStableId: string }, []>(
-				`SELECT i.source_file_id as testFileId, s.stable_id as symbolStableId
-				 FROM files tf
-				 JOIN imports i ON i.source_file_id = tf.id
-				 JOIN symbols s ON s.file_id = i.target_file_id
-				 WHERE tf.is_test = 1
-				 AND i.target_file_id IS NOT NULL
-				 AND s.is_exported = 1`,
+				`WITH RECURSIVE reach(test_id, file_id) AS (
+					SELECT i.source_file_id, i.target_file_id
+					FROM imports i
+					JOIN files tf ON tf.id = i.source_file_id
+					WHERE tf.is_test = 1 AND i.target_file_id IS NOT NULL
+				  UNION
+					SELECT r.test_id, i2.target_file_id
+					FROM reach r
+					JOIN imports i2 ON i2.source_file_id = r.file_id
+					WHERE i2.target_file_id IS NOT NULL
+				)
+				SELECT DISTINCT r.test_id as testFileId, s.stable_id as symbolStableId
+				FROM reach r
+				JOIN files f ON f.id = r.file_id
+				JOIN symbols s ON s.file_id = f.id
+				LEFT JOIN symbols parent ON parent.stable_id = s.parent_id
+				WHERE f.is_test = 0
+				  AND (s.is_exported = 1 OR parent.is_exported = 1)`,
 			)
 			.all()
 	}

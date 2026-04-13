@@ -30,7 +30,7 @@ export interface HotspotEntry {
 //
 // excludes symbols from test files (is_test = 1) so hotspot output
 // describes production code, not scaffolding.
-export const HOTSPOT_COVERAGE_WEIGHT = { none: 1.0, imported: 0.6, called: 0.2 } as const
+const HOTSPOT_COVERAGE_WEIGHT = { none: 1.0, imported: 0.6, called: 0.2 } as const
 
 interface HotspotRow {
 	stableId: string
@@ -46,17 +46,29 @@ interface HotspotRow {
 
 export function findHotspots(
 	store: AtlasStore,
-	opts?: { limit?: number; coverage?: 'called' | 'imported' | 'none' },
+	opts?: {
+		limit?: number
+		coverage?: 'called' | 'imported' | 'none'
+		excludeFileIds?: Set<number>
+	},
 ): HotspotEntry[] {
 	const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 500)
 
+	// generated-file exclusion. parameterised via placeholders to
+	// match dead-code.ts — the ids themselves are trusted (sourced
+	// from findGeneratedFileIds which reads the store's own files
+	// table), but we still follow CLAUDE.md's "never interpolate
+	// into SQL strings" rule. see #44.
+	const excludeIds = opts?.excludeFileIds ? Array.from(opts.excludeFileIds) : []
+	const excludeFilter =
+		excludeIds.length > 0
+			? ` AND f.id NOT IN (${excludeIds.map(() => '?').join(',')})`
+			: ''
+
 	// one scan of test_links + one scan of file_changes, both pre-
 	// aggregated into temp CTEs so the main join is index-friendly.
-	// previously the main query had two EXISTS subqueries per symbol
-	// row plus a correlated COUNT(DISTINCT) for churn, which was O(n^2)
-	// over exported callables on anything larger than the atlas fixture.
-	const rows = store.queryRaw<HotspotRow>(`
-		WITH coverage_per_symbol AS (
+	const rows = store.queryRawWithParams<HotspotRow>(
+		`WITH coverage_per_symbol AS (
 			SELECT
 				source_symbol_stable_id as stable_id,
 				MAX(CASE WHEN confidence = 'called' THEN 1 ELSE 0 END) as has_called,
@@ -89,11 +101,12 @@ export function findHotspots(
 		LEFT JOIN coverage_per_symbol cov ON cov.stable_id = s.stable_id
 		LEFT JOIN commits_per_file cf ON cf.file_path = f.path
 		WHERE s.is_exported = 1
-		  AND f.is_test = 0
+		  AND f.is_test = 0${excludeFilter}
 		  AND s.kind IN ('function', 'method')
 		GROUP BY s.stable_id
-		HAVING COUNT(DISTINCT e.source_id) > 0
-	`)
+		HAVING COUNT(DISTINCT e.source_id) > 0`,
+		...excludeIds,
+	)
 
 	const scored: HotspotEntry[] = rows.map((r) => {
 		const commits = r.commits ?? 0

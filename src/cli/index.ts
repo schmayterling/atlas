@@ -52,8 +52,14 @@ program
 	.option('--dry-run', 'show what would be indexed without changes')
 	.option('--no-embed', 'skip vector embedding generation')
 	.option('--no-summarize', 'skip LLM summary generation')
-	.option('--with-cochange', 'use git co-change as additional weight in subsystem clustering')
-	.option('--with-github', 'ingest github prs + issues (requires gh cli and a github remote)')
+	.option(
+		'--no-cochange',
+		'skip co-change weighting during subsystem clustering (default: on)',
+	)
+	.option(
+		'--no-github',
+		'skip github pr + issue ingestion (default: on; gracefully skips when gh cli or remote is unavailable)',
+	)
 	.option('--db <path>', 'override index db path (relative to project root or absolute)')
 	.action(async (cmdOpts) => {
 		const opts = program.opts()
@@ -62,8 +68,12 @@ program
 			dryRun: cmdOpts.dryRun,
 			noEmbed: !cmdOpts.embed,
 			noSummarize: !cmdOpts.summarize,
-			withCoChange: cmdOpts.withCochange,
-			withGitHub: cmdOpts.withGithub,
+			// commander negates `--no-*` flags so `cmdOpts.cochange` is
+			// false when --no-cochange is passed, true otherwise. mirror
+			// the withCoChange / withGitHub engine opts to keep the
+			// existing indexer plumbing working.
+			withCoChange: cmdOpts.cochange,
+			withGitHub: cmdOpts.github,
 			db: cmdOpts.db,
 		})
 	})
@@ -84,6 +94,7 @@ program
 	.option('-s, --semantic', 'semantic search (natural language, requires embeddings)')
 	.option('-n, --limit <n>', 'max results', '20')
 	.option('--include-tests', 'include symbols from test files')
+	.option('--all-projects', 'fan the search out across every registered atlas project')
 	.action(async (query, cmdOpts) => {
 		const opts = program.opts()
 		await searchCommand(opts.project, query, opts.json, {
@@ -92,6 +103,7 @@ program
 			semantic: cmdOpts.semantic,
 			limit: Number(cmdOpts.limit),
 			includeTests: cmdOpts.includeTests,
+			allProjects: cmdOpts.allProjects,
 		})
 	})
 

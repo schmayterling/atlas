@@ -42,7 +42,6 @@ export function statusCommand(projectRoot: string, json: boolean) {
 		label('files', String(result.stats.files))
 		label('symbols', String(result.stats.symbols))
 		label('edges', String(result.stats.edges))
-		label('references', String(result.stats.references))
 
 		if (Object.keys(result.languages).length > 0) {
 			console.log()

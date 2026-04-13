@@ -393,4 +393,48 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_issues_updated ON issues(updated_at);
 		`,
 	},
+	{
+		version: 14,
+		description: 'add channel_hits for cross-language channel linking',
+		// channel_hits is the generic data model for cross-language
+		// channel linking (sql tables, graphql types, queue topics,
+		// env vars, openapi schemas, ...). each row records that a
+		// symbol touched a channel value at a specific line; the
+		// "which symbols share this table" query becomes an on-demand
+		// self-join by (kind, value) instead of a pairwise materialised
+		// edge set that would balloon quadratically on popular
+		// channels. covers #10. the first channel to populate it is
+		// sql_table via src/core/queries/sql-linker.ts.
+		up: `
+			CREATE TABLE IF NOT EXISTS channel_hits (
+				id                INTEGER PRIMARY KEY AUTOINCREMENT,
+				symbol_stable_id  TEXT NOT NULL,
+				file_id           INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+				kind              TEXT NOT NULL,
+				value             TEXT NOT NULL,
+				line              INTEGER NOT NULL,
+				metadata          TEXT,
+				UNIQUE (symbol_stable_id, kind, value, line)
+			);
+			CREATE INDEX IF NOT EXISTS idx_channel_hits_kind_value ON channel_hits(kind, value);
+			CREATE INDEX IF NOT EXISTS idx_channel_hits_symbol ON channel_hits(symbol_stable_id);
+			CREATE INDEX IF NOT EXISTS idx_channel_hits_file ON channel_hits(file_id);
+		`,
+	},
+	{
+		version: 15,
+		description: 'backfill pull_requests.files_complete for older dbs',
+		// v13 declared files_complete in the pull_requests CREATE
+		// TABLE. older dbs created before that column landed in the
+		// CREATE hit a "no such column" on the github-ingest INSERT
+		// (surfaced by #48 flipping github ingest to default-on).
+		// the ALTER fails on newer dbs that already have the column
+		// ("duplicate column name"); add v15 to OPTIONAL_MIGRATIONS
+		// in store.ts so that failure mode is swallowed as a no-op
+		// for v13-born databases. both populations converge on the
+		// same column state after this migration.
+		up: `
+			ALTER TABLE pull_requests ADD COLUMN files_complete INTEGER NOT NULL DEFAULT 0;
+		`,
+	},
 ]

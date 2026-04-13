@@ -1,4 +1,4 @@
-import { relative } from 'node:path'
+import { dirname, relative } from 'node:path'
 import ts from 'typescript'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
@@ -23,6 +23,73 @@ export interface ResolvedImport {
 	line: number
 }
 
+// the nearest tsconfig directory for a file. used by the monorepo
+// bucketing in resolveProject: each file lives under exactly one
+// tsconfig, and each tsconfig drives one ts.Program. cached per
+// directory so a fan of files in the same package only walks the
+// filesystem once.
+function findNearestTsconfig(fromDir: string, cache: Map<string, string | null>): string | null {
+	const cached = cache.get(fromDir)
+	if (cached !== undefined) return cached
+	let dir = fromDir
+	while (true) {
+		const candidate = `${dir}/tsconfig.json`
+		if (ts.sys.fileExists(candidate)) {
+			cache.set(fromDir, candidate)
+			return candidate
+		}
+		const parent = dirname(dir)
+		if (parent === dir || parent === '' || parent === '.') {
+			cache.set(fromDir, null)
+			return null
+		}
+		dir = parent
+	}
+}
+
+// bucket file paths by their nearest tsconfig. files that share a
+// tsconfig are resolved together in one ts.Program so workspace-local
+// path aliases (paths, baseUrl) work. files without any tsconfig fall
+// into a single `null` bucket that uses default compiler options.
+function bucketByTsconfig(filePaths: string[]): Map<string | null, string[]> {
+	const cache = new Map<string, string | null>()
+	const buckets = new Map<string | null, string[]>()
+	for (const file of filePaths) {
+		const config = findNearestTsconfig(dirname(file), cache)
+		const key: string | null = config ?? null
+		const bucket = buckets.get(key)
+		if (bucket) bucket.push(file)
+		else buckets.set(key, [file])
+	}
+	return buckets
+}
+
+// parse a tsconfig path into TS compiler options. logs read/parse
+// failures so a silently-misconfigured workspace surfaces in the
+// indexer output instead of degrading resolution to defaults.
+function readCompilerOptions(configPath: string | null, projectRoot: string): ts.CompilerOptions {
+	const defaults: ts.CompilerOptions = {
+		target: ts.ScriptTarget.ESNext,
+		module: ts.ModuleKind.ESNext,
+		moduleResolution: ts.ModuleResolutionKind.Bundler,
+		allowJs: true,
+		noEmit: true,
+	}
+	if (!configPath) return defaults
+	const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
+	if (configFile.error) {
+		log.warn(`ts-resolver: failed to parse ${configPath}: ${configFile.error.messageText}`)
+		return defaults
+	}
+	const configDir = dirname(configPath) || projectRoot
+	const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, configDir)
+	if (parsed.errors.length > 0) {
+		const first = parsed.errors[0]
+		log.warn(`ts-resolver: ${configPath} has ${parsed.errors.length} config error(s), first: ${first.messageText}`)
+	}
+	return { ...parsed.options, noEmit: true }
+}
+
 export function resolveProject(
 	projectRoot: string,
 	filePaths: string[],
@@ -33,46 +100,46 @@ export function resolveProject(
 	const edges: ResolvedEdge[] = []
 	const imports: ResolvedImport[] = []
 
-	// find and parse tsconfig
-	const configPath = ts.findConfigFile(projectRoot, ts.sys.fileExists, 'tsconfig.json')
-	let compilerOptions: ts.CompilerOptions = {
-		target: ts.ScriptTarget.ESNext,
-		module: ts.ModuleKind.ESNext,
-		moduleResolution: ts.ModuleResolutionKind.Bundler,
-		allowJs: true,
-		noEmit: true,
-	}
+	// group files by nearest tsconfig so a monorepo with apps/* each
+	// owning its own tsconfig.json resolves path aliases correctly.
+	// single-tsconfig repos (including atlas itself) fall into exactly
+	// one bucket and the behaviour is identical to the previous single
+	// ts.Program path. stable ids stay relative to projectRoot (the
+	// identity root) regardless of which bucket owns a file.
+	const buckets = bucketByTsconfig(filePaths)
 
-	if (configPath) {
-		const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
-		if (!configFile.error) {
-			const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, projectRoot)
-			compilerOptions = { ...parsed.options, noEmit: true }
+	for (const [configPath, bucketFiles] of buckets) {
+		const compilerOptions = readCompilerOptions(configPath, projectRoot)
+
+		let program: ts.Program
+		try {
+			program = ts.createProgram(bucketFiles, compilerOptions)
+		} catch (e) {
+			log.warn(`failed to create TS program for ${configPath ?? '<no tsconfig>'}: ${e}`)
+			continue
 		}
-	}
 
-	// create program
-	let program: ts.Program
-	try {
-		program = ts.createProgram(filePaths, compilerOptions)
-	} catch (e) {
-		log.warn(`failed to create TS program: ${e}`)
-		return { edges: [], imports: [] }
-	}
+		const checker = program.getTypeChecker()
 
-	const checker = program.getTypeChecker()
+		for (const filePath of bucketFiles) {
+			const sourceFile = program.getSourceFile(filePath)
+			if (!sourceFile) continue
 
-	// process each source file
-	for (const filePath of filePaths) {
-		const sourceFile = program.getSourceFile(filePath)
-		if (!sourceFile) continue
+			const relPath = toForwardSlash(relative(projectRoot, filePath))
+			const fileRecord = store.getFileByPath(relPath)
+			if (!fileRecord) continue
 
-		const relPath = toForwardSlash(relative(projectRoot, filePath))
-		const fileRecord = store.getFileByPath(relPath)
-		if (!fileRecord) continue
-
-		resolveImports(sourceFile, relPath, compilerOptions, projectRoot, fileRecord.id, store, imports)
-		resolveReferences(sourceFile, checker, relPath, projectRoot, fileRecord.id, store, edges)
+			resolveImports(
+				sourceFile,
+				relPath,
+				compilerOptions,
+				projectRoot,
+				fileRecord.id,
+				store,
+				imports,
+			)
+			resolveReferences(sourceFile, checker, relPath, projectRoot, fileRecord.id, store, edges)
+		}
 	}
 
 	return { edges, imports }
@@ -132,6 +199,12 @@ function resolveReferences(
 		// resolve call expressions
 		if (ts.isCallExpression(node)) {
 			resolveCallExpression(node, sourceFile, checker, relPath, projectRoot, store, edges)
+			// also walk the arguments for function-valued references.
+			// `router.get(path, handler)` has `handler` as an identifier
+			// argument; if it resolves to a function/method symbol we
+			// emit a passed_as edge (not calls — the handler is not
+			// invoked at the registration site). see #49.
+			resolveArgumentReferences(node, sourceFile, checker, relPath, projectRoot, store, edges)
 		}
 
 		// resolve type references
@@ -146,6 +219,81 @@ function resolveReferences(
 
 		ts.forEachChild(node, visit)
 	})
+}
+
+// walk the arguments of a call expression and emit a passed_as edge
+// for every argument that resolves to a function or method symbol.
+// precise filters: rejects values, classes, variables that aren't
+// function-valued, and the callee itself (that's handled by
+// resolveCallExpression already). handles identifier and
+// property-access argument shapes. covers #49.
+function resolveArgumentReferences(
+	call: ts.CallExpression,
+	sourceFile: ts.SourceFile,
+	checker: ts.TypeChecker,
+	relPath: string,
+	projectRoot: string,
+	store: AtlasStore,
+	edges: ResolvedEdge[],
+) {
+	for (const arg of call.arguments) {
+		if (!ts.isIdentifier(arg) && !ts.isPropertyAccessExpression(arg)) continue
+		try {
+			const sym = checker.getSymbolAtLocation(arg)
+			if (!sym) continue
+
+			const resolved = resolveOriginalSymbol(sym, checker)
+			if (!resolved) continue
+
+			// only emit passed_as when the resolved target is a function
+			// or method declaration. variables, classes, and values are
+			// skipped so we don't link every identifier argument.
+			if (
+				!ts.isFunctionDeclaration(resolved.decl) &&
+				!ts.isMethodDeclaration(resolved.decl) &&
+				!(
+					ts.isVariableDeclaration(resolved.decl) &&
+					resolved.decl.initializer &&
+					(ts.isArrowFunction(resolved.decl.initializer) ||
+						ts.isFunctionExpression(resolved.decl.initializer))
+				)
+			) {
+				continue
+			}
+
+			const declFile = resolved.decl.getSourceFile()
+			const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
+			if (declRelPath.includes('node_modules')) continue
+
+			const containingFn = findContainingFunction(arg, sourceFile, relPath)
+			if (!containingFn) continue
+
+			const targetName = resolved.symbol.getName()
+			const targetKind = getSymbolKind(resolved.decl)
+			const existing = store.findSymbolInFile(declRelPath, targetName, targetKind)
+			const targetId = existing
+				? existing.stableId
+				: stableSymbolId(
+						declRelPath,
+						targetKind,
+						buildQualifiedName(declRelPath, resolved.decl, targetName),
+					)
+			const sourceId = stableSymbolId(relPath, containingFn.kind, containingFn.qname)
+
+			const pos = sourceFile.getLineAndCharacterOfPosition(arg.getStart())
+
+			edges.push({
+				sourceStableId: sourceId,
+				targetStableId: targetId,
+				kind: 'passed_as',
+				line: pos.line + 1,
+				col: pos.character,
+				confidence: 'resolved',
+			})
+		} catch (e) {
+			log.debug(`skipped passed_as resolution at ${relPath}: ${e}`)
+		}
+	}
 }
 
 function resolveCallExpression(

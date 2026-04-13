@@ -19,6 +19,19 @@ interface EmbedCandidate {
 // it still returns 400 for some inputs; embedBatchRecoverable handles that.
 const MAX_EMBED_CHARS = 3000
 
+// nomic-embed-text was trained with task prefixes. documents get
+// 'search_document: ' and the matching user query gets 'search_query: '.
+// without them, natural-language queries like "deduplicate symbols by
+// embedding similarity" miss the right answer because the model's
+// retrieval space collapses to identifier-level overlap. see #22.
+export const EMBED_DOCUMENT_PREFIX = 'search_document: '
+export const EMBED_QUERY_PREFIX = 'search_query: '
+// salt bumped to force a re-embed the first time the new prefix rolls
+// out on an existing db. hashText consumes both the salt and the text,
+// so the same input body hashes differently between versions and the
+// existing hash comparison in runEmbeddingPipeline triggers rework.
+const EMBED_HASH_SALT = 'embed-v2\n'
+
 export function buildEmbedText(
 	row: {
 		kind: string
@@ -54,11 +67,11 @@ export function buildEmbedText(
 	}
 
 	const text = body ? `${header.join(' ')}\n${body}` : header.join(' ')
-	return text.slice(0, MAX_EMBED_CHARS)
+	return (EMBED_DOCUMENT_PREFIX + text).slice(0, MAX_EMBED_CHARS)
 }
 
 function hashText(text: string): string {
-	return createHash('sha256').update(text).digest('hex').slice(0, 16)
+	return createHash('sha256').update(EMBED_HASH_SALT).update(text).digest('hex').slice(0, 16)
 }
 
 export async function runEmbeddingPipeline(

@@ -29,7 +29,10 @@ export function getBlastRadius(
 		maxDepth,
 		maxNodes: 5000,
 		maxEdges: 20000,
-		edgeKinds: ['calls', 'type_ref', 'extends'],
+		// passed_as / dispatches_to are reverse-walked so middleware
+		// registration sites and go interface satisfiers appear in the
+		// blast surface of a function. see #49, #50.
+		edgeKinds: ['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to'],
 		timeoutMs: 5000,
 	}
 

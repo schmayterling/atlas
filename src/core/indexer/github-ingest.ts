@@ -52,16 +52,23 @@ interface GhPRFile {
 	deletions: number
 }
 
+// every git/gh spawn in this file hard-caps at PROBE_TIMEOUT_MS so
+// default-on github ingest can never hang the indexer on a stalled
+// keychain prompt, a slow network, or a deadlocked gh subprocess.
+// `gh auth status` is known to stall on macOS when the keychain is
+// locked and on any host when api.github.com is unreachable.
+const PROBE_TIMEOUT_MS = 5000
+
 function detectRemote(projectRoot: string): GitHubRemote | null {
 	try {
 		const result = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], {
 			cwd: projectRoot,
 			stdout: 'pipe',
 			stderr: 'pipe',
+			timeout: PROBE_TIMEOUT_MS,
 		})
 		if (result.exitCode !== 0) return null
 		const url = result.stdout.toString().trim()
-		// https://github.com/owner/repo(.git)?
 		const httpsMatch = url.match(/github\.com[/:]([^/]+)\/([^/.]+)(?:\.git)?$/)
 		if (httpsMatch) {
 			return { owner: httpsMatch[1], repo: httpsMatch[2] }
@@ -74,7 +81,28 @@ function detectRemote(projectRoot: string): GitHubRemote | null {
 
 function isGhAvailable(): boolean {
 	try {
-		const result = Bun.spawnSync(['gh', '--version'], { stdout: 'pipe', stderr: 'pipe' })
+		const result = Bun.spawnSync(['gh', '--version'], {
+			stdout: 'pipe',
+			stderr: 'pipe',
+			timeout: PROBE_TIMEOUT_MS,
+		})
+		return result.exitCode === 0
+	} catch {
+		return false
+	}
+}
+
+// deeper capability check: gh is usable only if it's installed AND
+// authenticated against github.com. `gh auth status` can hang on
+// macOS keychain / network issues, so the timeout is load-bearing
+// here — without it the indexer would block forever.
+function isGhAuthenticated(): boolean {
+	try {
+		const result = Bun.spawnSync(['gh', 'auth', 'status'], {
+			stdout: 'pipe',
+			stderr: 'pipe',
+			timeout: PROBE_TIMEOUT_MS,
+		})
 		return result.exitCode === 0
 	} catch {
 		return false
@@ -125,6 +153,21 @@ const META_PR_WATERMARK = 'github_prs_updated_after'
 const META_ISSUES_WATERMARK = 'github_issues_updated_after'
 
 export function ingestGitHub(projectRoot: string, store: AtlasStore): GitHubIngestResult {
+	// probe git remote FIRST so we exit fast on projects that have no
+	// git directory at all. this keeps test fixtures and non-git
+	// directories from paying the gh-cli spawn cost on every index
+	// run; #48's opt-out flip made default-on, so cheap early exits
+	// matter more than they used to.
+	const remote = detectRemote(projectRoot)
+	if (!remote) {
+		return {
+			prsFetched: 0,
+			issuesFetched: 0,
+			skipped: true,
+			reason: 'not a github repo',
+		}
+	}
+
 	if (!isGhAvailable()) {
 		return {
 			prsFetched: 0,
@@ -133,14 +176,15 @@ export function ingestGitHub(projectRoot: string, store: AtlasStore): GitHubInge
 			reason: 'gh cli not installed',
 		}
 	}
-
-	const remote = detectRemote(projectRoot)
-	if (!remote) {
+	// capability probe so default-on ingestion stays silent on
+	// machines with gh installed but not authenticated. without this
+	// check every index run on such a machine would fire warnings.
+	if (!isGhAuthenticated()) {
 		return {
 			prsFetched: 0,
 			issuesFetched: 0,
 			skipped: true,
-			reason: 'not a github repo',
+			reason: 'gh cli not authenticated (run `gh auth login` to enable github ingest)',
 		}
 	}
 

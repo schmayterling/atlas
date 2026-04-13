@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { extname } from 'node:path'
+import { extname, relative } from 'node:path'
 import type { AtlasConfig } from '../../shared/config.js'
 import { contentHash, stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
+import { toForwardSlash } from '../../shared/paths.js'
 import type { IndexResult } from '../../shared/types.js'
 import { getLanguageForExtension, parseSource } from '../parser/parser-manager.js'
 import { getExtractor } from '../parser/extractor-registry.js'
@@ -10,6 +11,7 @@ import { linkInRepoApiEndpoints } from '../queries/cross-language-linker.js'
 import { detectDuplicatesFromEmbeddings } from '../queries/duplicate-detection.js'
 import { findGeneratedFileIds } from '../queries/generated-code.js'
 import { linkProtoSymbols } from '../queries/proto-linker.js'
+import { linkSqlTables } from '../queries/sql-linker.js'
 import type { AtlasStore } from '../storage/store.js'
 import {
 	type ChangeSet,
@@ -21,6 +23,7 @@ import {
 import { type DiscoveredFile, discoverFiles } from './file-discovery.js'
 import { detectRepoModules, matchFileToModule, type RepoModule } from './module-detector.js'
 import { resolveProject } from './ts-resolver.js'
+import { resolveGoProject } from './go-resolver.js'
 
 // options recognised by the index pipeline. new flags land here so the
 // driver stays a short ordered sequence of step calls.
@@ -42,7 +45,12 @@ interface IndexState {
 	warnings: string[]
 	discovered: DiscoveredFile[]
 	changes: ChangeSet
+	// absolutePaths is the TS/JS resolver queue. kept as-is so existing
+	// call sites work unchanged. goAbsolutePaths is the parallel queue
+	// for the go-resolver which runs after the TS dispatch inside the
+	// same stepResolveCrossFile invocation. see #3.
 	absolutePaths: string[]
+	goAbsolutePaths: string[]
 	processedStableIds: string[]
 	generatedFileIds: Set<number>
 	repoModules: RepoModule[]
@@ -66,6 +74,7 @@ export class Indexer {
 			discovered: [],
 			changes: emptyChangeSet(),
 			absolutePaths: [],
+			goAbsolutePaths: [],
 			processedStableIds: [],
 			generatedFileIds: new Set(),
 			repoModules: [],
@@ -113,7 +122,6 @@ export class Indexer {
 				state.discovered.length - state.changes.added.length - state.changes.modified.length,
 			symbols: this.store.getSymbolCount(),
 			edges: this.store.getEdgeCount(),
-			references: this.store.getReferenceCount(),
 			duration,
 			warnings: state.warnings,
 		}
@@ -408,15 +416,39 @@ export class Indexer {
 		if (tsLangs.includes(parserLang)) {
 			state.absolutePaths.push(fileInfo.absolutePath)
 		}
+
+		// go files go through the go-resolver in step 6. persist the raw
+		// `imports` rows here (with target_file_id=null) so the resolver
+		// can upgrade them in place; this keeps atlas's import graph
+		// consistent with the rest of the pipeline even for go files that
+		// fail to resolve cross-file references. see #3.
+		if (parserLang === 'go') {
+			state.goAbsolutePaths.push(fileInfo.absolutePath)
+			for (const imp of result.imports) {
+				this.store.insertImport({
+					sourceFileId: fileId,
+					targetFileId: null,
+					importPath: imp.importPath,
+					isTypeOnly: false,
+					line: imp.line,
+				})
+			}
+		}
 	}
 
-	// step 6: cross-file resolution via TS compiler API. skipped only
-	// when there is nothing to process AND no deletions to clean up;
-	// the resolver itself is expensive but it also owns cleanup of
-	// stale cross-file edges that point to removed symbols.
+	// step 6: cross-file resolution. dispatches to the TS compiler API
+	// resolver for TS/JS files (resolveProject), then to the go-resolver
+	// for go files (resolveGoProject). skipped only when there is
+	// nothing to process AND no deletions to clean up; the resolver
+	// itself is expensive but it also owns cleanup of stale cross-file
+	// edges that point to removed symbols.
 	private stepResolveCrossFile(state: IndexState): void {
 		const t = performance.now()
-		if (state.absolutePaths.length === 0 && state.changes.deleted.length === 0) {
+		if (
+			state.absolutePaths.length === 0 &&
+			state.goAbsolutePaths.length === 0 &&
+			state.changes.deleted.length === 0
+		) {
 			log.debug('skipping cross-file resolution (no files processed, no deletions)')
 			return
 		}
@@ -433,13 +465,42 @@ export class Indexer {
 			// targetId referencing a now-missing stable_id) are orphaned.
 			// rebuild from the current TS compiler view of the project to
 			// drop the stale rows. only runs when we have something to resolve.
-			const resolved =
+			const tsResolved =
 				state.absolutePaths.length > 0
 					? resolveProject(this.projectRoot, state.absolutePaths, this.store)
 					: { edges: [], imports: [] }
 
+			// go resolver: mirrors the shape of resolveProject. step 5
+			// wrote null-target `imports` rows for every go file we're
+			// re-indexing; delete those here before inserting fresh
+			// resolved rows so re-indexing stays idempotent.
+			let goResolved: {
+				edges: typeof tsResolved.edges
+				imports: typeof tsResolved.imports
+			} = { edges: [], imports: [] }
+			if (state.goAbsolutePaths.length > 0) {
+				const goFileIds: number[] = []
+				for (const abs of state.goAbsolutePaths) {
+					const rel = toForwardSlash(relative(this.projectRoot, abs))
+					const rec = this.store.getFileByPath(rel)
+					if (rec) goFileIds.push(rec.id)
+				}
+				if (goFileIds.length > 0) {
+					this.store.deleteImportsForSourceFiles(goFileIds)
+				}
+				goResolved = resolveGoProject(
+					this.projectRoot,
+					state.goAbsolutePaths,
+					this.store,
+					state.repoModules,
+				)
+			}
+
+			const totalEdges = tsResolved.edges.length + goResolved.edges.length
+			const totalImports = tsResolved.imports.length + goResolved.imports.length
+
 			this.store.bulkInsert(() => {
-				for (const edge of resolved.edges) {
+				for (const edge of [...tsResolved.edges, ...goResolved.edges]) {
 					this.store.insertEdge({
 						sourceId: edge.sourceStableId,
 						targetId: edge.targetStableId,
@@ -452,7 +513,7 @@ export class Indexer {
 					})
 				}
 
-				for (const imp of resolved.imports) {
+				for (const imp of [...tsResolved.imports, ...goResolved.imports]) {
 					this.store.insertImport({
 						sourceFileId: imp.sourceFileId,
 						targetFileId: imp.targetFileId,
@@ -463,9 +524,7 @@ export class Indexer {
 				}
 			})
 
-			log.info(
-				`resolved ${resolved.edges.length} cross-file edges, ${resolved.imports.length} imports`,
-			)
+			log.info(`resolved ${totalEdges} cross-file edges, ${totalImports} imports`)
 		} catch (e) {
 			state.warnings.push(`cross-file resolution failed: ${e}`)
 			log.warn(`cross-file resolution failed: ${e}`)
@@ -494,12 +553,26 @@ export class Indexer {
 		// proto channel of the general cross-language linker (#10).
 		// matches symbol names against message/service/rpc definitions
 		// in any .proto file under the project. first channel to ship;
-		// graphql / sql / queues / env vars follow per-channel.
+		// graphql / queues / env vars follow per-channel.
 		try {
 			linkProtoSymbols(this.store, this.projectRoot)
 		} catch (e) {
 			state.warnings.push(`proto linking failed: ${e}`)
 			log.warn(`proto linking failed: ${e}`)
+		}
+
+		// sql-table channel. scans non-test source files for table
+		// names in FROM/JOIN/INTO/UPDATE/DELETE FROM string literals
+		// and writes channel_hits rows. idempotent via
+		// deleteChannelHitsByKind('sql_table') at the start.
+		try {
+			const result = linkSqlTables(this.store, this.projectRoot)
+			if (result.hits > 0) {
+				log.debug(`sql-linker: wrote ${result.hits} channel hits`)
+			}
+		} catch (e) {
+			state.warnings.push(`sql linking failed: ${e}`)
+			log.warn(`sql linking failed: ${e}`)
 		}
 	}
 
@@ -624,12 +697,17 @@ export class Indexer {
 
 	// optional: github pr + issue ingest, gated behind --with-github.
 	// off by default because it shells out to the gh cli and pings the
-	// github api, neither of which is wanted during normal local indexing.
+	// github ingest is default-on now: users can opt out via
+	// `--no-github`. ingestGitHub performs its own capability probe
+	// (gh installed, gh auth status succeeds, repo has a github
+	// remote) and returns a clean skipped result when any of those
+	// fail, so default-on doesn't emit a warning storm on machines
+	// without gh auth. see #48.
 	private async stepIngestGitHub(
 		state: IndexState,
 		opts: IndexOptions | undefined,
 	): Promise<void> {
-		if (!opts?.withGitHub) return
+		if (opts?.withGitHub === false) return
 		try {
 			const { ingestGitHub } = await import('./github-ingest.js')
 			const result = ingestGitHub(this.projectRoot, this.store)
@@ -668,7 +746,6 @@ export class Indexer {
 				state.discovered.length - state.changes.added.length - state.changes.modified.length,
 			symbols: 0,
 			edges: 0,
-			references: 0,
 			duration: performance.now() - state.start,
 			warnings: state.warnings,
 		}

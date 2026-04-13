@@ -23,7 +23,17 @@ export async function getFixtureEngine(): Promise<AtlasEngine> {
 			engine.close()
 			rmSync(atlasDir, { recursive: true, force: true })
 		}
-		await engine.index({ noEmbed: true, noSummarize: true, force: true })
+		// withGitHub: false so test fixtures never spawn `gh auth status`
+		// or hit github.com. #48 flipped the default to on, but tests
+		// that live inside the atlas repo tree inherit its github remote
+		// through git rev-parse and would otherwise make thousands of
+		// api calls per test run.
+		await engine.index({
+			noEmbed: true,
+			noSummarize: true,
+			force: true,
+			withGitHub: false,
+		})
 		initialized = true
 	}
 	return engine

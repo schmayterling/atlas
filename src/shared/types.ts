@@ -13,7 +13,25 @@ export type SymbolKind = (typeof SYMBOL_KINDS)[number]
 
 // edge kinds. file imports live in their own `imports` table and are
 // not edges.
-export const EDGE_KINDS = ['calls', 'contains', 'extends', 'type_ref'] as const
+export const EDGE_KINDS = [
+	'calls',
+	'contains',
+	'extends',
+	'type_ref',
+	// function reference passed as an argument: r.Use(MiddlewareAuth),
+	// router.get(path, handler), http.HandleFunc(path, fn). emitted only
+	// when the resolved target symbol is a function or method. reached
+	// from dead-code reachability and blast/deps/trace default edge sets,
+	// but intentionally NOT from test_links (passing a function to a
+	// route registrar does not "call" it in the test sense). see #49.
+	'passed_as',
+	// go interface method -> concrete method satisfying the interface in
+	// the same package. emitted by the go extractor when a struct method
+	// matches an interface method by (name, param count, return count).
+	// used by dead-code reachability so interface-dispatched methods are
+	// not reported dead. see #50.
+	'dispatches_to',
+] as const
 export type EdgeKind = (typeof EDGE_KINDS)[number]
 
 // confidence levels for edge resolution
@@ -166,7 +184,6 @@ export interface IndexResult {
 	filesCached: number
 	symbols: number
 	edges: number
-	references: number
 	duration: number
 	warnings: string[]
 }
@@ -184,7 +201,6 @@ export interface StatusResult {
 		files: number
 		symbols: number
 		edges: number
-		references: number
 	}
 	languages: Record<string, number>
 }
@@ -293,12 +309,48 @@ export interface TestCoverage {
 	coveredBy: TestConfidence | 'none'
 }
 
+// one recorded touch of a "cross-language channel" by a symbol. the
+// channel model replaced pairwise cross_project_edges for sql/graphql
+// etc. because "n symbols touch table X" blows up quadratically as
+// edges but stays linear as hits. the query surface is an on-demand
+// self-join over (kind, value). first consumer is the sql-linker; see
+// #10.
+export interface ChannelHit {
+	symbolStableId: string
+	fileId: number
+	kind: string
+	value: string
+	line: number
+	metadata: string | null
+}
+
+// aggregated view of channel_hits: "every symbol that touched value X
+// of kind Y at least once". returned from store.findChannelHitGroups
+// for consumers that want the pairwise view on demand.
+export interface ChannelHitGroup {
+	kind: string
+	value: string
+	symbolStableIds: string[]
+}
+
 export interface HotFragileEntry {
 	filePath: string
+	// churn proxy: distinct commits touching the file. kept for
+	// compatibility with any external json consumer reading the raw
+	// field. the explicit score fields below are the canonical
+	// surface for new consumers. see #43.
 	commits: number
 	symbolCount: number
 	untestedCount: number
-	subsystem: string | null
+	// file's own first-3 untested exported callables, ordered by
+	// line_start. see #24.
+	previewNames: string[]
+	// churnScore == commits, named for clarity. fragilityScore ==
+	// commits * untestedCount, the canonical ranking dimension
+	// computed in the query so every surface reads the same number.
+	// see #43.
+	churnScore: number
+	fragilityScore: number
 }
 
 // symbol detail for web UI

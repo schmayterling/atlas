@@ -1,6 +1,7 @@
 import { log } from '../../shared/logger.js'
 import type { SemanticSearchResult, SymbolKind } from '../../shared/types.js'
 import { isVectorSearchAvailable } from '../storage/sqlite-ext.js'
+import { EMBED_QUERY_PREFIX } from '../embeddings/embed-pipeline.js'
 import { OllamaClient } from '../embeddings/ollama-client.js'
 import type { AtlasStore } from '../storage/store.js'
 
@@ -24,12 +25,15 @@ export async function semanticSearch(
 		return { query, results: [], embeddingsAvailable: false }
 	}
 
-	// embed the query
+	// embed the query with the nomic-embed-text task prefix so it lives in
+	// the same retrieval space as the documents (which use EMBED_DOCUMENT_PREFIX
+	// in buildEmbedText). without the matching prefix, natural-language queries
+	// return noise. see #22.
 	const ollama = new OllamaClient()
 	let queryEmbedding: number[]
 	try {
 		await ollama.ensureRunning()
-		const embeddings = await ollama.embed([query])
+		const embeddings = await ollama.embed([EMBED_QUERY_PREFIX + query])
 		queryEmbedding = embeddings[0]
 	} catch (e) {
 		log.warn(`semantic search query failed: ${e}`)

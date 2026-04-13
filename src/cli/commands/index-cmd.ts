@@ -42,9 +42,7 @@ export async function indexCommand(
 		console.log(
 			`  ${pc.green(`+${result.filesAdded}`)} added  ${pc.yellow(`~${result.filesModified}`)} modified  ${pc.red(`-${result.filesDeleted}`)} deleted  ${pc.dim(`${result.filesCached} cached`)}`,
 		)
-		console.log(
-			`  ${result.symbols} symbols, ${result.edges} edges, ${result.references} references`,
-		)
+		console.log(`  ${result.symbols} symbols, ${result.edges} edges`)
 
 		if (result.warnings.length > 0) {
 			console.log()

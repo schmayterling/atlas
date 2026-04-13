@@ -19,12 +19,21 @@ export function extractGo(
 	const edges: ExtractedEdge[] = []
 	const imports: ExtractedImport[] = []
 	const apiEndpoints: ExtractedApiEndpoint[] = []
+	let packageName: string | null = null
 
 	const root = tree.rootNode
 
 	for (let i = 0; i < root.namedChildCount; i++) {
 		const child = root.namedChild(i)!
 		switch (child.type) {
+			case 'package_clause': {
+				// `package foo` — the identifier immediately following the
+				// keyword is the package name. used by the go-resolver to
+				// map import paths back to directories.
+				const ident = child.descendantsOfType('package_identifier')[0]
+				if (ident) packageName = ident.text
+				break
+			}
 			case 'function_declaration':
 				extractFunction(child, filePath, symbols, edges)
 				break
@@ -50,7 +59,127 @@ export function extractGo(
 	// matches call expressions by callee name + argument shape.
 	extractGoApiEndpoints(root, filePath, apiEndpoints)
 
-	return { symbols, edges, imports, apiEndpoints }
+	// same-file interface dispatch: emit dispatches_to edges from
+	// interface methods to concrete struct methods that share the
+	// (name, paramCount, returnCount) fingerprint. see #50.
+	emitInterfaceDispatchEdges(symbols, edges)
+
+	return { symbols, edges, imports, apiEndpoints, packageName }
+}
+
+// match interface methods to concrete struct methods in the same
+// file by a coarse (name, paramCount, returnCount) fingerprint and
+// emit dispatches_to edges. scoped to same-file only; full cross-
+// package go interface satisfaction needs real type inference. see
+// #50.
+interface InterfaceMethod {
+	qname: string
+	fingerprint: string
+}
+
+function emitInterfaceDispatchEdges(symbols: ExtractedSymbol[], edges: ExtractedEdge[]) {
+	const parentKinds = new Map<string, SymbolKind>()
+	for (const s of symbols) {
+		if (s.kind === 'interface' || s.kind === 'class') {
+			parentKinds.set(s.qualifiedName, s.kind)
+		}
+	}
+	// index interface methods by name so the concrete walk below is
+	// O(concreteMethods * matches) instead of O(interfaceMethods *
+	// concreteMethods). on generated fake files with 50+ methods
+	// implementing multiple interfaces, this saves thousands of
+	// string comparisons per file.
+	const ifaceByName = new Map<string, InterfaceMethod[]>()
+	for (const s of symbols) {
+		if (s.kind !== 'method' || !s.parentQualifiedName) continue
+		if (parentKinds.get(s.parentQualifiedName) !== 'interface') continue
+		const bucket = ifaceByName.get(s.name) ?? []
+		bucket.push({
+			qname: s.qualifiedName,
+			fingerprint: fingerprintSignature(s.signature, s.name),
+		})
+		ifaceByName.set(s.name, bucket)
+	}
+	if (ifaceByName.size === 0) return
+
+	for (const s of symbols) {
+		if (s.kind !== 'method' || !s.parentQualifiedName) continue
+		if (parentKinds.get(s.parentQualifiedName) !== 'class') continue
+		const candidates = ifaceByName.get(s.name)
+		if (!candidates) continue
+		const fingerprint = fingerprintSignature(s.signature, s.name)
+		for (const iface of candidates) {
+			if (iface.fingerprint !== fingerprint) continue
+			edges.push({
+				sourceQualifiedName: iface.qname,
+				targetName: s.qualifiedName,
+				kind: 'dispatches_to',
+				line: s.lineStart,
+				col: s.colStart,
+				confidence: 'heuristic' as Confidence,
+			})
+		}
+	}
+}
+
+// coarse fingerprint: method name + paren-counted param commas +
+// number of return slots. close enough to catch obvious matches
+// (Query(ctx context.Context) ([]Row, error) vs Query(id string)
+// string) and loose enough that we still match despite the
+// extractor lacking a real type system.
+function fingerprintSignature(signature: string | null, methodName: string): string {
+	if (!signature) return `${methodName}|0|0`
+	// strip the first `(` through the matching `)` for params; count
+	// commas at depth 1.
+	let depth = 0
+	let paramStart = -1
+	let paramEnd = -1
+	for (let i = 0; i < signature.length; i++) {
+		const c = signature[i]
+		if (c === '(') {
+			if (depth === 0 && paramStart === -1) paramStart = i + 1
+			depth++
+		} else if (c === ')') {
+			depth--
+			if (depth === 0 && paramEnd === -1) {
+				paramEnd = i
+				break
+			}
+		}
+	}
+	let paramCount = 0
+	if (paramStart !== -1 && paramEnd !== -1 && paramEnd > paramStart) {
+		const inner = signature.slice(paramStart, paramEnd)
+		if (inner.trim().length > 0) {
+			let nested = 0
+			paramCount = 1
+			for (let i = 0; i < inner.length; i++) {
+				const c = inner[i]
+				if (c === '(' || c === '[' || c === '{') nested++
+				else if (c === ')' || c === ']' || c === '}') nested--
+				else if (c === ',' && nested === 0) paramCount++
+			}
+		}
+	}
+	// return slots: count anything after the param list before EOL.
+	// a "(a, b)" result is 2, a plain "string" result is 1, none is 0.
+	const returnPart = paramEnd !== -1 ? signature.slice(paramEnd + 1).trim() : ''
+	let returnCount = 0
+	if (returnPart.length > 0) {
+		if (returnPart.startsWith('(')) {
+			let nested = 0
+			returnCount = 1
+			for (let i = 1; i < returnPart.length - 1; i++) {
+				const c = returnPart[i]
+				if (c === '(' || c === '[' || c === '{') nested++
+				else if (c === ')' || c === ']' || c === '}') nested--
+				else if (c === ',' && nested === 0) returnCount++
+			}
+		} else {
+			returnCount = 1
+		}
+	}
+	return `${methodName}|${paramCount}|${returnCount}`
 }
 
 function qname(filePath: string, name: string): string {
@@ -344,10 +473,11 @@ function extractVarDecl(
 }
 
 function extractImport(node: SyntaxNode, imports: ExtractedImport[]) {
-	for (let i = 0; i < node.namedChildCount; i++) {
-		const spec = node.namedChild(i)!
-		if (spec.type !== 'import_spec') continue
-
+	// tree-sitter-go wraps grouped `import (...)` declarations in an
+	// import_spec_list, so direct namedChild iteration misses every spec
+	// inside a grouped import. descendantsOfType('import_spec') walks
+	// both shapes (single and grouped) uniformly.
+	for (const spec of node.descendantsOfType('import_spec')) {
 		const pathNode = spec.childForFieldName('path')
 		if (!pathNode) continue
 
@@ -390,6 +520,37 @@ function extractCalls(
 					col: node.startPosition.column,
 					confidence: 'heuristic' as Confidence,
 				})
+			}
+
+			// passed_as: walk the argument list for function-valued
+			// identifier / selector arguments. covers `r.Use(Auth)`,
+			// `http.HandleFunc("/", Handle)`, and similar middleware /
+			// handler registration patterns where the function itself
+			// is the graph target but is never directly called at the
+			// registration site. see #49.
+			const args = node.childForFieldName('arguments')
+			if (args) {
+				for (let i = 0; i < args.namedChildCount; i++) {
+					const arg = args.namedChild(i)!
+					let argName: string | null = null
+					if (arg.type === 'identifier') {
+						argName = arg.text
+					} else if (arg.type === 'selector_expression') {
+						argName = arg.text
+					}
+					if (!argName) continue
+					// skip the callee itself if it bubbles through as an
+					// argument (shouldn't happen, but cheap to guard)
+					if (argName === callName) continue
+					edges.push({
+						sourceQualifiedName: sourceQName,
+						targetName: `${filePath}::${argName}`,
+						kind: 'passed_as',
+						line: arg.startPosition.row + 1,
+						col: arg.startPosition.column,
+						confidence: 'heuristic' as Confidence,
+					})
+				}
 			}
 		}
 	}

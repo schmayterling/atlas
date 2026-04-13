@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildEmbedText } from '../../src/core/embeddings/embed-pipeline.js'
+import {
+	buildEmbedText,
+	EMBED_DOCUMENT_PREFIX,
+	EMBED_QUERY_PREFIX,
+} from '../../src/core/embeddings/embed-pipeline.js'
 
 function withTempFile(content: string, fn: (root: string, relPath: string) => void): void {
 	const root = mkdtempSync(join(tmpdir(), 'atlas-embed-'))
@@ -120,6 +124,35 @@ describe('buildEmbedText', () => {
 			'/tmp',
 			new Map(),
 		)
-		expect(text).toBe('variable X in foo.ts')
+		expect(text).toBe(`${EMBED_DOCUMENT_PREFIX}variable X in foo.ts`)
+	})
+
+	// nomic-embed-text retrieval quality depends on a task-specific prefix on
+	// both the document side (here) and the query side (semantic-search.ts).
+	// covers #22.
+	test('prepends the search_document task prefix', () => {
+		const text = buildEmbedText(
+			{
+				kind: 'variable',
+				name: 'X',
+				qualifiedName: 'src/foo.ts::X',
+				filePath: 'src/foo.ts',
+				signature: null,
+				docComment: null,
+				byteStart: 0,
+				byteEnd: 0,
+			},
+			'/tmp',
+			new Map(),
+		)
+		expect(text.startsWith(EMBED_DOCUMENT_PREFIX)).toBe(true)
+	})
+
+	test('exports the matching search_query prefix for the query side', () => {
+		// the query side (semantic-search.ts) imports this constant; pin the
+		// literal so a future refactor that accidentally diverges the two
+		// prefixes breaks here instead of silently regressing retrieval.
+		expect(EMBED_DOCUMENT_PREFIX).toBe('search_document: ')
+		expect(EMBED_QUERY_PREFIX).toBe('search_query: ')
 	})
 })

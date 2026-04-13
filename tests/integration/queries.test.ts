@@ -65,14 +65,18 @@ describe('trace', () => {
 })
 
 describe('deadCode', () => {
-	// dead-code only considers non-exported symbols (exports are assumed
-	// public API). AuthService.logout is uncalled in the fixture.
-	test('finds non-exported symbols with no inbound calls', async () => {
+	// dead-code uses recursive reachability from exported roots (#41):
+	// a non-exported helper that nothing imports or calls is dead.
+	// mutually-recursive unreachable functions are also flagged,
+	// because each has the other's inbound edge but neither is
+	// reachable from any root — the old NOT IN check missed this.
+	test('finds non-exported symbols not reachable from any root', async () => {
 		const engine = await getFixtureEngine()
 		const result = engine.deadCode()
 		expect(result.symbols.length).toBeGreaterThan(0)
 		const deadNames = result.symbols.map((s) => s.name)
-		expect(deadNames).toContain('logout')
+		expect(deadNames).toContain('deadA')
+		expect(deadNames).toContain('deadB')
 	})
 
 	test('returns stats with byKind and byFile', async () => {

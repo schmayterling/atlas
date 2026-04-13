@@ -36,7 +36,16 @@ describe('indexer + tiny-project fixture', () => {
 
 	test('re-indexing with no changes is a no-op', async () => {
 		const engine = await getFixtureEngine()
-		const result = await engine.index({ noEmbed: true, noSummarize: true })
+		const result = await engine.index({
+			noEmbed: true,
+			noSummarize: true,
+			// disable the default-on gh ingest + co-change paths in
+			// tests; the fixture lives inside atlas's own git tree and
+			// re-running the default pipeline would stamp watermark
+			// metadata every run and tick filesModified off zero.
+			withGitHub: false,
+			withCoChange: false,
+		})
 		expect(result.filesAdded).toBe(0)
 		expect(result.filesModified).toBe(0)
 		expect(result.filesDeleted).toBe(0)
