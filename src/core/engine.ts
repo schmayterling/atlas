@@ -393,6 +393,13 @@ export class AtlasEngine {
 		return this.getStore()
 	}
 
+	// drop every cross_project_edges row in this engine's db. used by
+	// `atlas projects clear-edges` so users can rebuild from scratch
+	// after a build-edges schema or linker change. see #8a.
+	clearCrossProjectEdges(): number {
+		return this.getStore().deleteAllCrossProjectEdges()
+	}
+
 	// --- LLM summaries ---
 
 	getFileSummary(filePath: string): string | null {

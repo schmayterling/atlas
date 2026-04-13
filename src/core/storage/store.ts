@@ -953,6 +953,16 @@ export class AtlasStore {
 		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
 	}
 
+	// drop every cross_project_edges row in this db. used by
+	// `atlas projects clear-edges` after a build-edges schema or
+	// linker change so users can rebuild from scratch without
+	// hand-editing sqlite. see #8a.
+	deleteAllCrossProjectEdges(): number {
+		const before = this.db.query('SELECT COUNT(*) AS n FROM cross_project_edges').get() as { n: number }
+		this.db.run('DELETE FROM cross_project_edges')
+		return before.n
+	}
+
 	// --- channel_hits: generic cross-language channel linking (#10) ---
 
 	// bulk insert with INSERT OR IGNORE so the UNIQUE constraint

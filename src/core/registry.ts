@@ -100,6 +100,15 @@ export function getProject(id: string): ProjectEntry | null {
 	return readRegistry().projects.find((p) => p.id === id) ?? null
 }
 
+// resolves a registered project by absolute filesystem root. used by
+// engine-pool to honor an explicit -p path that points at a registered
+// project (so the same db is reused regardless of whether the user
+// addresses it by id or by path) without letting a stale active-project
+// default silently redirect the request elsewhere. see #8a.
+export function getProjectByRoot(absRoot: string): ProjectEntry | null {
+	return readRegistry().projects.find((p) => p.root === absRoot) ?? null
+}
+
 export function addProject(root: string, name?: string): ProjectEntry {
 	const absRoot = resolve(root)
 	const data = readRegistry()

@@ -249,7 +249,7 @@ program
 
 program
 	.command('projects <action> [args...]')
-	.description('manage projects (list, add <path>, remove <id>, link <from> <to>)')
+	.description('manage projects (list, add <path>, remove <id>, link <from> <to>, clear-edges [...ids])')
 	.action((action, args) => {
 		const opts = program.opts()
 		projectsCommand(action, args, opts.json)

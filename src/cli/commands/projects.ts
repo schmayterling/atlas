@@ -1,4 +1,5 @@
 import { listProjects, addProject, removeProject, linkProjects, getProjectLinks } from '../../core/registry.js'
+import { getOrCreateEngine } from '../../core/engine-pool.js'
 import pc from 'picocolors'
 
 export function projectsCommand(action: string, args: string[], json: boolean) {
@@ -72,8 +73,32 @@ export function projectsCommand(action: string, args: string[], json: boolean) {
 			}
 			break
 		}
+		case 'clear-edges': {
+			const projects = listProjects()
+			const targets = args.length > 0
+				? projects.filter((p) => args.includes(p.id))
+				: projects
+			if (targets.length === 0) {
+				console.error('no matching projects to clear edges from')
+				process.exit(1)
+			}
+			const summary: Array<{ project: string; deleted: number }> = []
+			for (const project of targets) {
+				const engine = getOrCreateEngine(project.id, project.root)
+				const deleted = engine.clearCrossProjectEdges()
+				summary.push({ project: project.id, deleted })
+			}
+			if (json) {
+				console.log(JSON.stringify(summary, null, 2))
+			} else {
+				for (const row of summary) {
+					console.log(`cleared ${pc.yellow(String(row.deleted))} cross-project edge${row.deleted === 1 ? '' : 's'} from ${pc.cyan(row.project)}`)
+				}
+			}
+			break
+		}
 		default:
-			console.error(`unknown action: ${action}. use: list, add, remove, link`)
+			console.error(`unknown action: ${action}. use: list, add, remove, link, clear-edges`)
 			process.exit(1)
 	}
 }
