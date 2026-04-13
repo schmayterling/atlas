@@ -1001,7 +1001,7 @@ export class AtlasStore {
 
 	// --- test links (test ↔ source mapping) ---
 
-	// returns one row per (test file, exported source symbol) where the
+	// returns one row per (test file, reachable source symbol) where the
 	// test file transitively imports the source symbol's containing file via
 	// the `imports` graph. used by step 6.5 to populate the 'imported'
 	// confidence rows in a single query.
@@ -1018,6 +1018,13 @@ export class AtlasStore {
 	// tests/helpers/tmp-store.ts → src/core/storage/store.ts), so a
 	// one-hop imports join misses symbols the test exercises end-to-end.
 	// covers #23.
+	//
+	// symbols are credited when EITHER the symbol itself is_exported=1
+	// OR it is a method/property on a parent that is_exported=1. atlas
+	// marks class methods with is_exported=0 even when the containing
+	// class is exported, so a naive `s.is_exported = 1` filter would
+	// systematically under-report coverage for every method-level
+	// symbol — which is exactly the bug #23 complains about.
 	getTestImportedSymbolPairs(): { testFileId: number; symbolStableId: string }[] {
 		return this.db
 			.query<{ testFileId: number; symbolStableId: string }, []>(
@@ -1036,7 +1043,9 @@ export class AtlasStore {
 				FROM reach r
 				JOIN files f ON f.id = r.file_id
 				JOIN symbols s ON s.file_id = f.id
-				WHERE f.is_test = 0 AND s.is_exported = 1`,
+				LEFT JOIN symbols parent ON parent.stable_id = s.parent_id
+				WHERE f.is_test = 0
+				  AND (s.is_exported = 1 OR parent.is_exported = 1)`,
 			)
 			.all()
 	}
