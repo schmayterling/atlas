@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -68,8 +68,8 @@ describe('registry active project', () => {
 	})
 })
 
-// restore HOME so anything else running after this suite doesn't
-// get confused.
-afterEach(() => {
+// restore HOME once after the whole suite finishes (afterEach would
+// run between every test, which is neither needed nor intended).
+afterAll(() => {
 	process.env.HOME = originalHome
 })

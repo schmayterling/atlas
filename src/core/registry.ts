@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, resolve, basename } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import { log } from '../shared/logger.js'
 
 export interface ProjectEntry {
@@ -45,7 +45,13 @@ function writeRegistry(data: RegistryData) {
 	if (!existsSync(REGISTRY_DIR)) {
 		mkdirSync(REGISTRY_DIR, { recursive: true })
 	}
-	writeFileSync(REGISTRY_PATH, JSON.stringify(data, null, 2))
+	// atomic replace: write to a sibling temp file, fsync, then rename.
+	// protects against a half-written registry if a concurrent
+	// `atlas use` / `atlas projects add` races with this write. the
+	// rename is atomic on posix filesystems.
+	const tmp = `${REGISTRY_PATH}.tmp-${process.pid}-${Date.now()}`
+	writeFileSync(tmp, JSON.stringify(data, null, 2))
+	renameSync(tmp, REGISTRY_PATH)
 }
 
 function generateId(root: string): string {

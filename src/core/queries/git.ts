@@ -13,9 +13,15 @@ export function clearBranchCommitCache(): void {
 
 // returns the set of commit hashes reachable from <branch> along the
 // first-parent chain. follows the git log surface used by most
-// review-ready branch workflows. returns null when branch doesn't
+// review-ready branch workflows. returns null when the branch doesn't
 // exist or git fails, so callers can either skip the filter or
 // surface a clean error.
+//
+// security: the branch name flows in from user input (--branch on the
+// cli). before passing it to git log we validate it with
+// `git check-ref-format --branch` — this rejects dash-prefixed values
+// like `--exec=…` that git would otherwise parse as a flag. we still
+// use `--end-of-options` when invoking git log for defense in depth.
 export function getBranchCommits(
 	projectRoot: string,
 	branch: string,
@@ -24,9 +30,26 @@ export function getBranchCommits(
 	const cached = branchCommitCache.get(key)
 	if (cached) return cached
 
+	// check-ref-format enforces the git ref name rules (no leading
+	// dash, no spaces, no ..) so a malicious branch name can't become
+	// a git flag. it succeeds silently on valid names.
+	try {
+		const check = Bun.spawnSync(
+			['git', 'check-ref-format', '--branch', branch],
+			{ cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
+		)
+		if (check.exitCode !== 0) {
+			log.warn(`invalid branch name: ${branch}`)
+			return null
+		}
+	} catch (e) {
+		log.warn(`branch validation failed: ${e}`)
+		return null
+	}
+
 	try {
 		const result = Bun.spawnSync(
-			['git', 'log', '--first-parent', branch, '--format=%H'],
+			['git', 'log', '--first-parent', '--format=%H', '--end-of-options', branch],
 			{ cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
 		)
 		if (result.exitCode !== 0) {

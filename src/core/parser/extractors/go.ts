@@ -195,12 +195,15 @@ function extractTypeDecl(
 			kind,
 			isExported: /^[A-Z]/.test(name),
 			visibility: /^[A-Z]/.test(name) ? 'export' : null,
-			lineStart: node.startPosition.row + 1,
-			lineEnd: node.endPosition.row + 1,
-			colStart: node.startPosition.column,
-			colEnd: node.endPosition.column,
-			byteStart: node.startIndex,
-			byteEnd: node.endIndex,
+			// use the inner type_spec position so grouped `type ( Foo; Bar )`
+			// blocks give each symbol its own span instead of the entire
+			// block span.
+			lineStart: spec.startPosition.row + 1,
+			lineEnd: spec.endPosition.row + 1,
+			colStart: spec.startPosition.column,
+			colEnd: spec.endPosition.column,
+			byteStart: spec.startIndex,
+			byteEnd: spec.endIndex,
 			parentQualifiedName: null,
 			signature: null,
 			docComment,
@@ -243,41 +246,44 @@ function extractTypeDecl(
 			}
 		}
 
-		// extract struct field names (as properties)
+		// extract struct field names (as properties). multi-name
+		// declarations like `X, Y float64` produce one symbol per name,
+		// so we iterate every `name`-field child of the declaration
+		// instead of only consulting childForFieldName which returns
+		// the first match.
 		if (isStruct && typeNode) {
 			const fieldList = typeNode.childForFieldName('body') ?? typeNode.namedChild(0)
 			if (fieldList) {
 				for (let j = 0; j < fieldList.namedChildCount; j++) {
 					const field = fieldList.namedChild(j)!
-					if (field.type === 'field_declaration') {
-						const fieldName = field.childForFieldName('name')
-						if (fieldName) {
-							const fieldQName = `${filePath}::${name}.${fieldName.text}`
-							symbols.push({
-								name: fieldName.text,
-								qualifiedName: fieldQName,
-								kind: 'property',
-								isExported: /^[A-Z]/.test(fieldName.text),
-								visibility: /^[A-Z]/.test(fieldName.text) ? 'export' : null,
-								lineStart: field.startPosition.row + 1,
-								lineEnd: field.endPosition.row + 1,
-								colStart: field.startPosition.column,
-								colEnd: field.endPosition.column,
-								byteStart: field.startIndex,
-								byteEnd: field.endIndex,
-								parentQualifiedName: qualName,
-								signature: field.text.trim(),
-								docComment: null,
-							})
-							edges.push({
-								sourceQualifiedName: qualName,
-								targetName: fieldQName,
-								kind: 'contains',
-								line: field.startPosition.row + 1,
-								col: field.startPosition.column,
-								confidence: 'resolved' as Confidence,
-							})
-						}
+					if (field.type !== 'field_declaration') continue
+					const fieldNames = collectFieldChildren(field, 'name')
+					for (const fieldName of fieldNames) {
+						const fieldQName = `${filePath}::${name}.${fieldName.text}`
+						symbols.push({
+							name: fieldName.text,
+							qualifiedName: fieldQName,
+							kind: 'property',
+							isExported: /^[A-Z]/.test(fieldName.text),
+							visibility: /^[A-Z]/.test(fieldName.text) ? 'export' : null,
+							lineStart: field.startPosition.row + 1,
+							lineEnd: field.endPosition.row + 1,
+							colStart: field.startPosition.column,
+							colEnd: field.endPosition.column,
+							byteStart: field.startIndex,
+							byteEnd: field.endIndex,
+							parentQualifiedName: qualName,
+							signature: field.text.trim(),
+							docComment: null,
+						})
+						edges.push({
+							sourceQualifiedName: qualName,
+							targetName: fieldQName,
+							kind: 'contains',
+							line: field.startPosition.row + 1,
+							col: field.startPosition.column,
+							confidence: 'resolved' as Confidence,
+						})
 					}
 				}
 			}
@@ -285,35 +291,55 @@ function extractTypeDecl(
 	}
 }
 
+// tree-sitter's childForFieldName returns only the first name of a
+// multi-name declaration. walk the immediate children and collect
+// every node that occupies the named field slot so `var a, b int`,
+// `X, Y float64`, and friends all produce one symbol per identifier.
+function collectFieldChildren(parent: SyntaxNode, fieldName: string): SyntaxNode[] {
+	const out: SyntaxNode[] = []
+	for (let i = 0; i < parent.childCount; i++) {
+		if (parent.fieldNameForChild(i) === fieldName) {
+			const child = parent.child(i)
+			if (child) out.push(child)
+		}
+	}
+	return out
+}
+
 function extractVarDecl(
 	node: SyntaxNode,
 	filePath: string,
 	symbols: ExtractedSymbol[],
 ) {
+	// walk the children of var_declaration / const_declaration looking
+	// for var_spec / const_spec entries. for each spec, extract every
+	// name (multi-name: `var a, b, c int`) and tag its span with the
+	// spec's own position so grouped `var ( x = 1; y = 2 )` blocks
+	// don't give both symbols the whole-block span.
 	for (let i = 0; i < node.namedChildCount; i++) {
 		const spec = node.namedChild(i)!
 		if (spec.type !== 'var_spec' && spec.type !== 'const_spec') continue
 
-		const nameNode = spec.childForFieldName('name')
-		if (!nameNode) continue
-
-		const name = nameNode.text
-		symbols.push({
-			name,
-			qualifiedName: qname(filePath, name),
-			kind: 'variable',
-			isExported: /^[A-Z]/.test(name),
-			visibility: /^[A-Z]/.test(name) ? 'export' : null,
-			lineStart: node.startPosition.row + 1,
-			lineEnd: node.endPosition.row + 1,
-			colStart: node.startPosition.column,
-			colEnd: node.endPosition.column,
-			byteStart: node.startIndex,
-			byteEnd: node.endIndex,
-			parentQualifiedName: null,
-			signature: null,
-			docComment: null,
-		})
+		const nameNodes = collectFieldChildren(spec, 'name')
+		for (const nameNode of nameNodes) {
+			const name = nameNode.text
+			symbols.push({
+				name,
+				qualifiedName: qname(filePath, name),
+				kind: 'variable',
+				isExported: /^[A-Z]/.test(name),
+				visibility: /^[A-Z]/.test(name) ? 'export' : null,
+				lineStart: spec.startPosition.row + 1,
+				lineEnd: spec.endPosition.row + 1,
+				colStart: spec.startPosition.column,
+				colEnd: spec.endPosition.column,
+				byteStart: spec.startIndex,
+				byteEnd: spec.endIndex,
+				parentQualifiedName: null,
+				signature: null,
+				docComment: null,
+			})
+		}
 	}
 }
 
@@ -432,6 +458,24 @@ function extractGoApiEndpoints(
 	}
 }
 
+// receiver-name allowlist for router-method calls. only selector
+// expressions whose operand looks like a router (`r`, `mux`, `router`,
+// `app`, `e`, `http`) are considered. this stops cache.Get("/key"),
+// db.Handle("/path", ...), etc. from being misclassified as http routes.
+const ROUTER_RECEIVERS = new Set([
+	'r',
+	'router',
+	'mux',
+	'app',
+	'e',
+	'engine',
+	'http',
+	's',
+	'srv',
+	'server',
+	'api',
+])
+
 function tryExtractRouteCall(
 	call: SyntaxNode,
 	filePath: string,
@@ -442,6 +486,18 @@ function tryExtractRouteCall(
 
 	const methodName = extractCalleeMethodName(funcNode)
 	if (!methodName) return
+
+	// receiver guard: method calls on non-router receivers (cache.Get,
+	// db.Handle, etc.) get rejected here before any verb/path inspection.
+	// identifier callees (bare HandleFunc) are only allowed for the
+	// generic http package helpers.
+	if (funcNode.type === 'selector_expression') {
+		const operand = funcNode.childForFieldName('operand')
+		const operandName = operand?.type === 'identifier' ? operand.text.toLowerCase() : null
+		if (!operandName || !ROUTER_RECEIVERS.has(operandName)) return
+	} else if (funcNode.type !== 'identifier') {
+		return
+	}
 
 	let framework: string | null = null
 	let httpMethod: string | null = null

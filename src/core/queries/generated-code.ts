@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { closeSync, openSync, readSync } from 'node:fs'
 import { join } from 'node:path'
+import { log } from '../../shared/logger.js'
 import type { AtlasStore } from '../storage/store.js'
 
 // path patterns that identify codegen output without opening the file. these
@@ -18,14 +19,35 @@ export function isGeneratedPath(path: string): boolean {
 }
 
 // returns true when the first 4kb of the file contains the standard
-// "code generated ... do not edit" header. silently returns false on read
-// errors (file may have been deleted between indexing and query time).
+// "code generated ... do not edit" header. reads ONLY the first 4kb
+// via openSync/readSync so a directory of multi-megabyte mocks doesn't
+// load megabytes into memory just to check the header. silently skips
+// ENOENT (file was deleted between discovery and read); logs other
+// read errors via log.warn because they're actionable.
 export function hasGeneratedHeader(absPath: string): boolean {
+	let fd: number
 	try {
-		const text = readFileSync(absPath, 'utf-8').slice(0, 4096)
-		return GENERATED_HEADER_RE.test(text)
-	} catch {
+		fd = openSync(absPath, 'r')
+	} catch (e) {
+		const code = (e as NodeJS.ErrnoException).code
+		if (code !== 'ENOENT') {
+			log.warn(`generated-code: open ${absPath}: ${e}`)
+		}
 		return false
+	}
+	try {
+		const buf = Buffer.alloc(4096)
+		const bytes = readSync(fd, buf, 0, 4096, 0)
+		return GENERATED_HEADER_RE.test(buf.toString('utf8', 0, bytes))
+	} catch (e) {
+		log.warn(`generated-code: read ${absPath}: ${e}`)
+		return false
+	} finally {
+		try {
+			closeSync(fd)
+		} catch {
+			// ignore close errors
+		}
 	}
 }
 

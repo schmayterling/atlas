@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { log } from '../../shared/logger.js'
 
 // parses a git .mailmap file into a lookup table keyed by lowercased wrong
 // email. the canonical record carries the replacement name and email. see
@@ -105,14 +106,17 @@ export function applyMailmap(
 	return { name, email }
 }
 
-// loads .mailmap from the given project root. returns null when absent or
-// unreadable so callers can skip canonicalisation cheaply.
+// loads .mailmap from the given project root. returns null when absent
+// (quiet, expected) or unreadable (warn — operator should fix). missing
+// file = skip canonicalisation; present-but-broken file = warn so the
+// user knows why contributor dedup suddenly stopped working.
 export function loadMailmap(projectRoot: string): Mailmap | null {
 	const path = join(projectRoot, '.mailmap')
 	if (!existsSync(path)) return null
 	try {
 		return parseMailmap(readFileSync(path, 'utf-8'))
-	} catch {
+	} catch (e) {
+		log.warn(`failed to read .mailmap at ${path}: ${e}`)
 		return null
 	}
 }

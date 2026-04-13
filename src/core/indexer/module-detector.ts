@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { createHash } from 'node:crypto'
+import { log } from '../../shared/logger.js'
 import type { DiscoveredFile } from './file-discovery.js'
 
 // one detected repo module. kind is derived from the manifest file.
@@ -44,10 +45,20 @@ export function detectRepoModules(
 	const modules: RepoModule[] = []
 	const seen = new Set<string>()
 
+	// precompute the canonical real-path of the project root once so
+	// probeManifest can check every manifest it reads against that
+	// boundary.
+	let projectRootReal: string | null = null
+	try {
+		projectRootReal = realpathSync(projectRoot)
+	} catch {
+		projectRootReal = projectRoot
+	}
+
 	for (const dir of dirs) {
-		probeManifest(projectRoot, dir, 'go', modules, seen)
-		probeManifest(projectRoot, dir, 'node', modules, seen)
-		probeManifest(projectRoot, dir, 'python', modules, seen)
+		probeManifest(projectRoot, projectRootReal, dir, 'go', modules, seen)
+		probeManifest(projectRoot, projectRootReal, dir, 'node', modules, seen)
+		probeManifest(projectRoot, projectRootReal, dir, 'python', modules, seen)
 	}
 
 	return modules
@@ -61,6 +72,7 @@ const MANIFEST_NAMES: Record<RepoModule['kind'], string[]> = {
 
 function probeManifest(
 	projectRoot: string,
+	projectRootReal: string | null,
 	relDir: string,
 	kind: RepoModule['kind'],
 	out: RepoModule[],
@@ -73,10 +85,38 @@ function probeManifest(
 		if (!existsSync(absPath)) continue
 		seen.add(relManifest)
 
+		// symlink boundary check: if the manifest itself or any path
+		// segment above it is a symlink whose real target escapes the
+		// project root, refuse to read it. stops a malicious repo from
+		// exposing /etc/package.json or similar via `apps/api -> /etc`.
+		if (projectRootReal) {
+			try {
+				const real = realpathSync(absPath)
+				if (!isUnderRoot(real, projectRootReal)) {
+					log.warn(
+						`module detector: ignoring ${relManifest} — resolves outside project root`,
+					)
+					continue
+				}
+				if (lstatSync(absPath).isSymbolicLink()) {
+					// dir-above-manifest symlinks are caught by the real-path
+					// check. leaving the lstat log here as a tripwire for
+					// operators reading warnings.
+					log.debug(`module detector: ${relManifest} is a symlink`)
+				}
+			} catch (e) {
+				log.warn(`module detector: realpath ${relManifest}: ${e}`)
+				continue
+			}
+		}
+
 		try {
 			const rawContent = readFileSync(absPath, 'utf-8')
 			const parsed = parseManifest(kind, rawContent)
-			if (!parsed) continue
+			if (!parsed) {
+				log.warn(`module detector: ${relManifest} is unparseable, skipping`)
+				continue
+			}
 			const id = createHash('sha256').update(relManifest).digest('hex').slice(0, 16)
 			out.push({
 				id,
@@ -86,11 +126,15 @@ function probeManifest(
 				rootDir: relDir,
 				modulePath: parsed.modulePath,
 			})
-		} catch {
-			// manifest exists but can't be parsed — skip silently so a
-			// malformed package.json doesn't break indexing.
+		} catch (e) {
+			log.warn(`module detector: read ${relManifest}: ${e}`)
 		}
 	}
+}
+
+function isUnderRoot(abs: string, root: string): boolean {
+	const normRoot = root.endsWith('/') ? root : `${root}/`
+	return abs === root || abs.startsWith(normRoot)
 }
 
 interface ParsedManifest {
