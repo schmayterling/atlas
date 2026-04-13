@@ -59,73 +59,56 @@ export function extractGo(
 	// matches call expressions by callee name + argument shape.
 	extractGoApiEndpoints(root, filePath, apiEndpoints)
 
-	// interface dispatch: emit dispatches_to edges from interface
-	// methods to concrete methods that satisfy them, matched by
-	// (methodName, paramCount, returnCount) signature fingerprint
-	// within the same file. this lets dead-code reachability
-	// credit concrete methods reached via interface values as
-	// alive. scoped to same-file only because full cross-package
-	// Go interface satisfaction needs real type inference. see #50.
-	emitInterfaceDispatchEdges(symbols, edges, filePath)
+	// same-file interface dispatch: emit dispatches_to edges from
+	// interface methods to concrete struct methods that share the
+	// (name, paramCount, returnCount) fingerprint. see #50.
+	emitInterfaceDispatchEdges(symbols, edges)
 
 	return { symbols, edges, imports, apiEndpoints, packageName }
 }
 
-// given the full symbol list extracted from a single go file, match
-// every interface method against every concrete struct method with
-// the same name + param count + return count and emit a
-// dispatches_to edge from the interface method → concrete method.
-// the fingerprint is intentionally loose (no type comparison) — go's
-// structural interface satisfaction is too complex for a regex-level
-// extractor. reviewers should expect some false positives when two
-// unrelated types coincidentally share a method name and arity, and
-// add file-level tests for the cases that matter.
-function emitInterfaceDispatchEdges(
-	symbols: ExtractedSymbol[],
-	edges: ExtractedEdge[],
-	filePath: string,
-) {
-	// collect interface methods per file. key is the method signature
-	// fingerprint, value is the list of interface method qnames that
-	// own it (a method named Foo() int might live on multiple
-	// interfaces).
-	interface InterfaceMethod {
-		interfaceName: string
-		methodName: string
-		qname: string
-		fingerprint: string
-	}
-	const interfaceMethods: InterfaceMethod[] = []
-	// parent qname -> is interface?
+// match interface methods to concrete struct methods in the same
+// file by a coarse (name, paramCount, returnCount) fingerprint and
+// emit dispatches_to edges. scoped to same-file only; full cross-
+// package go interface satisfaction needs real type inference. see
+// #50.
+interface InterfaceMethod {
+	qname: string
+	fingerprint: string
+}
+
+function emitInterfaceDispatchEdges(symbols: ExtractedSymbol[], edges: ExtractedEdge[]) {
 	const parentKinds = new Map<string, SymbolKind>()
 	for (const s of symbols) {
 		if (s.kind === 'interface' || s.kind === 'class') {
 			parentKinds.set(s.qualifiedName, s.kind)
 		}
 	}
+	// index interface methods by name so the concrete walk below is
+	// O(concreteMethods * matches) instead of O(interfaceMethods *
+	// concreteMethods). on generated fake files with 50+ methods
+	// implementing multiple interfaces, this saves thousands of
+	// string comparisons per file.
+	const ifaceByName = new Map<string, InterfaceMethod[]>()
 	for (const s of symbols) {
 		if (s.kind !== 'method' || !s.parentQualifiedName) continue
 		if (parentKinds.get(s.parentQualifiedName) !== 'interface') continue
-		const interfaceName = s.parentQualifiedName.split('::').pop() ?? ''
-		const methodName = s.name
-		const fingerprint = fingerprintSignature(s.signature, methodName)
-		interfaceMethods.push({
-			interfaceName,
-			methodName,
+		const bucket = ifaceByName.get(s.name) ?? []
+		bucket.push({
 			qname: s.qualifiedName,
-			fingerprint,
+			fingerprint: fingerprintSignature(s.signature, s.name),
 		})
+		ifaceByName.set(s.name, bucket)
 	}
-	if (interfaceMethods.length === 0) return
+	if (ifaceByName.size === 0) return
 
-	// now walk concrete struct methods (parent.kind === 'class') and
-	// emit one dispatches_to edge per matching interface method.
 	for (const s of symbols) {
 		if (s.kind !== 'method' || !s.parentQualifiedName) continue
 		if (parentKinds.get(s.parentQualifiedName) !== 'class') continue
+		const candidates = ifaceByName.get(s.name)
+		if (!candidates) continue
 		const fingerprint = fingerprintSignature(s.signature, s.name)
-		for (const iface of interfaceMethods) {
-			if (iface.methodName !== s.name) continue
+		for (const iface of candidates) {
 			if (iface.fingerprint !== fingerprint) continue
 			edges.push({
 				sourceQualifiedName: iface.qname,
@@ -137,11 +120,6 @@ function emitInterfaceDispatchEdges(
 			})
 		}
 	}
-	// suppress unused-variable warning for filePath while keeping the
-	// parameter in scope for future file-level disambiguation (e.g.
-	// if multiple files share method names we may want to include
-	// filePath in the fingerprint).
-	void filePath
 }
 
 // coarse fingerprint: method name + paren-counted param commas +

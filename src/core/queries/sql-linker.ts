@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { ChannelHit } from '../../shared/types.js'
@@ -23,13 +23,15 @@ import type { AtlasStore } from '../storage/store.js'
 // channel rows are written inside a single transaction via
 // insertChannelHits.
 
+// the FROM pattern already matches `DELETE FROM users` so a separate
+// DELETE FROM pattern would emit duplicate hits at the same (symbol,
+// value, line) coordinate — the channel_hits UNIQUE constraint would
+// swallow them, but building the redundant match is pure waste.
 const SQL_KEYWORD_PATTERNS: RegExp[] = [
-	// FROM table, FROM "table", FROM `table`, FROM 'table'
 	/\bFROM\s+(?:["'`])?(\w+)(?:["'`])?/gi,
 	/\bJOIN\s+(?:["'`])?(\w+)(?:["'`])?/gi,
 	/\bINTO\s+(?:["'`])?(\w+)(?:["'`])?/gi,
 	/\bUPDATE\s+(?:["'`])?(\w+)(?:["'`])?/gi,
-	/\bDELETE\s+FROM\s+(?:["'`])?(\w+)(?:["'`])?/gi,
 ]
 
 // reserved words that sometimes appear after FROM / JOIN etc. but
@@ -81,47 +83,49 @@ function isInsideStringLiteral(source: string, matchIndex: number): boolean {
 }
 
 export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: number } {
-	// delete-before-insert keeps the channel idempotent on re-runs.
-	// INSERT OR IGNORE plus the UNIQUE constraint handles the
-	// partial-replay case, but deleting first is the cleanest way
-	// to pick up removed queries that no longer exist in source.
 	store.deleteChannelHitsByKind('sql_table')
 
 	const files = store.getAllFiles().filter((f) => !f.isTest)
 	const hits: ChannelHit[] = []
 	const allowedExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.go', '.py'])
+	const rootReal = realpathOrNull(projectRoot) ?? projectRoot
 
 	for (const f of files) {
-		// cheap extension filter avoids reading binary assets or yaml
-		// configs. the files table carries the language string but
-		// the extension match is tighter and skips generated edge
-		// cases (e.g. .md files incidentally registered).
 		const dot = f.path.lastIndexOf('.')
 		if (dot < 0) continue
 		const ext = f.path.slice(dot)
 		if (!allowedExtensions.has(ext)) continue
 
+		const resolved = resolvePath(projectRoot, f.path)
+		// symlink containment guard: if a repo contains a symlink whose
+		// real path escapes projectRoot, skip it. otherwise the linker
+		// would read and scan arbitrary files on disk via a path
+		// sourced from the files table.
+		const resolvedReal = realpathOrNull(resolved)
+		if (resolvedReal && !isUnderRoot(resolvedReal, rootReal)) continue
+
 		let source: string
 		try {
-			source = readFileSync(resolvePath(projectRoot, f.path), 'utf-8')
+			source = readFileSync(resolved, 'utf-8')
 		} catch (e) {
 			log.warn(`sql-linker: read ${f.path}: ${e}`)
 			continue
 		}
 
+		// precompute newline offsets once per file. offsetToLine below
+		// does a binary search, making line lookup O(log N) per match
+		// instead of O(N) for the previous character-by-character scan.
+		const lineOffsets = buildLineOffsets(source)
+
 		for (const pattern of SQL_KEYWORD_PATTERNS) {
-			// matchAll returns an iterator of RegExpMatchArray with
-			// .index populated, which is what we need for the
-			// byte-offset lookup.
 			for (const m of source.matchAll(pattern)) {
 				const table = m[1]
 				const matchIndex = m.index
 				if (!table || matchIndex === undefined) continue
-				const lower = table.toLowerCase()
-				if (SQL_KEYWORD_BLOCKLIST.has(lower)) continue
+				if (SQL_KEYWORD_BLOCKLIST.has(table.toLowerCase())) continue
 				if (!isInsideStringLiteral(source, matchIndex)) continue
 
-				const line = countLines(source, matchIndex) + 1
+				const line = offsetToLine(lineOffsets, matchIndex) + 1
 				const enclosing = store.getSymbolContainingByte(f.id, matchIndex)
 				if (!enclosing) continue
 
@@ -141,10 +145,34 @@ export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: n
 	return { hits: hits.length }
 }
 
-function countLines(source: string, offset: number): number {
-	let count = 0
-	for (let i = 0; i < offset; i++) {
-		if (source.charCodeAt(i) === 10) count++
+function buildLineOffsets(source: string): number[] {
+	const offsets = [0]
+	for (let i = 0; i < source.length; i++) {
+		if (source.charCodeAt(i) === 10) offsets.push(i + 1)
 	}
-	return count
+	return offsets
+}
+
+function offsetToLine(offsets: number[], matchIndex: number): number {
+	let lo = 0
+	let hi = offsets.length - 1
+	while (lo < hi) {
+		const mid = (lo + hi + 1) >> 1
+		if (offsets[mid] <= matchIndex) lo = mid
+		else hi = mid - 1
+	}
+	return lo
+}
+
+function realpathOrNull(p: string): string | null {
+	try {
+		return realpathSync(p)
+	} catch {
+		return null
+	}
+}
+
+function isUnderRoot(abs: string, root: string): boolean {
+	const normRoot = root.endsWith('/') ? root : `${root}/`
+	return abs === root || abs.startsWith(normRoot)
 }

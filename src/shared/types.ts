@@ -335,26 +335,20 @@ export interface ChannelHitGroup {
 
 export interface HotFragileEntry {
 	filePath: string
+	// churn proxy: distinct commits touching the file. kept for
+	// compatibility with any external json consumer reading the raw
+	// field. the explicit score fields below are the canonical
+	// surface for new consumers. see #43.
 	commits: number
 	symbolCount: number
 	untestedCount: number
-	subsystem: string | null
-	// first few untested exported callables in THIS file, ordered by
-	// line_start. previously the CLI/MCP surfaces rendered the subsystem
-	// name here, but subsystem names are LLM-generated comma-separated
-	// strings that repeat across unrelated files and gave no actionable
-	// preview. this field is the file's own untested symbols, which is what
-	// operators actually want to see when scanning hot-fragile output.
-	// see #24.
+	// file's own first-3 untested exported callables, ordered by
+	// line_start. see #24.
 	previewNames: string[]
-	// explicit score fields so consumers stop reading the raw
-	// `commits` field (or inventing score names atlas never emitted).
-	// churnScore is a pure per-file churn proxy measured as distinct
-	// commits touching the file (same value as `commits`, different
-	// name makes the intent explicit). fragilityScore = churnScore *
-	// untestedCount is the ranking dimension surfaces actually want,
-	// moved from ad-hoc CLI/MCP renderer math into the query so
-	// every surface reads a single source of truth. see #43.
+	// churnScore == commits, named for clarity. fragilityScore ==
+	// commits * untestedCount, the canonical ranking dimension
+	// computed in the query so every surface reads the same number.
+	// see #43.
 	churnScore: number
 	fragilityScore: number
 }

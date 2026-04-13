@@ -1,4 +1,4 @@
-import { relative } from 'node:path'
+import { dirname, relative } from 'node:path'
 import ts from 'typescript'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
@@ -38,8 +38,8 @@ function findNearestTsconfig(fromDir: string, cache: Map<string, string | null>)
 			cache.set(fromDir, candidate)
 			return candidate
 		}
-		const parent = dir.replace(/[\\/][^\\/]+$/, '')
-		if (parent === dir || parent === '') {
+		const parent = dirname(dir)
+		if (parent === dir || parent === '' || parent === '.') {
 			cache.set(fromDir, null)
 			return null
 		}
@@ -55,8 +55,7 @@ function bucketByTsconfig(filePaths: string[]): Map<string | null, string[]> {
 	const cache = new Map<string, string | null>()
 	const buckets = new Map<string | null, string[]>()
 	for (const file of filePaths) {
-		const dir = file.replace(/[\\/][^\\/]+$/, '')
-		const config = findNearestTsconfig(dir, cache)
+		const config = findNearestTsconfig(dirname(file), cache)
 		const key: string | null = config ?? null
 		const bucket = buckets.get(key)
 		if (bucket) bucket.push(file)
@@ -65,9 +64,9 @@ function bucketByTsconfig(filePaths: string[]): Map<string | null, string[]> {
 	return buckets
 }
 
-// parse a tsconfig path into TS compiler options. centralised so both
-// the bucketed and the fallback (null config) paths go through the
-// same parser with the same safety fallbacks.
+// parse a tsconfig path into TS compiler options. logs read/parse
+// failures so a silently-misconfigured workspace surfaces in the
+// indexer output instead of degrading resolution to defaults.
 function readCompilerOptions(configPath: string | null, projectRoot: string): ts.CompilerOptions {
 	const defaults: ts.CompilerOptions = {
 		target: ts.ScriptTarget.ESNext,
@@ -78,9 +77,16 @@ function readCompilerOptions(configPath: string | null, projectRoot: string): ts
 	}
 	if (!configPath) return defaults
 	const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
-	if (configFile.error) return defaults
-	const configDir = configPath.replace(/[\\/][^\\/]+$/, '') || projectRoot
+	if (configFile.error) {
+		log.warn(`ts-resolver: failed to parse ${configPath}: ${configFile.error.messageText}`)
+		return defaults
+	}
+	const configDir = dirname(configPath) || projectRoot
 	const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, configDir)
+	if (parsed.errors.length > 0) {
+		const first = parsed.errors[0]
+		log.warn(`ts-resolver: ${configPath} has ${parsed.errors.length} config error(s), first: ${first.messageText}`)
+	}
 	return { ...parsed.options, noEmit: true }
 }
 

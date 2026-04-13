@@ -184,6 +184,14 @@ export class AtlasStore {
 		// that already have the column. all other migrations introduce
 		// required tables and must fail loudly.
 		const OPTIONAL_MIGRATIONS = new Set([2, 7, 15])
+		// v15 should ONLY absorb the specific "duplicate column name"
+		// error. any other failure (locked table, corrupted schema) must
+		// propagate so the operator sees it instead of having the
+		// migration silently re-attempted on every startup.
+		const isAcceptableOptionalFailure = (version: number, err: unknown): boolean => {
+			if (version !== 15) return true
+			return String(err).includes('duplicate column')
+		}
 
 		for (const m of pending) {
 			try {
@@ -201,6 +209,7 @@ export class AtlasStore {
 				}
 			} catch (e) {
 				if (!OPTIONAL_MIGRATIONS.has(m.version)) throw e
+				if (!isAcceptableOptionalFailure(m.version, e)) throw e
 				log.debug(`migration v${m.version} failed (non-fatal, optional): ${e}`)
 				continue
 			}

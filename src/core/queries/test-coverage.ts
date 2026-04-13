@@ -55,13 +55,14 @@ export function findUntestedSymbols(
 ): SymbolResult[] {
 	const limit = opts?.limit ?? 100
 	if (opts?.kind && !isCallableKind(opts.kind)) {
-		// asking for an inherently non-callable kind. return empty rather
-		// than silently ANDing two contradictory clauses.
 		return []
 	}
-	const kindList = opts?.kind
-		? `'${opts.kind}'`
-		: CALLABLE_KINDS.map((k) => `'${k}'`).join(',')
+	// build the kind filter as parameterised placeholders so a future
+	// refactor that routes a user-supplied value through `opts.kind`
+	// cannot escape the quoted context. the in-clause still covers the
+	// same callable kinds (function, method) that isCallableKind allows.
+	const kinds = opts?.kind ? [opts.kind] : [...CALLABLE_KINDS]
+	const kindPlaceholders = kinds.map(() => '?').join(',')
 	return store.queryRawWithParams<SymbolResult>(
 		`SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
 		f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
@@ -71,7 +72,7 @@ export function findUntestedSymbols(
 		JOIN files f ON f.id = s.file_id
 		WHERE s.is_exported = 1
 		AND f.is_test = 0
-		AND s.kind IN (${kindList})
+		AND s.kind IN (${kindPlaceholders})
 		AND NOT EXISTS (
 			SELECT 1 FROM test_links tl
 			WHERE tl.source_symbol_stable_id = s.stable_id
@@ -79,6 +80,7 @@ export function findUntestedSymbols(
 		)
 		ORDER BY f.path, s.line_start
 		LIMIT ?`,
+		...kinds,
 		limit,
 	)
 }
@@ -102,13 +104,15 @@ export function findHotFragile(
 	opts?: { limit?: number; excludeFileIds?: Set<number> },
 ): HotFragileEntry[] {
 	const limit = opts?.limit ?? 20
-	const kindList = CALLABLE_KINDS.map((k) => `'${k}'`).join(',')
-	// generated-file exclusion inlined into the WHERE clause so
-	// fake_*.go / mocks/ / counterfeiter output never pollutes the
-	// hot-fragile ranking. see #44.
+	const kindPlaceholders = CALLABLE_KINDS.map(() => '?').join(',')
+	// build generated-file exclusion as parameterised placeholders so
+	// the NOT IN clause stays consistent with dead-code.ts and a future
+	// callsite that threads user input through `excludeFileIds` cannot
+	// escape the SQL. matches CLAUDE.md parameterisation rule.
+	const excludeIds = opts?.excludeFileIds ? Array.from(opts.excludeFileIds) : []
 	const excludeFilter =
-		opts?.excludeFileIds && opts.excludeFileIds.size > 0
-			? ` AND f.id NOT IN (${Array.from(opts.excludeFileIds).join(',')})`
+		excludeIds.length > 0
+			? ` AND f.id NOT IN (${excludeIds.map(() => '?').join(',')})`
 			: ''
 	type Row = Omit<HotFragileEntry, 'previewNames'> & { previewJson: string | null }
 	const rows = store.queryRawWithParams<Row>(
@@ -120,7 +124,7 @@ export function findHotFragile(
 			       ON tl2.source_symbol_stable_id = s.stable_id
 			      AND tl2.confidence = 'called'
 			WHERE s.is_exported = 1
-			  AND s.kind IN (${kindList})
+			  AND s.kind IN (${kindPlaceholders})
 			  AND tl2.source_symbol_stable_id IS NULL
 		),
 		preview AS (
@@ -133,7 +137,6 @@ export function findHotFragile(
 		        c.commits as commits,
 		        COUNT(s.id) as symbolCount,
 		        SUM(CASE WHEN s.id IS NOT NULL AND tl.source_symbol_stable_id IS NULL THEN 1 ELSE 0 END) as untestedCount,
-		        ss.name as subsystem,
 		        p.names as previewJson
 		 FROM files f
 		 JOIN (
@@ -144,17 +147,19 @@ export function findHotFragile(
 		 LEFT JOIN symbols s
 		   ON s.file_id = f.id
 		   AND s.is_exported = 1
-		   AND s.kind IN (${kindList})
+		   AND s.kind IN (${kindPlaceholders})
 		 LEFT JOIN test_links tl
 		   ON tl.source_symbol_stable_id = s.stable_id
 		   AND tl.confidence = 'called'
-		 LEFT JOIN subsystems ss ON ss.id = f.subsystem_id
 		 LEFT JOIN preview p ON p.file_id = f.id
 		 WHERE f.is_test = 0${excludeFilter}
 		 GROUP BY f.id
 		 HAVING symbolCount > 0 AND untestedCount > 0
 		 ORDER BY commits * untestedCount DESC, commits DESC
 		 LIMIT ?`,
+		...CALLABLE_KINDS,
+		...CALLABLE_KINDS,
+		...excludeIds,
 		limit,
 	)
 	return rows.map((r) => ({
@@ -162,11 +167,7 @@ export function findHotFragile(
 		commits: r.commits,
 		symbolCount: r.symbolCount,
 		untestedCount: r.untestedCount,
-		subsystem: r.subsystem,
 		previewNames: r.previewJson ? (JSON.parse(r.previewJson) as string[]) : [],
-		// explicit score fields so consumers don't have to recompute.
-		// churnScore == commits (same value, named for clarity);
-		// fragilityScore is the canonical ranking dimension. see #43.
 		churnScore: r.commits,
 		fragilityScore: r.commits * r.untestedCount,
 	}))

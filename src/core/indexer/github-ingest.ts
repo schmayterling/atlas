@@ -52,16 +52,23 @@ interface GhPRFile {
 	deletions: number
 }
 
+// every git/gh spawn in this file hard-caps at PROBE_TIMEOUT_MS so
+// default-on github ingest can never hang the indexer on a stalled
+// keychain prompt, a slow network, or a deadlocked gh subprocess.
+// `gh auth status` is known to stall on macOS when the keychain is
+// locked and on any host when api.github.com is unreachable.
+const PROBE_TIMEOUT_MS = 5000
+
 function detectRemote(projectRoot: string): GitHubRemote | null {
 	try {
 		const result = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], {
 			cwd: projectRoot,
 			stdout: 'pipe',
 			stderr: 'pipe',
+			timeout: PROBE_TIMEOUT_MS,
 		})
 		if (result.exitCode !== 0) return null
 		const url = result.stdout.toString().trim()
-		// https://github.com/owner/repo(.git)?
 		const httpsMatch = url.match(/github\.com[/:]([^/]+)\/([^/.]+)(?:\.git)?$/)
 		if (httpsMatch) {
 			return { owner: httpsMatch[1], repo: httpsMatch[2] }
@@ -74,7 +81,11 @@ function detectRemote(projectRoot: string): GitHubRemote | null {
 
 function isGhAvailable(): boolean {
 	try {
-		const result = Bun.spawnSync(['gh', '--version'], { stdout: 'pipe', stderr: 'pipe' })
+		const result = Bun.spawnSync(['gh', '--version'], {
+			stdout: 'pipe',
+			stderr: 'pipe',
+			timeout: PROBE_TIMEOUT_MS,
+		})
 		return result.exitCode === 0
 	} catch {
 		return false
@@ -82,15 +93,15 @@ function isGhAvailable(): boolean {
 }
 
 // deeper capability check: gh is usable only if it's installed AND
-// the user is authenticated against github.com. `gh auth status`
-// exits non-zero when not authed. without this probe, the default
-// --no-github=false path on a machine with gh installed but
-// unauthenticated would warning-storm every atlas index run.
+// authenticated against github.com. `gh auth status` can hang on
+// macOS keychain / network issues, so the timeout is load-bearing
+// here — without it the indexer would block forever.
 function isGhAuthenticated(): boolean {
 	try {
 		const result = Bun.spawnSync(['gh', 'auth', 'status'], {
 			stdout: 'pipe',
 			stderr: 'pipe',
+			timeout: PROBE_TIMEOUT_MS,
 		})
 		return result.exitCode === 0
 	} catch {

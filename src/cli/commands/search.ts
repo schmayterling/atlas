@@ -1,6 +1,7 @@
 import pc from 'picocolors'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { listProjects } from '../../core/registry.js'
+import { log } from '../../shared/logger.js'
 import type { SymbolKind, SymbolResult } from '../../shared/types.js'
 import { badge, fileRef, outputJson } from '../formatters/common.js'
 
@@ -100,9 +101,7 @@ async function searchAllProjects(query: string, json: boolean, opts: SearchOpts)
 				if (!r.embeddingsAvailable) {
 					if (!json) {
 						console.log(
-							pc.dim(
-								`  [${project.id}] embeddings not available, skipping`,
-							),
+							pc.dim(`  [${project.id}] embeddings not available, skipping`),
 						)
 					}
 					continue
@@ -119,10 +118,15 @@ async function searchAllProjects(query: string, json: boolean, opts: SearchOpts)
 			}
 		} catch (e) {
 			// fail soft per project so one broken db doesn't kill the
-			// whole query.
+			// whole query. log.warn always fires (to stderr) so json
+			// consumers see the failure in logs even though stdout
+			// stays clean.
+			log.warn(`search: [${project.id}] query failed: ${e}`)
 			if (!json) {
 				console.log(pc.red(`  [${project.id}] query failed: ${e}`))
 			}
+		} finally {
+			engine.close()
 		}
 	}
 
