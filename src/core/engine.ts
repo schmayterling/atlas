@@ -298,6 +298,47 @@ export class AtlasEngine {
 		})
 	}
 
+	// --- channels ---
+
+	// list every (kind, value) group with >= 2 distinct symbols
+	// touching the same channel value. the store-level helper does
+	// the self-join; this just exposes the shape to CLI/MCP/web. see
+	// #31.
+	listChannels(kind: string): { value: string; symbolStableIds: string[] }[] {
+		return this.getStore().findChannelHitGroups(kind)
+	}
+
+	// list every symbol that touched a specific channel value of a
+	// given kind. the store returns full channel_hits rows so
+	// consumers can render line numbers + file context without a
+	// second lookup.
+	showChannel(kind: string, value: string): {
+		symbols: import('../shared/types.js').SymbolResult[]
+		hits: { symbolStableId: string; line: number; filePath: string }[]
+	} {
+		const store = this.getStore()
+		const rows = store.queryRawWithParams<{
+			symbolStableId: string
+			line: number
+			filePath: string
+		}>(
+			`SELECT ch.symbol_stable_id as symbolStableId, ch.line as line, f.path as filePath
+			 FROM channel_hits ch
+			 JOIN files f ON f.id = ch.file_id
+			 WHERE ch.kind = ? AND ch.value = ?
+			 ORDER BY f.path, ch.line`,
+			kind,
+			value,
+		)
+		const uniqueIds = [...new Set(rows.map((r) => r.symbolStableId))]
+		const symMap = store.getSymbolsByStableIds(uniqueIds)
+		const symRecords = [...symMap.values()]
+		return {
+			symbols: store.symbolsToResults(symRecords),
+			hits: rows,
+		}
+	}
+
 	// --- semantic search ---
 
 	async semanticSearch(query: string, opts?: { limit?: number; includeTests?: boolean }): Promise<SemanticSearchResult> {

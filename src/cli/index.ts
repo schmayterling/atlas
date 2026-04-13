@@ -22,6 +22,7 @@ import {
 	subsystemCommand,
 } from './commands/git-cmds.js'
 import { hotFragileCommand, hotspotsCommand, testsCommand, untestedCommand } from './commands/test-cmds.js'
+import { channelsListCommand, channelsShowCommand } from './commands/channels.js'
 
 const program = new Command()
 	.name('atlas')
@@ -95,6 +96,10 @@ program
 	.option('-n, --limit <n>', 'max results', '20')
 	.option('--include-tests', 'include symbols from test files')
 	.option('--all-projects', 'fan the search out across every registered atlas project')
+	.option(
+		'--linked',
+		'fan the search out across projects reachable via the active project\'s link graph',
+	)
 	.action(async (query, cmdOpts) => {
 		const opts = program.opts()
 		await searchCommand(opts.project, query, opts.json, {
@@ -104,6 +109,7 @@ program
 			limit: Number(cmdOpts.limit),
 			includeTests: cmdOpts.includeTests,
 			allProjects: cmdOpts.allProjects,
+			linked: cmdOpts.linked,
 		})
 	})
 
@@ -366,6 +372,31 @@ program
 				? (cmdOpts.coverage as 'called' | 'imported' | 'none')
 				: undefined
 		hotspotsCommand(opts.project, opts.json, { limit: cmdOpts.limit, coverage })
+	})
+
+// channels subcommand group. #31 surfaces the channel_hits table
+// populated by #10's sql-linker and the future graphql/queue/env/
+// openapi linkers. list defaults to sql_table when no --kind is
+// passed.
+const channels = program
+	.command('channels')
+	.description('list and inspect cross-language channel groups')
+
+channels
+	.command('list')
+	.description('list (kind, value) groups with 2+ symbols touching them')
+	.option('--kind <kind>', 'channel kind to list (default sql_table)')
+	.action((cmdOpts) => {
+		const opts = program.opts()
+		channelsListCommand(opts.project, opts.json, { kind: cmdOpts.kind })
+	})
+
+channels
+	.command('show <kind> <value>')
+	.description('list every symbol that touched the given channel value')
+	.action((kind: string, value: string) => {
+		const opts = program.opts()
+		channelsShowCommand(opts.project, opts.json, kind, value)
 	})
 
 export { program }
