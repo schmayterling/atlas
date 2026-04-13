@@ -299,6 +299,14 @@ export interface HotFragileEntry {
 	symbolCount: number
 	untestedCount: number
 	subsystem: string | null
+	// first few untested exported callables in THIS file, ordered by
+	// line_start. previously the CLI/MCP surfaces rendered the subsystem
+	// name here, but subsystem names are LLM-generated comma-separated
+	// strings that repeat across unrelated files and gave no actionable
+	// preview. this field is the file's own untested symbols, which is what
+	// operators actually want to see when scanning hot-fragile output.
+	// see #24.
+	previewNames: string[]
 }
 
 // symbol detail for web UI

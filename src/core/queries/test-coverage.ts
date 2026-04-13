@@ -90,18 +90,44 @@ export function findUntestedSymbols(
 // findUntestedSymbols. files with no callable exports do not appear at all
 // (the LEFT JOIN's null-extended row is suppressed by the s.id IS NOT NULL
 // guard inside SUM, and HAVING symbolCount > 0 drops zero-callable files).
+//
+// `previewNames` is the file's own first-3 untested callables, computed in
+// a window-function CTE (ROW_NUMBER partitioned by file_id). operators use
+// this to pick which file to write tests for next; the previous surfaces
+// rendered the LLM-generated subsystem name in that column, which repeated
+// across unrelated files because the subsystem "name" is itself a
+// comma-separated list of types. see #24.
 export function findHotFragile(
 	store: AtlasStore,
 	opts?: { limit?: number },
 ): HotFragileEntry[] {
 	const limit = opts?.limit ?? 20
 	const kindList = CALLABLE_KINDS.map((k) => `'${k}'`).join(',')
-	return store.queryRawWithParams<HotFragileEntry>(
-		`SELECT f.path as filePath,
+	type Row = Omit<HotFragileEntry, 'previewNames'> & { previewJson: string | null }
+	const rows = store.queryRawWithParams<Row>(
+		`WITH untested_ranked AS (
+			SELECT s.file_id, s.name, s.line_start, s.id,
+			       ROW_NUMBER() OVER (PARTITION BY s.file_id ORDER BY s.line_start, s.id) as rn
+			FROM symbols s
+			LEFT JOIN test_links tl2
+			       ON tl2.source_symbol_stable_id = s.stable_id
+			      AND tl2.confidence = 'called'
+			WHERE s.is_exported = 1
+			  AND s.kind IN (${kindList})
+			  AND tl2.source_symbol_stable_id IS NULL
+		),
+		preview AS (
+			SELECT file_id, json_group_array(name) as names
+			FROM untested_ranked
+			WHERE rn <= 3
+			GROUP BY file_id
+		)
+		SELECT f.path as filePath,
 		        c.commits as commits,
 		        COUNT(s.id) as symbolCount,
 		        SUM(CASE WHEN s.id IS NOT NULL AND tl.source_symbol_stable_id IS NULL THEN 1 ELSE 0 END) as untestedCount,
-		        ss.name as subsystem
+		        ss.name as subsystem,
+		        p.names as previewJson
 		 FROM files f
 		 JOIN (
 		   SELECT file_path, COUNT(DISTINCT commit_hash) as commits
@@ -116,6 +142,7 @@ export function findHotFragile(
 		   ON tl.source_symbol_stable_id = s.stable_id
 		   AND tl.confidence = 'called'
 		 LEFT JOIN subsystems ss ON ss.id = f.subsystem_id
+		 LEFT JOIN preview p ON p.file_id = f.id
 		 WHERE f.is_test = 0
 		 GROUP BY f.id
 		 HAVING symbolCount > 0 AND untestedCount > 0
@@ -123,4 +150,12 @@ export function findHotFragile(
 		 LIMIT ?`,
 		limit,
 	)
+	return rows.map((r) => ({
+		filePath: r.filePath,
+		commits: r.commits,
+		symbolCount: r.symbolCount,
+		untestedCount: r.untestedCount,
+		subsystem: r.subsystem,
+		previewNames: r.previewJson ? (JSON.parse(r.previewJson) as string[]) : [],
+	}))
 }

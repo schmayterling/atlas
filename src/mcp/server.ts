@@ -364,8 +364,12 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				}
 				const lines = rows.map((r) => {
 					const fragility = r.commits * r.untestedCount
-					const sub = r.subsystem ? ` [${r.subsystem}]` : ''
-					return `${String(fragility).padStart(5)}  ${String(r.commits).padStart(4)}c ${String(r.untestedCount).padStart(3)}/${String(r.symbolCount).padStart(3)} untested  ${r.filePath}${sub}`
+					// preview shows the file's own first-3 untested callables (the
+					// thing operators actually want when picking what to test next).
+					// previously rendered the LLM subsystem name, which repeated
+					// across unrelated files and was misleading. see #24.
+					const preview = r.previewNames.length > 0 ? `  [${r.previewNames.join(', ')}]` : ''
+					return `${String(fragility).padStart(5)}  ${String(r.commits).padStart(4)}c ${String(r.untestedCount).padStart(3)}/${String(r.symbolCount).padStart(3)} untested  ${r.filePath}${preview}`
 				})
 				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
 			}),

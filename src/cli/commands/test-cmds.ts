@@ -154,7 +154,9 @@ export function hotFragileCommand(
 			console.log(
 				`  ${pc.red(String(fragility).padStart(5))}  ${pc.dim(`${r.commits} commits`.padEnd(12))} ${pc.yellow(`${r.untestedCount}/${r.symbolCount} untested`.padEnd(20))} ${r.filePath}`,
 			)
-			if (r.subsystem) console.log(`  ${' '.repeat(7)} ${pc.dim(`subsystem: ${r.subsystem}`)}`)
+			if (r.previewNames.length > 0) {
+				console.log(`  ${' '.repeat(7)} ${pc.dim(`untested: ${r.previewNames.join(', ')}`)}`)
+			}
 		}
 	} finally {
 		engine.close()
