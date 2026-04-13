@@ -3,11 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../helpers/setup.js'
-import {
-	addProject,
-	resetRegistryPathForTests,
-	setRegistryPathForTests,
-} from '../../src/core/registry.js'
+import { addProject } from '../../src/core/registry.js'
 import { closeAll, getOrCreateEngine } from '../../src/core/engine-pool.js'
 
 // covers #8: the --all-projects search fan-out. we register two
@@ -18,7 +14,8 @@ import { closeAll, getOrCreateEngine } from '../../src/core/engine-pool.js'
 // id path is exercised indirectly because both fixture projects
 // are named `api`.
 
-const registryHome = mkdtempSync(join(tmpdir(), 'atlas-search-all-'))
+let registryHome: string
+const originalHome = process.env.HOME
 
 interface Fixture {
 	root: string
@@ -29,7 +26,8 @@ let projectA: Fixture
 let projectB: Fixture
 
 beforeAll(async () => {
-	setRegistryPathForTests(join(registryHome, '.atlas'))
+	registryHome = mkdtempSync(join(tmpdir(), 'atlas-search-all-'))
+	process.env.HOME = registryHome
 
 	// two projects with the same directory-basename (`api`) so the
 	// registry's new collision-safe id path assigns distinct ids to
@@ -72,7 +70,7 @@ afterEach(() => {
 
 afterAll(() => {
 	closeAll()
-	resetRegistryPathForTests()
+	process.env.HOME = originalHome
 	rmSync(registryHome, { recursive: true, force: true })
 	rmSync(projectA.root, { recursive: true, force: true })
 	rmSync(projectB.root, { recursive: true, force: true })
