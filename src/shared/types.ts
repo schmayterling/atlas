@@ -184,7 +184,6 @@ export interface IndexResult {
 	filesCached: number
 	symbols: number
 	edges: number
-	references: number
 	duration: number
 	warnings: string[]
 }
@@ -202,7 +201,6 @@ export interface StatusResult {
 		files: number
 		symbols: number
 		edges: number
-		references: number
 	}
 	languages: Record<string, number>
 }

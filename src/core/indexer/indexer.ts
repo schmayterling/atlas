@@ -122,7 +122,6 @@ export class Indexer {
 				state.discovered.length - state.changes.added.length - state.changes.modified.length,
 			symbols: this.store.getSymbolCount(),
 			edges: this.store.getEdgeCount(),
-			references: this.store.getReferenceCount(),
 			duration,
 			warnings: state.warnings,
 		}
@@ -742,7 +741,6 @@ export class Indexer {
 				state.discovered.length - state.changes.added.length - state.changes.modified.length,
 			symbols: 0,
 			edges: 0,
-			references: 0,
 			duration: performance.now() - state.start,
 			warnings: state.warnings,
 		}

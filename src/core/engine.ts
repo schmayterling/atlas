@@ -172,7 +172,6 @@ export class AtlasEngine {
 		const fileCount = store.getFileCount()
 		const symbolCount = store.getSymbolCount()
 		const edgeCount = store.getEdgeCount()
-		const refCount = store.getReferenceCount()
 		const languages = store.getLanguageStats()
 
 		// determine health
@@ -200,7 +199,6 @@ export class AtlasEngine {
 				files: fileCount,
 				symbols: symbolCount,
 				edges: edgeCount,
-				references: refCount,
 			},
 			languages,
 		}
