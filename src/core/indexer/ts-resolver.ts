@@ -109,40 +109,57 @@ export function resolveProject(
 	const buckets = bucketByTsconfig(filePaths)
 
 	for (const [configPath, bucketFiles] of buckets) {
-		const compilerOptions = readCompilerOptions(configPath, projectRoot)
-
-		let program: ts.Program
-		try {
-			program = ts.createProgram(bucketFiles, compilerOptions)
-		} catch (e) {
-			log.warn(`failed to create TS program for ${configPath ?? '<no tsconfig>'}: ${e}`)
-			continue
-		}
-
-		const checker = program.getTypeChecker()
-
-		for (const filePath of bucketFiles) {
-			const sourceFile = program.getSourceFile(filePath)
-			if (!sourceFile) continue
-
-			const relPath = toForwardSlash(relative(projectRoot, filePath))
-			const fileRecord = store.getFileByPath(relPath)
-			if (!fileRecord) continue
-
-			resolveImports(
-				sourceFile,
-				relPath,
-				compilerOptions,
-				projectRoot,
-				fileRecord.id,
-				store,
-				imports,
-			)
-			resolveReferences(sourceFile, checker, relPath, projectRoot, fileRecord.id, store, edges)
-		}
+		processBucket(configPath, bucketFiles, projectRoot, store, edges, imports)
 	}
 
 	return { edges, imports }
+}
+
+// one bucket of files sharing a tsconfig. extracted into its own
+// function so the ts.Program + TypeChecker + ModuleGraph (~150-300MB
+// resident on a mid-size workspace) go out of scope naturally at
+// iteration end instead of being retained until resolveProject
+// returns. on a 30+ workspace monorepo this keeps peak RSS bounded
+// to one bucket's worth of state. see #53.
+function processBucket(
+	configPath: string | null,
+	bucketFiles: string[],
+	projectRoot: string,
+	store: AtlasStore,
+	edges: ResolvedEdge[],
+	imports: ResolvedImport[],
+) {
+	const compilerOptions = readCompilerOptions(configPath, projectRoot)
+
+	let program: ts.Program
+	try {
+		program = ts.createProgram(bucketFiles, compilerOptions)
+	} catch (e) {
+		log.warn(`failed to create TS program for ${configPath ?? '<no tsconfig>'}: ${e}`)
+		return
+	}
+
+	const checker = program.getTypeChecker()
+
+	for (const filePath of bucketFiles) {
+		const sourceFile = program.getSourceFile(filePath)
+		if (!sourceFile) continue
+
+		const relPath = toForwardSlash(relative(projectRoot, filePath))
+		const fileRecord = store.getFileByPath(relPath)
+		if (!fileRecord) continue
+
+		resolveImports(
+			sourceFile,
+			relPath,
+			compilerOptions,
+			projectRoot,
+			fileRecord.id,
+			store,
+			imports,
+		)
+		resolveReferences(sourceFile, checker, relPath, projectRoot, fileRecord.id, store, edges)
+	}
 }
 
 function resolveImports(
