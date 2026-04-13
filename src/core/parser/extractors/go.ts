@@ -401,6 +401,37 @@ function extractCalls(
 					confidence: 'heuristic' as Confidence,
 				})
 			}
+
+			// passed_as: walk the argument list for function-valued
+			// identifier / selector arguments. covers `r.Use(Auth)`,
+			// `http.HandleFunc("/", Handle)`, and similar middleware /
+			// handler registration patterns where the function itself
+			// is the graph target but is never directly called at the
+			// registration site. see #49.
+			const args = node.childForFieldName('arguments')
+			if (args) {
+				for (let i = 0; i < args.namedChildCount; i++) {
+					const arg = args.namedChild(i)!
+					let argName: string | null = null
+					if (arg.type === 'identifier') {
+						argName = arg.text
+					} else if (arg.type === 'selector_expression') {
+						argName = arg.text
+					}
+					if (!argName) continue
+					// skip the callee itself if it bubbles through as an
+					// argument (shouldn't happen, but cheap to guard)
+					if (argName === callName) continue
+					edges.push({
+						sourceQualifiedName: sourceQName,
+						targetName: `${filePath}::${argName}`,
+						kind: 'passed_as',
+						line: arg.startPosition.row + 1,
+						col: arg.startPosition.column,
+						confidence: 'heuristic' as Confidence,
+					})
+				}
+			}
 		}
 	}
 

@@ -13,7 +13,25 @@ export type SymbolKind = (typeof SYMBOL_KINDS)[number]
 
 // edge kinds. file imports live in their own `imports` table and are
 // not edges.
-export const EDGE_KINDS = ['calls', 'contains', 'extends', 'type_ref'] as const
+export const EDGE_KINDS = [
+	'calls',
+	'contains',
+	'extends',
+	'type_ref',
+	// function reference passed as an argument: r.Use(MiddlewareAuth),
+	// router.get(path, handler), http.HandleFunc(path, fn). emitted only
+	// when the resolved target symbol is a function or method. reached
+	// from dead-code reachability and blast/deps/trace default edge sets,
+	// but intentionally NOT from test_links (passing a function to a
+	// route registrar does not "call" it in the test sense). see #49.
+	'passed_as',
+	// go interface method -> concrete method satisfying the interface in
+	// the same package. emitted by the go extractor when a struct method
+	// matches an interface method by (name, param count, return count).
+	// used by dead-code reachability so interface-dispatched methods are
+	// not reported dead. see #50.
+	'dispatches_to',
+] as const
 export type EdgeKind = (typeof EDGE_KINDS)[number]
 
 // confidence levels for edge resolution

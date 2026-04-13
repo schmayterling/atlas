@@ -46,7 +46,12 @@ export function getDependencies(
 	const symbolResult = store.symbolToResult(symbol)
 	const direction = opts?.direction ?? 'both'
 	const maxDepth = opts?.depth ?? 3
-	const edgeKinds = opts?.edgeKinds ?? (['calls', 'type_ref', 'extends'] as EdgeKind[])
+	// default set includes passed_as / dispatches_to so deps surfaces
+	// middleware / handler registration and go interface dispatch as
+	// first-class dependencies. see #49, #50.
+	const edgeKinds =
+		opts?.edgeKinds ??
+		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to'] as EdgeKind[])
 
 	const budget: SubgraphBudget = {
 		maxDepth,

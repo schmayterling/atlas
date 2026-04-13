@@ -193,6 +193,12 @@ function resolveReferences(
 		// resolve call expressions
 		if (ts.isCallExpression(node)) {
 			resolveCallExpression(node, sourceFile, checker, relPath, projectRoot, store, edges)
+			// also walk the arguments for function-valued references.
+			// `router.get(path, handler)` has `handler` as an identifier
+			// argument; if it resolves to a function/method symbol we
+			// emit a passed_as edge (not calls — the handler is not
+			// invoked at the registration site). see #49.
+			resolveArgumentReferences(node, sourceFile, checker, relPath, projectRoot, store, edges)
 		}
 
 		// resolve type references
@@ -207,6 +213,81 @@ function resolveReferences(
 
 		ts.forEachChild(node, visit)
 	})
+}
+
+// walk the arguments of a call expression and emit a passed_as edge
+// for every argument that resolves to a function or method symbol.
+// precise filters: rejects values, classes, variables that aren't
+// function-valued, and the callee itself (that's handled by
+// resolveCallExpression already). handles identifier and
+// property-access argument shapes. covers #49.
+function resolveArgumentReferences(
+	call: ts.CallExpression,
+	sourceFile: ts.SourceFile,
+	checker: ts.TypeChecker,
+	relPath: string,
+	projectRoot: string,
+	store: AtlasStore,
+	edges: ResolvedEdge[],
+) {
+	for (const arg of call.arguments) {
+		if (!ts.isIdentifier(arg) && !ts.isPropertyAccessExpression(arg)) continue
+		try {
+			const sym = checker.getSymbolAtLocation(arg)
+			if (!sym) continue
+
+			const resolved = resolveOriginalSymbol(sym, checker)
+			if (!resolved) continue
+
+			// only emit passed_as when the resolved target is a function
+			// or method declaration. variables, classes, and values are
+			// skipped so we don't link every identifier argument.
+			if (
+				!ts.isFunctionDeclaration(resolved.decl) &&
+				!ts.isMethodDeclaration(resolved.decl) &&
+				!(
+					ts.isVariableDeclaration(resolved.decl) &&
+					resolved.decl.initializer &&
+					(ts.isArrowFunction(resolved.decl.initializer) ||
+						ts.isFunctionExpression(resolved.decl.initializer))
+				)
+			) {
+				continue
+			}
+
+			const declFile = resolved.decl.getSourceFile()
+			const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
+			if (declRelPath.includes('node_modules')) continue
+
+			const containingFn = findContainingFunction(arg, sourceFile, relPath)
+			if (!containingFn) continue
+
+			const targetName = resolved.symbol.getName()
+			const targetKind = getSymbolKind(resolved.decl)
+			const existing = store.findSymbolInFile(declRelPath, targetName, targetKind)
+			const targetId = existing
+				? existing.stableId
+				: stableSymbolId(
+						declRelPath,
+						targetKind,
+						buildQualifiedName(declRelPath, resolved.decl, targetName),
+					)
+			const sourceId = stableSymbolId(relPath, containingFn.kind, containingFn.qname)
+
+			const pos = sourceFile.getLineAndCharacterOfPosition(arg.getStart())
+
+			edges.push({
+				sourceStableId: sourceId,
+				targetStableId: targetId,
+				kind: 'passed_as',
+				line: pos.line + 1,
+				col: pos.character,
+				confidence: 'resolved',
+			})
+		} catch (e) {
+			log.debug(`skipped passed_as resolution at ${relPath}: ${e}`)
+		}
+	}
 }
 
 function resolveCallExpression(

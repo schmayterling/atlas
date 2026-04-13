@@ -15,7 +15,12 @@ export function traceFlow(
 ): FlowTraceResult {
 	const maxPaths = opts?.maxPaths ?? 5
 	const maxDepth = opts?.maxDepth ?? 10
-	const edgeKinds = opts?.edgeKinds ?? (['calls', 'type_ref', 'extends'] as EdgeKind[])
+	// default set includes passed_as so trace surfaces middleware /
+	// handler registration chains, and dispatches_to so go interface
+	// dispatch is a reachable hop in a flow. see #49, #50.
+	const edgeKinds =
+		opts?.edgeKinds ??
+		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to'] as EdgeKind[])
 
 	const sourceSym = store.getSymbolByStableId(sourceStableId)
 	const targetSym = store.getSymbolByStableId(targetStableId)
