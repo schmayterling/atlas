@@ -11,6 +11,8 @@ import { linkInRepoApiEndpoints } from '../queries/cross-language-linker.js'
 import { detectDuplicatesFromEmbeddings } from '../queries/duplicate-detection.js'
 import { findGeneratedFileIds } from '../queries/generated-code.js'
 import { linkEnvVars } from '../queries/env-linker.js'
+import { linkGraphqlTypes } from '../queries/graphql-linker.js'
+import { linkOpenApiTypes } from '../queries/openapi-linker.js'
 import { linkProtoSymbols } from '../queries/proto-linker.js'
 import { linkQueueTopics } from '../queries/queue-linker.js'
 import { linkSqlTables } from '../queries/sql-linker.js'
@@ -638,6 +640,32 @@ export class Indexer {
 		} catch (e) {
 			state.warnings.push(`env linking failed: ${e}`)
 			log.warn(`env linking failed: ${e}`)
+		}
+
+		// graphql_type channel (#30b). extracts type/input/enum
+		// definitions from gql`...` template literals embedded in
+		// indexed ts/js files.
+		try {
+			const result = linkGraphqlTypes(this.store, this.projectRoot)
+			if (result.hits > 0) {
+				log.debug(`graphql-linker: wrote ${result.hits} channel hits`)
+			}
+		} catch (e) {
+			state.warnings.push(`graphql linking failed: ${e}`)
+			log.warn(`graphql linking failed: ${e}`)
+		}
+
+		// openapi_type channel (#30b). scans openapi 3.x / swagger 2.0
+		// yaml files under the project root and matches schema names
+		// against indexed ts/go interface/type/class symbols.
+		try {
+			const result = linkOpenApiTypes(this.store, this.projectRoot)
+			if (result.hits > 0) {
+				log.debug(`openapi-linker: wrote ${result.hits} channel hits`)
+			}
+		} catch (e) {
+			state.warnings.push(`openapi linking failed: ${e}`)
+			log.warn(`openapi linking failed: ${e}`)
 		}
 	}
 
