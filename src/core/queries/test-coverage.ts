@@ -164,5 +164,10 @@ export function findHotFragile(
 		untestedCount: r.untestedCount,
 		subsystem: r.subsystem,
 		previewNames: r.previewJson ? (JSON.parse(r.previewJson) as string[]) : [],
+		// explicit score fields so consumers don't have to recompute.
+		// churnScore == commits (same value, named for clarity);
+		// fragilityScore is the canonical ranking dimension. see #43.
+		churnScore: r.commits,
+		fragilityScore: r.commits * r.untestedCount,
 	}))
 }

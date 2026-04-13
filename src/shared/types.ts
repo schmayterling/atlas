@@ -349,6 +349,16 @@ export interface HotFragileEntry {
 	// operators actually want to see when scanning hot-fragile output.
 	// see #24.
 	previewNames: string[]
+	// explicit score fields so consumers stop reading the raw
+	// `commits` field (or inventing score names atlas never emitted).
+	// churnScore is a pure per-file churn proxy measured as distinct
+	// commits touching the file (same value as `commits`, different
+	// name makes the intent explicit). fragilityScore = churnScore *
+	// untestedCount is the ranking dimension surfaces actually want,
+	// moved from ad-hoc CLI/MCP renderer math into the query so
+	// every surface reads a single source of truth. see #43.
+	churnScore: number
+	fragilityScore: number
 }
 
 // symbol detail for web UI

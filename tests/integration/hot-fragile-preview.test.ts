@@ -93,4 +93,16 @@ describe('hot-fragile previewNames', () => {
 		// across unrelated files. pin that they are now distinct.
 		expect(hot?.previewNames).not.toEqual(cold?.previewNames)
 	})
+
+	test('explicit churnScore and fragilityScore fields match commits * untestedCount', () => {
+		const rows = engine.hotFragile({ limit: 10 })
+		const hot = rows.find((r) => r.filePath === 'src/hot.ts')
+		expect(hot).toBeDefined()
+		// pinned by the fixture's 3 commits touching hot.ts and 5
+		// untested callables. churnScore is a pure churn proxy and
+		// fragilityScore is the ranking dimension. #43.
+		expect(hot?.churnScore).toBeGreaterThan(0)
+		expect(hot?.churnScore).toBe(hot?.commits ?? -1)
+		expect(hot?.fragilityScore).toBe((hot?.commits ?? 0) * (hot?.untestedCount ?? 0))
+	})
 })

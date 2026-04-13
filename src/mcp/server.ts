@@ -363,13 +363,11 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					return { content: [{ type: 'text' as const, text: 'no hot-fragile files (need git history + test_links)' }] }
 				}
 				const lines = rows.map((r) => {
-					const fragility = r.commits * r.untestedCount
-					// preview shows the file's own first-3 untested callables (the
-					// thing operators actually want when picking what to test next).
-					// previously rendered the LLM subsystem name, which repeated
-					// across unrelated files and was misleading. see #24.
+					// render from the explicit score fields (#43) — no ad hoc
+					// commits * untestedCount math here anymore. preview shows
+					// the file's own first-3 untested callables (#24).
 					const preview = r.previewNames.length > 0 ? `  [${r.previewNames.join(', ')}]` : ''
-					return `${String(fragility).padStart(5)}  ${String(r.commits).padStart(4)}c ${String(r.untestedCount).padStart(3)}/${String(r.symbolCount).padStart(3)} untested  ${r.filePath}${preview}`
+					return `${String(r.fragilityScore).padStart(5)}  ${String(r.churnScore).padStart(4)}c ${String(r.untestedCount).padStart(3)}/${String(r.symbolCount).padStart(3)} untested  ${r.filePath}${preview}`
 				})
 				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
 			}),
