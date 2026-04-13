@@ -32,16 +32,32 @@ type SyntaxNode = Parser.SyntaxNode
 // would break the intra-file stable_id round-trip). instead, this
 // resolver splits inside its own walker and writes a cross-file edge
 // with `confidence: 'resolved'` that points at the real symbol.
+// positions of heuristic call edges that were upgraded to resolved
+// cross-file edges. the indexer's step 6 wiring consumes this to
+// issue targeted deletes against the edges table before bulk-inserting
+// the resolved rows, so a single call site never shows up as both
+// a heuristic and a resolved edge. see #40.
+export interface HeuristicUpgradePosition {
+	fileId: number
+	line: number
+	col: number
+}
+
 export function resolveGoProject(
 	projectRoot: string,
 	absoluteFilePaths: string[],
 	store: AtlasStore,
 	repoModules: RepoModule[],
-): { edges: ResolvedEdge[]; imports: ResolvedImport[] } {
+): {
+	edges: ResolvedEdge[]
+	imports: ResolvedImport[]
+	heuristicUpgrades: HeuristicUpgradePosition[]
+} {
 	const edges: ResolvedEdge[] = []
 	const imports: ResolvedImport[] = []
+	const heuristicUpgrades: HeuristicUpgradePosition[] = []
 	if (absoluteFilePaths.length === 0) {
-		return { edges, imports }
+		return { edges, imports, heuristicUpgrades }
 	}
 
 	// only go modules matter for import-path resolution. filter once up
@@ -51,13 +67,16 @@ export function resolveGoProject(
 		// a repo with .go files but no go.mod is unusual but not worth
 		// warning about here; it just means the resolver has nothing to
 		// do and the pipeline continues with heuristic edges only.
-		return { edges, imports }
+		return { edges, imports, heuristicUpgrades }
 	}
 
 	// cache resolved package directories across files so a monorepo
 	// with many files importing the same package only walks the dir
 	// once per resolver run.
 	const dirListCache = new Map<string, string[]>()
+	// cache package names per dir so we only read/parse the target
+	// package's package_clause once per resolver run. see #28.
+	const packageNameCache = new Map<string, string | null>()
 
 	for (const absPath of absoluteFilePaths) {
 		const relPath = toForwardSlash(relative(projectRoot, absPath))
@@ -75,16 +94,33 @@ export function resolveGoProject(
 		const tree = parseSource(source, 'go')
 		const root = tree.rootNode
 
-		// build (local name -> import path) map from this file's import
-		// declarations. handles plain imports, aliased imports, and the
-		// `_ "pkg"` side-effect form. dot imports (`. "pkg"`) are not
-		// resolved because they inject names into the file's namespace
-		// without a package qualifier, which is out of scope for the
-		// MVP — see the scope comment at the top of the file.
-		const localToPath = new Map<string, string>()
+		// collect raw imports (path + optional alias) then bind each
+		// to a local name via the target package_clause. handles
+		// plain imports, aliased imports, and `_ "pkg"` side-effect
+		// form. dot imports (`. "pkg"`) are skipped — they inject
+		// names into the file's namespace without a package qualifier.
+		const rawImports: RawImport[] = []
 		for (const child of root.namedChildren) {
 			if (child.type !== 'import_declaration') continue
-			collectImports(child, localToPath)
+			collectImports(child, rawImports)
+		}
+		const localToPath = new Map<string, string>()
+		for (const raw of rawImports) {
+			if (raw.alias) {
+				localToPath.set(raw.alias, raw.importPath)
+				continue
+			}
+			// un-aliased import: bind the local name to the target
+			// file's declared package, falling back to the path's
+			// last component when we can't resolve the directory
+			// (external / unresolved). see #28.
+			const dir = resolveImportPath(raw.importPath, goModules, projectRoot)
+			let localName: string | null = null
+			if (dir) {
+				localName = discoverPackageName(dir, packageNameCache, dirListCache)
+			}
+			if (!localName) localName = basename(raw.importPath)
+			localToPath.set(localName, raw.importPath)
 		}
 
 		// map each import path to an absolute directory via the longest-matching
@@ -155,19 +191,38 @@ export function resolveGoProject(
 
 		// walk the body of every function/method and emit resolved
 		// cross-file edges for `pkg.Foo()` calls and `pkg.MyStruct`
-		// type refs.
-		walkAndResolve(root, relPath, localToPath, pathToDir, store, projectRoot, edges)
+		// type refs. call sites that upgrade from heuristic to
+		// resolved record their (file_id, line, col) so the indexer
+		// can delete the old heuristic edge before inserting the
+		// resolved one. see #40.
+		walkAndResolve(
+			root,
+			relPath,
+			fileRecord.id,
+			localToPath,
+			pathToDir,
+			store,
+			projectRoot,
+			edges,
+			heuristicUpgrades,
+		)
 	}
 
-	return { edges, imports }
+	return { edges, imports, heuristicUpgrades }
 }
 
 // ---
 
-// fill localToPath with (localName -> importPath) entries for a single
-// import_declaration. handles `import "x"`, `import alias "x"`, and
-// `import ( "x"; alias "y" )` grouped forms.
-function collectImports(decl: SyntaxNode, localToPath: Map<string, string>) {
+// raw import entries collected from a single import_declaration. we
+// defer binding the local name until pathToDir is resolved so we can
+// read the target file's actual `package foo` clause instead of
+// assuming basename(importPath) == packageName. see #28.
+interface RawImport {
+	importPath: string
+	alias: string | null
+}
+
+function collectImports(decl: SyntaxNode, out: RawImport[]): void {
 	for (const spec of decl.descendantsOfType('import_spec')) {
 		const pathNode = spec.childForFieldName('path')
 		if (!pathNode) continue
@@ -176,17 +231,51 @@ function collectImports(decl: SyntaxNode, localToPath: Map<string, string>) {
 		if (aliasNode) {
 			const alias = aliasNode.text
 			if (alias === '_' || alias === '.') continue // side-effect or dot import
-			localToPath.set(alias, importPath)
+			out.push({ importPath, alias })
 		} else {
-			// no alias: the local name is the package's last path
-			// component. this is a go convention, not a guarantee (the
-			// package declaration inside the target file may differ),
-			// but it's the dominant case and lines up with the
-			// resolver's best-effort scope.
-			const last = basename(importPath)
-			localToPath.set(last, importPath)
+			out.push({ importPath, alias: null })
 		}
 	}
+}
+
+// discover the `package foo` declaration of a go package directory by
+// peeking at the first .go file and reading its package_clause. used
+// by collectImports to bind an un-aliased import to the correct local
+// name when the directory basename and the declared package name
+// diverge (e.g. cmd/app/main.go with `package main`). caches per dir
+// so every importer only parses the target once. see #28.
+function discoverPackageName(
+	dir: string,
+	cache: Map<string, string | null>,
+	dirListCache: Map<string, string[]>,
+): string | null {
+	const cached = cache.get(dir)
+	if (cached !== undefined) return cached
+	const files = listGoFilesCached(dir, dirListCache)
+	for (const name of files) {
+		let source: string
+		try {
+			source = readFileSync(join(dir, name), 'utf-8')
+		} catch {
+			continue
+		}
+		// tree-sitter parse is overkill for a 1-line lookup; a
+		// line-wise regex over the first 50 non-comment lines is
+		// enough and avoids pulling in another parse pass.
+		let lines = 0
+		for (const rawLine of source.split('\n')) {
+			const line = rawLine.trim()
+			if (!line || line.startsWith('//') || line.startsWith('/*')) continue
+			if (lines++ > 50) break
+			const m = line.match(/^package\s+(\w+)/)
+			if (m) {
+				cache.set(dir, m[1])
+				return m[1]
+			}
+		}
+	}
+	cache.set(dir, null)
+	return null
 }
 
 // resolve an import path to an absolute directory on disk via the
@@ -235,11 +324,13 @@ function listGoFilesCached(dir: string, cache: Map<string, string[]>): string[] 
 function walkAndResolve(
 	root: SyntaxNode,
 	sourceRelPath: string,
+	sourceFileId: number,
 	localToPath: Map<string, string>,
 	pathToDir: Map<string, string | null>,
 	store: AtlasStore,
 	projectRoot: string,
 	edges: ResolvedEdge[],
+	heuristicUpgrades: HeuristicUpgradePosition[],
 ) {
 	// tracks the nearest enclosing function/method so call edges get a
 	// meaningful source stable_id. mirrors the go extractor's intra-file
@@ -297,6 +388,8 @@ function walkAndResolve(
 							['function', 'method'],
 						)
 						if (resolved) {
+							const line = node.startPosition.row + 1
+							const col = node.startPosition.column
 							edges.push({
 								sourceStableId: stableSymbolId(
 									sourceRelPath,
@@ -305,10 +398,15 @@ function walkAndResolve(
 								),
 								targetStableId: resolved,
 								kind: 'calls',
-								line: node.startPosition.row + 1,
-								col: node.startPosition.column,
+								line,
+								col,
 								confidence: 'resolved',
 							})
+							// record the position so the indexer can
+							// delete the matching heuristic edge that
+							// the go extractor emitted at the same
+							// (file_id, line, col). see #40.
+							heuristicUpgrades.push({ fileId: sourceFileId, line, col })
 						}
 					}
 				}

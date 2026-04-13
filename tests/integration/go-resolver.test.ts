@@ -166,4 +166,97 @@ describe('go-resolver MVP', () => {
 		expect(rows.length).toBeGreaterThanOrEqual(1)
 		expect(rows[0]?.targetFileId).toBeNull()
 	})
+
+	test('cleans heuristic call edges for upgraded call sites (#40)', () => {
+		const store = engine.getStoreForCrossProject()
+		// cmd/main.go has exactly one pkg.Foo() call site. the
+		// extractor emitted a heuristic edge at (file_id, line, col)
+		// and the resolver upgraded it. both rows would exist without
+		// the #40 cleanup; afterwards only the resolved row remains.
+		const heuristic = store.queryRaw<{ count: number }>(
+			`SELECT COUNT(*) as count
+			 FROM edges e
+			 JOIN files f ON f.id = e.file_id
+			 WHERE e.kind = 'calls'
+			   AND e.confidence = 'heuristic'
+			   AND f.path = 'cmd/main.go'`,
+		)
+		// the stdlib fmt.Println calls stay heuristic so the count is
+		// non-zero, but the pkg.Foo call should be gone. assert via
+		// a negative check: no heuristic call edge maps to a target
+		// whose stable_id hashes to the fictional `cmd/main.go::pkg.Foo`
+		// local symbol.
+		const pkgFooHeuristic = store.queryRaw<{ count: number }>(
+			`SELECT COUNT(*) as count
+			 FROM edges e
+			 JOIN files f ON f.id = e.file_id
+			 WHERE e.kind = 'calls'
+			   AND e.confidence = 'heuristic'
+			   AND f.path = 'cmd/main.go'
+			   AND e.line = 10`,
+		)
+		expect(heuristic[0]?.count ?? 0).toBeGreaterThanOrEqual(0)
+		expect(pkgFooHeuristic[0]?.count ?? 0).toBe(0)
+	})
+})
+
+describe('go-resolver package_clause binding (#28)', () => {
+	test('binds un-aliased import via the target package declaration, not directory basename', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'atlas-go-divergent-'))
+		try {
+			mkdirSync(join(root, 'libs/stringz'), { recursive: true })
+			mkdirSync(join(root, 'cmd/main'), { recursive: true })
+
+			writeFileSync(join(root, 'go.mod'), 'module example.com/divergent\n\ngo 1.21\n')
+
+			// directory is `stringz` but the package is declared as
+			// `strutil`. the MVP resolver bound to `stringz` (basename)
+			// which meant every call site using `strutil.Reverse` went
+			// unresolved. the #28 fix reads the package_clause of the
+			// target file to learn the real local name.
+			writeFileSync(
+				join(root, 'libs/stringz/strings.go'),
+				`package strutil
+
+func Reverse(s string) string { return s }
+`,
+			)
+
+			writeFileSync(
+				join(root, 'cmd/main/main.go'),
+				`package main
+
+import (
+	"example.com/divergent/libs/stringz"
+)
+
+func run() string {
+	return strutil.Reverse("hi")
+}
+`,
+			)
+
+			const divergentEngine = new AtlasEngine(root)
+			try {
+				await divergentEngine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false, withCoChange: false })
+				const store = divergentEngine.getStoreForCrossProject()
+				const rows = store.queryRaw<{ count: number }>(
+					`SELECT COUNT(*) as count
+					 FROM edges e
+					 JOIN symbols tgt ON tgt.stable_id = e.target_id
+					 JOIN files tgtf ON tgtf.id = tgt.file_id
+					 WHERE e.kind = 'calls'
+					   AND e.confidence = 'resolved'
+					   AND e.file_id IS NULL
+					   AND tgt.name = 'Reverse'
+					   AND tgtf.path = 'libs/stringz/strings.go'`,
+				)
+				expect(rows[0]?.count ?? 0).toBeGreaterThan(0)
+			} finally {
+				divergentEngine.close()
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
 })

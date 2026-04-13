@@ -848,6 +848,26 @@ export class AtlasStore {
 		)
 	}
 
+	// delete heuristic call edges at the given (file, line, col)
+	// positions. used by the go-resolver after upgrading a call site
+	// to a resolved edge, so the stale heuristic target stable_id
+	// (a synthesized hash of `${filePath}::pkg.Foo`) doesn't coexist
+	// with the real target in blast-radius / deps output. see #40.
+	deleteHeuristicCallEdgesAt(fileId: number, positions: { line: number; col: number }[]): number {
+		if (positions.length === 0) return 0
+		let deleted = 0
+		const stmt = this.db.prepare(
+			`DELETE FROM edges
+			 WHERE file_id = ? AND line = ? AND col = ?
+			   AND kind = 'calls' AND confidence = 'heuristic'`,
+		)
+		for (const pos of positions) {
+			const res = stmt.run(fileId, pos.line, pos.col)
+			deleted += Number(res.changes ?? 0)
+		}
+		return deleted
+	}
+
 	// imports rows with NULL target_file_id, joined to their source
 	// file's path so callers can re-run ts.resolveModuleName against
 	// the current filesystem state. used by the incremental-index

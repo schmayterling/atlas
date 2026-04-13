@@ -477,7 +477,8 @@ export class Indexer {
 			let goResolved: {
 				edges: typeof tsResolved.edges
 				imports: typeof tsResolved.imports
-			} = { edges: [], imports: [] }
+				heuristicUpgrades: { fileId: number; line: number; col: number }[]
+			} = { edges: [], imports: [], heuristicUpgrades: [] }
 			if (state.goAbsolutePaths.length > 0) {
 				const goFileIds: number[] = []
 				for (const abs of state.goAbsolutePaths) {
@@ -500,6 +501,24 @@ export class Indexer {
 			const totalImports = tsResolved.imports.length + goResolved.imports.length
 
 			this.store.bulkInsert(() => {
+				// #40: drop the heuristic call edge at every position
+				// where the go-resolver produced a resolved
+				// cross-file edge. keeps the edges table from
+				// carrying a shadow heuristic row for every resolved
+				// go call site.
+				if (goResolved.heuristicUpgrades.length > 0) {
+					const byFile = new Map<number, { line: number; col: number }[]>()
+					for (const u of goResolved.heuristicUpgrades) {
+						if (!byFile.has(u.fileId)) byFile.set(u.fileId, [])
+						byFile.get(u.fileId)!.push({ line: u.line, col: u.col })
+					}
+					let cleaned = 0
+					for (const [fileId, positions] of byFile) {
+						cleaned += this.store.deleteHeuristicCallEdgesAt(fileId, positions)
+					}
+					if (cleaned > 0) log.debug(`go-resolver: cleaned ${cleaned} heuristic edges`)
+				}
+
 				for (const edge of [...tsResolved.edges, ...goResolved.edges]) {
 					this.store.insertEdge({
 						sourceId: edge.sourceStableId,
