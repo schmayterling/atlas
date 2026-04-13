@@ -179,9 +179,11 @@ export class AtlasStore {
 
 		// migrations whose failure is recoverable. v2 introduces vec0 (sqlite-vec
 		// extension may be unavailable). v7 recreates the same vec0 table at a
-		// new dimension. all other migrations introduce required tables and
-		// must fail loudly.
-		const OPTIONAL_MIGRATIONS = new Set([2, 7])
+		// new dimension. v15 backfills pull_requests.files_complete via ALTER
+		// TABLE, which is a no-op (duplicate column error) for v13-born dbs
+		// that already have the column. all other migrations introduce
+		// required tables and must fail loudly.
+		const OPTIONAL_MIGRATIONS = new Set([2, 7, 15])
 
 		for (const m of pending) {
 			try {

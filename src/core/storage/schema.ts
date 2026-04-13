@@ -421,4 +421,20 @@ export const MIGRATIONS: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_channel_hits_file ON channel_hits(file_id);
 		`,
 	},
+	{
+		version: 15,
+		description: 'backfill pull_requests.files_complete for older dbs',
+		// v13 declared files_complete in the pull_requests CREATE
+		// TABLE. older dbs created before that column landed in the
+		// CREATE hit a "no such column" on the github-ingest INSERT
+		// (surfaced by #48 flipping github ingest to default-on).
+		// the ALTER fails on newer dbs that already have the column
+		// ("duplicate column name"); add v15 to OPTIONAL_MIGRATIONS
+		// in store.ts so that failure mode is swallowed as a no-op
+		// for v13-born databases. both populations converge on the
+		// same column state after this migration.
+		up: `
+			ALTER TABLE pull_requests ADD COLUMN files_complete INTEGER NOT NULL DEFAULT 0;
+		`,
+	},
 ]
