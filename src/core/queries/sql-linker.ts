@@ -1,8 +1,16 @@
-import { readFileSync, realpathSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { ChannelHit } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
+import {
+	buildLineOffsets,
+	getEnclosingLiteralContent,
+	isUnderRoot,
+	offsetToLine,
+	safeRealpath,
+	shouldKeepIdentifier,
+} from './channel-utils.js'
 
 // sql-table channel linker (#10). walks every non-test source file
 // atlas already knows about via getAllFiles(), regex-scans the file
@@ -82,53 +90,13 @@ function collectCteNames(source: string): Set<string> {
 	return names
 }
 
-// reserved words that sometimes appear after FROM / JOIN etc. but
-// are NEVER real table names. dropping them cuts false positives
-// from sql grammar fragments like `CREATE INDEX ... ON ... USING`.
-const SQL_KEYWORD_BLOCKLIST = new Set([
-	'select',
-	'where',
-	'order',
-	'group',
-	'having',
-	'limit',
-	'offset',
-	'as',
-	'on',
-	'using',
-	'left',
-	'right',
-	'inner',
-	'outer',
-	'full',
-	'cross',
-	'natural',
-])
-
-// some code legitimately contains `FROM`/`JOIN`/etc. in prose or
-// docs. skip the match entirely if it is not inside a recognisable
-// string literal context. the heuristic is: only emit a hit when
-// an odd number of quote characters appear on the line before the
-// match index. cheap, strict, and matches how real orm / query
-// code looks.
-function isInsideStringLiteral(source: string, matchIndex: number): boolean {
-	const lineStart = source.lastIndexOf('\n', matchIndex) + 1
-	const lineHead = source.slice(lineStart, matchIndex)
-	let inSingle = false
-	let inDouble = false
-	let inBacktick = false
-	for (let i = 0; i < lineHead.length; i++) {
-		const c = lineHead[i]
-		if (c === '\\') {
-			i++
-			continue
-		}
-		if (c === "'" && !inDouble && !inBacktick) inSingle = !inSingle
-		else if (c === '"' && !inSingle && !inBacktick) inDouble = !inDouble
-		else if (c === '`' && !inSingle && !inDouble) inBacktick = !inBacktick
-	}
-	return inSingle || inDouble || inBacktick
-}
+// matches a recognizable SQL DML/DDL verb anywhere in the enclosing
+// string literal. before the #30 precursor the linker only checked
+// "is the match inside a string literal" which let prose strings
+// like 'from and to project IDs required' through. requiring a real
+// SQL verb in the same literal kills the noise without losing real
+// queries. see channel-utils.ts comment header.
+const SQL_VERB_REGEX = /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|MERGE|REPLACE|UPSERT|WITH)\b/i
 
 export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: number } {
 	store.deleteChannelHitsByKind('sql_table')
@@ -136,7 +104,7 @@ export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: n
 	const files = store.getAllFiles().filter((f) => !f.isTest)
 	const hits: ChannelHit[] = []
 	const allowedExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.go', '.py'])
-	const rootReal = realpathOrNull(projectRoot) ?? projectRoot
+	const rootReal = safeRealpath(projectRoot) ?? projectRoot
 
 	for (const f of files) {
 		const dot = f.path.lastIndexOf('.')
@@ -149,7 +117,7 @@ export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: n
 		// real path escapes projectRoot, skip it. otherwise the linker
 		// would read and scan arbitrary files on disk via a path
 		// sourced from the files table.
-		const resolvedReal = realpathOrNull(resolved)
+		const resolvedReal = safeRealpath(resolved)
 		if (resolvedReal && !isUnderRoot(resolvedReal, rootReal)) continue
 
 		let source: string
@@ -179,9 +147,11 @@ export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: n
 				// normalise schema-qualified names: `public.users` -> `users`
 				const table = normaliseTableName(raw)
 				if (!table) continue
-				if (SQL_KEYWORD_BLOCKLIST.has(table.toLowerCase())) continue
 				if (cteNames.has(table.toLowerCase())) continue
-				if (!isInsideStringLiteral(source, matchIndex)) continue
+				if (!shouldKeepIdentifier(table)) continue
+				const literal = getEnclosingLiteralContent(source, matchIndex)
+				if (!literal) continue
+				if (!SQL_VERB_REGEX.test(literal)) continue
 
 				const line = offsetToLine(lineOffsets, matchIndex) + 1
 				const enclosing = store.getSymbolContainingByte(f.id, matchIndex)
@@ -203,34 +173,3 @@ export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: n
 	return { hits: hits.length }
 }
 
-function buildLineOffsets(source: string): number[] {
-	const offsets = [0]
-	for (let i = 0; i < source.length; i++) {
-		if (source.charCodeAt(i) === 10) offsets.push(i + 1)
-	}
-	return offsets
-}
-
-function offsetToLine(offsets: number[], matchIndex: number): number {
-	let lo = 0
-	let hi = offsets.length - 1
-	while (lo < hi) {
-		const mid = (lo + hi + 1) >> 1
-		if (offsets[mid] <= matchIndex) lo = mid
-		else hi = mid - 1
-	}
-	return lo
-}
-
-function realpathOrNull(p: string): string | null {
-	try {
-		return realpathSync(p)
-	} catch {
-		return null
-	}
-}
-
-function isUnderRoot(abs: string, root: string): boolean {
-	const normRoot = root.endsWith('/') ? root : `${root}/`
-	return abs === root || abs.startsWith(normRoot)
-}

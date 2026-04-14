@@ -256,6 +256,20 @@ export class AtlasEngine {
 		return traceFlow(store, source.stableId, target.stableId, opts)
 	}
 
+	// stable-id-keyed variant for federation hops. both endpoints are
+	// identified exactly so there is no first-match-wins resolution
+	// step. returns null if either symbol is missing from this db.
+	traceByStableIds(
+		fromStableId: string,
+		toStableId: string,
+		opts?: { maxPaths?: number; maxDepth?: number },
+	): FlowTraceResult | null {
+		const store = this.getStore()
+		if (!store.getSymbolByStableId(fromStableId)) return null
+		if (!store.getSymbolByStableId(toStableId)) return null
+		return traceFlow(store, fromStableId, toStableId, opts)
+	}
+
 	// --- resolve symbol ---
 
 	resolveSymbol(query: string): import('../shared/types.js').SymbolResult | null {
@@ -263,6 +277,17 @@ export class AtlasEngine {
 		const sym = store.resolveSymbol(query)
 		if (!sym) return null
 		return store.symbolToResult(sym)
+	}
+
+	// identity-only variant used by federation. symbolToResult strips
+	// stable_id (it's internal), but federation needs it as the anchor
+	// for cross_project_edges walks. keeps callers on the engine api
+	// surface without leaking the full store.
+	resolveSymbolIdentity(query: string): { stableId: string; name: string } | null {
+		const store = this.getStore()
+		const sym = store.resolveSymbol(query)
+		if (!sym) return null
+		return { stableId: sym.stableId, name: sym.name }
 	}
 
 	// --- dead code ---
@@ -388,9 +413,95 @@ export class AtlasEngine {
 		}
 	}
 
+	// federation fan-out helper: takes a stable_id directly so callers
+	// that already resolved a symbol via anchorSymbol() don't have to
+	// pay the resolveSymbol round-trip again. used by deps/blast/trace
+	// --all-projects via federated-engine.fanOutDownstream.
+	getCrossProjectEdgesByStableId(projectId: string, stableId: string): {
+		outbound: { targetProject: string; targetStableId: string; kind: string }[]
+		inbound: { sourceProject: string; sourceStableId: string; kind: string }[]
+	} {
+		const store = this.getStore()
+		return {
+			outbound: store.getCrossProjectEdgesFrom(projectId, stableId),
+			inbound: store.getCrossProjectEdgesTo(projectId, stableId),
+		}
+	}
+
+	// stable-id-keyed variant of deps/blast/trace for federation hops.
+	// the cross_project_edges row gives us an exact remote stable_id.
+	// re-resolving that by name via resolveSymbol() would pick the
+	// first same-named symbol which breaks when the remote project has
+	// multiple symbols sharing the name. these wrappers look up the
+	// symbol by stable_id and run the underlying query.
+	depsByStableId(
+		stableId: string,
+		opts?: {
+			direction?: 'upstream' | 'downstream' | 'both'
+			depth?: number
+			edgeKinds?: EdgeKind[]
+		},
+	): DependencyResult | null {
+		const store = this.getStore()
+		if (!store.getSymbolByStableId(stableId)) return null
+		return getDependencies(store, stableId, opts)
+	}
+
+	blastByStableId(
+		stableId: string,
+		opts?: { depth?: number; includeTests?: boolean },
+	): BlastRadiusResult | null {
+		const store = this.getStore()
+		if (!store.getSymbolByStableId(stableId)) return null
+		return getBlastRadius(store, stableId, opts)
+	}
+
+	// federated dead-code filter: returns true when any non-heuristic
+	// cross_project_edges row points at this symbol as a target. the
+	// confidence filter is critical: name_match edges from
+	// --match-by-name are heuristic and must not suppress otherwise-dead
+	// symbols that just happen to share a name across projects.
+	hasCrossProjectInbound(projectId: string, stableId: string): boolean {
+		const store = this.getStore()
+		return store.hasCrossProjectInbound(projectId, stableId)
+	}
+
+	// look up a symbol by stable_id and return its simple name. used by
+	// federation callers that need a display name for a resolved remote
+	// symbol without going through resolveSymbol (which takes a query
+	// string and would re-resolve ambiguously).
+	getSymbolNameByStableId(stableId: string): string | null {
+		const store = this.getStore()
+		const sym = store.getSymbolByStableId(stableId)
+		return sym ? sym.name : null
+	}
+
+	// recover the stable_id for a SymbolResult that doesn't carry one.
+	// dead-code and other queries return SymbolResult (external shape)
+	// which omits the stable_id. federation filtering needs the stable
+	// id to check cross_project_edges. the natural key is
+	// (qualifiedName, kind, filePath) — same triple that feeds into
+	// the content-addressed stable_id hash in shared/identity.ts — so
+	// the lookup is unambiguous even when merged symbols share a name.
+	resolveStableIdFromResult(sym: {
+		qualifiedName: string
+		kind: string
+		filePath: string
+	}): string | null {
+		const store = this.getStore()
+		return store.findStableIdByNaturalKey(sym.qualifiedName, sym.kind, sym.filePath)
+	}
+
 	// get the store for cross-project operations (used by engine-pool)
 	getStoreForCrossProject(): AtlasStore {
 		return this.getStore()
+	}
+
+	// drop every cross_project_edges row in this engine's db. used by
+	// `atlas projects clear-edges` so users can rebuild from scratch
+	// after a build-edges schema or linker change. see #8a.
+	clearCrossProjectEdges(): number {
+		return this.getStore().deleteAllCrossProjectEdges()
 	}
 
 	// --- LLM summaries ---

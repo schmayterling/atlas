@@ -481,4 +481,35 @@ export const MIGRATIONS: Migration[] = [
 				ON test_links(confidence, source_symbol_stable_id);
 		`,
 	},
+	{
+		version: 18,
+		description: 'add UNIQUE constraint to cross_project_edges so INSERT OR IGNORE is idempotent',
+		// cross_project_edges had no uniqueness on the natural key, so
+		// repeated `projects build-edges` runs accumulated duplicate
+		// rows and INSERT OR IGNORE was a no-op (nothing to conflict
+		// against). dedupe pre-existing rows on the natural key, drop
+		// and recreate with the constraint, then rebuild the lookup
+		// indexes. see #8a / codex finding 2.
+		up: `
+			CREATE TABLE IF NOT EXISTS cross_project_edges_v18 (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				source_project TEXT NOT NULL,
+				source_stable_id TEXT NOT NULL,
+				target_project TEXT NOT NULL,
+				target_stable_id TEXT NOT NULL,
+				kind TEXT NOT NULL,
+				confidence TEXT NOT NULL DEFAULT 'heuristic',
+				metadata TEXT,
+				UNIQUE(source_project, source_stable_id, target_project, target_stable_id, kind)
+			);
+			INSERT OR IGNORE INTO cross_project_edges_v18
+				(source_project, source_stable_id, target_project, target_stable_id, kind, confidence, metadata)
+			SELECT source_project, source_stable_id, target_project, target_stable_id, kind, confidence, metadata
+			FROM cross_project_edges;
+			DROP TABLE cross_project_edges;
+			ALTER TABLE cross_project_edges_v18 RENAME TO cross_project_edges;
+			CREATE INDEX IF NOT EXISTS idx_xedge_source ON cross_project_edges(source_project, source_stable_id);
+			CREATE INDEX IF NOT EXISTS idx_xedge_target ON cross_project_edges(target_project, target_stable_id);
+		`,
+	},
 ]

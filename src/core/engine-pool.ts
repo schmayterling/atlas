@@ -1,7 +1,9 @@
+import { resolve } from 'node:path'
 import { AtlasEngine } from './engine.js'
 import {
 	getActiveProject,
 	getProject,
+	getProjectByRoot,
 	listProjects,
 } from './registry.js'
 import { log } from '../shared/logger.js'
@@ -23,7 +25,10 @@ export function getEngine(projectId: string): AtlasEngine | null {
 export function getDefaultEngine(): { engine: AtlasEngine; projectId: string } | null {
 	// active project set via `atlas use` wins over first-registered. this
 	// keeps the cli, stdio mcp, and web ui all resolving to the same
-	// engine when no explicit project is passed.
+	// engine when no explicit project is passed AND no fallback root is
+	// available. callers with a fallback root (the common CLI case where
+	// commander defaults -p to cwd) take a different path in
+	// getOrCreateEngine and never reach this default.
 	const activeId = getActiveProject()
 	if (activeId) {
 		const engine = getEngine(activeId)
@@ -40,29 +45,43 @@ export function getDefaultEngine(): { engine: AtlasEngine; projectId: string } |
 	return { engine, projectId: first.id }
 }
 
+// resolution order, post-#8a:
+//   1. explicit projectId (mcp ?project=, internal callers that already
+//      know the registered id) — always wins.
+//   2. fallbackRoot, resolved against the registry by absolute path:
+//      - if the path matches a registered project → reuse that project's
+//        engine (so addressing by path is equivalent to addressing by id
+//        for any registered project).
+//      - otherwise → anchor a fresh engine at the exact path. this is
+//        critical for cli ergonomics: passing `-p /tmp/scratch` must
+//        operate on /tmp/scratch even when an unrelated active project
+//        is registered (see issue #8a / codex finding 1).
+//   3. active project via `atlas use <id>` wins only when neither an
+//      explicit id nor a fallback root is supplied. this path is
+//      reached by stdio mcp and web routes that genuinely have no
+//      project context.
 export function getOrCreateEngine(projectId: string | undefined, fallbackRoot?: string): AtlasEngine {
-	// explicit -p / ?project= wins over everything.
 	if (projectId) {
 		const engine = getEngine(projectId)
 		if (engine) return engine
 	}
 
-	// active project via `atlas use <id>` wins over the raw fallback root.
-	// this makes cli + stdio mcp + web all follow the same resolution
-	// order so `atlas use foo` actually steers all three.
-	const def = getDefaultEngine()
-	if (def) return def.engine
-
-	// last resort: spin up an engine rooted at whatever directory the
-	// caller had (cwd for CLI, projectRoot for MCP/web). used only when
-	// no project is registered at all.
 	if (fallbackRoot) {
-		const cached = engines.get(fallbackRoot)
+		const absRoot = resolve(fallbackRoot)
+		const registered = getProjectByRoot(absRoot)
+		if (registered) {
+			const engine = getEngine(registered.id)
+			if (engine) return engine
+		}
+		const cached = engines.get(absRoot)
 		if (cached) return cached
-		const engine = new AtlasEngine(fallbackRoot)
-		engines.set(fallbackRoot, engine)
+		const engine = new AtlasEngine(absRoot)
+		engines.set(absRoot, engine)
 		return engine
 	}
+
+	const def = getDefaultEngine()
+	if (def) return def.engine
 
 	throw new Error('no project available. run `atlas projects add .` to register a project.')
 }

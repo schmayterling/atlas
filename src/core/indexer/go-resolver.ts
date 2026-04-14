@@ -278,12 +278,17 @@ function discoverPackageName(
 	return null
 }
 
-// resolve an import path to an absolute directory on disk via the
-// longest-matching go.mod modulePath. returns null when the path
-// doesn't belong to any of the project's own go modules (external
-// dependencies fall through to heuristic edges). rootDir on RepoModule
-// is a path relative to projectRoot (see module-detector.ts:126), so
-// the caller must pass projectRoot in to build the absolute path.
+// resolve an import path to an absolute directory on disk. tries (in
+// order):
+//   1. longest-matching go.mod modulePath in this repo (in-module hit)
+//   2. <go-mod-rootDir>/vendor/<importPath> if a vendor dir exists
+// returns null when neither matches, and the import falls through to
+// heuristic edges. rootDir on RepoModule is a path relative to
+// projectRoot (see module-detector.ts:126), so the caller must pass
+// projectRoot in to build the absolute path. external module-cache
+// resolution is intentionally NOT implemented because cache files
+// live outside the indexed repo, so findSymbolAcrossDir would have
+// no symbols to resolve against — that's a separate issue. see #29.
 function resolveImportPath(
 	importPath: string,
 	goModules: RepoModule[],
@@ -298,10 +303,46 @@ function resolveImportPath(
 			}
 		}
 	}
-	if (!best) return null
-	const suffix = importPath.slice(best.modulePath!.length).replace(/^\//, '')
-	const absRoot = best.rootDir ? join(projectRoot, best.rootDir) : projectRoot
-	return suffix ? join(absRoot, suffix) : absRoot
+	if (best) {
+		const suffix = importPath.slice(best.modulePath!.length).replace(/^\//, '')
+		const absRoot = best.rootDir ? join(projectRoot, best.rootDir) : projectRoot
+		return suffix ? join(absRoot, suffix) : absRoot
+	}
+
+	// vendor fall-through: many repos commit ./vendor/<import-path> as a
+	// pinned copy of their dependencies. when the vendor dir exists for
+	// the nearest go module and contains the imported package, return
+	// that path. the file-discovery pipeline already walks vendor/ when
+	// it isn't excluded so symbols and edges resolve normally.
+	//
+	// containment guard: tree-sitter hands us the raw import literal
+	// which a malicious source can set to `../../../etc`. path.join
+	// normalizes that to escape the vendor dir and eventually the repo
+	// root. reject any resolved vendor path that isn't inside its go
+	// module root.
+	for (const mod of goModules) {
+		const moduleAbsRoot = mod.rootDir ? join(projectRoot, mod.rootDir) : projectRoot
+		const vendorRoot = join(moduleAbsRoot, 'vendor')
+		const vendoredDir = join(vendorRoot, importPath)
+		if (!isUnderRoot(vendoredDir, vendorRoot)) continue
+		if (directoryHasGoFiles(vendoredDir)) return vendoredDir
+	}
+
+	return null
+}
+
+function isUnderRoot(abs: string, root: string): boolean {
+	const normRoot = root.endsWith('/') ? root : `${root}/`
+	return abs === root || abs.startsWith(normRoot)
+}
+
+function directoryHasGoFiles(dir: string): boolean {
+	try {
+		const entries = readdirSync(dir)
+		return entries.some((e) => e.endsWith('.go'))
+	} catch {
+		return false
+	}
 }
 
 function listGoFilesCached(dir: string, cache: Map<string, string[]>): string[] {

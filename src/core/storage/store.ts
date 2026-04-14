@@ -347,6 +347,30 @@ export class AtlasStore {
 		)
 	}
 
+	// --- exports ---
+
+	// returns every exported, non-test symbol with name + kind + stable_id.
+	// used by the symbol-name cross-project linker (#8b) to match exports
+	// across two project dbs by (name, kind). intentionally avoids the
+	// expensive search/dependentCount path because the linker only needs
+	// identity, not result formatting.
+	listExportedSymbolsForLinking(): Array<{
+		name: string
+		kind: string
+		stableId: string
+	}> {
+		return this.db
+			.query<{ name: string; kind: string; stableId: string }, []>(
+				`SELECT s.name, s.kind, s.stable_id as stableId
+				FROM symbols s
+				JOIN files f ON f.id = s.file_id
+				WHERE s.is_exported = 1
+				  AND f.is_test = 0
+				  AND s.kind IN ('function', 'class', 'method', 'interface', 'type', 'enum', 'variable')`,
+			)
+			.all()
+	}
+
 	// --- search ---
 
 	searchSymbols(query: string, limit = 20, includeTests = false): SymbolResult[] {
@@ -951,6 +975,50 @@ export class AtlasStore {
 
 	deleteCrossProjectEdgesForProject(project: string) {
 		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
+	}
+
+	// drop every cross_project_edges row in this db. used by
+	// `atlas projects clear-edges` after a build-edges schema or
+	// linker change so users can rebuild from scratch without
+	// hand-editing sqlite.
+	deleteAllCrossProjectEdges(): number {
+		const before = this.db.query('SELECT COUNT(*) AS n FROM cross_project_edges').get() as { n: number }
+		this.db.run('DELETE FROM cross_project_edges')
+		return before.n
+	}
+
+	// true when a symbol has at least one non-heuristic inbound
+	// cross_project_edges row. used by dead-code --all-projects to
+	// exclude symbols that still have a real cross-project consumer.
+	// heuristic edges (name_match from --match-by-name) are excluded
+	// because a coincidental name collision between two projects must
+	// not suppress an otherwise-dead symbol.
+	hasCrossProjectInbound(projectId: string, stableId: string): boolean {
+		const row = this.db
+			.query<{ n: number }, [string, string]>(
+				`SELECT COUNT(*) AS n FROM cross_project_edges
+				 WHERE target_project = ? AND target_stable_id = ?
+				   AND confidence != 'heuristic'`,
+			)
+			.get(projectId, stableId)
+		return (row?.n ?? 0) > 0
+	}
+
+	// look up a symbol's stable_id by its natural key (qualified name +
+	// kind + file path). stable_id is a content-addressed hash of
+	// exactly these three fields (see shared/identity.ts), so the
+	// lookup returns at most one row even when two symbols share a
+	// qualified name across different kinds.
+	findStableIdByNaturalKey(qualifiedName: string, kind: string, filePath: string): string | null {
+		const row = this.db
+			.query<{ stable_id: string }, [string, string, string]>(
+				`SELECT s.stable_id FROM symbols s
+				 JOIN files f ON f.id = s.file_id
+				 WHERE s.qualified_name = ? AND s.kind = ? AND f.path = ?
+				 LIMIT 1`,
+			)
+			.get(qualifiedName, kind, filePath)
+		return row?.stable_id ?? null
 	}
 
 	// --- channel_hits: generic cross-language channel linking (#10) ---
