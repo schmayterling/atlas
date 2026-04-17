@@ -5,7 +5,6 @@ import { log } from '../shared/logger.js'
 import { buildClient } from './build.js'
 import { getOrCreateEngine, closeAll } from '../core/engine-pool.js'
 import { addProject, getLinkedProjects, getProject } from '../core/registry.js'
-import { buildCrossProjectEdges } from '../core/queries/api-trace.js'
 import { projectsRoutes } from './routes/projects.js'
 import { createMcpServer } from '../mcp/server.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
@@ -200,13 +199,12 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 			if (!project) return c.json({ error: 'project not found' }, 404)
 			const linked = getLinkedProjects(projectId)
 			const engine = getOrCreateEngine(projectId, projectRoot)
-			const localStore = engine.getStoreForCrossProject()
 			let totalEdges = 0
 			for (const link of linked) {
 				const remoteEngine = getOrCreateEngine(link.id)
 				if (!remoteEngine) continue
-				const remoteStore = remoteEngine.getStoreForCrossProject()
-				totalEdges += buildCrossProjectEdges(localStore, projectId, remoteStore, link.id)
+				const counts = engine.buildCrossProjectEdges(projectId, remoteEngine, link.id)
+				totalEdges += counts.routeMatches
 			}
 			return c.json({ edges: totalEdges, linkedProjects: linked.length })
 		} catch (e) { log.error(`build-cross-edges: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
@@ -226,6 +224,30 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 		if (!pattern) return c.json({ error: 'pattern required' }, 400)
 		try { return c.json(eng(c).traceApi(pattern)) }
 		catch (e) { log.error(`api-trace: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
+	// #70 surfaces channel_hits (+ metadata) to the web consumer so cli,
+	// mcp, and web all agree. default kind matches the cli default.
+	app.get('/api/channels', (c) => {
+		try {
+			const kind = c.req.query('kind') ?? 'sql_table'
+			return c.json({ kind, groups: eng(c).listChannels(kind) })
+		} catch (e) {
+			log.error(`channels/list: ${e instanceof Error ? e.stack : e}`)
+			return c.json({ error: String(e) }, 500)
+		}
+	})
+
+	app.get('/api/channels/show', (c) => {
+		const kind = c.req.query('kind')
+		const value = c.req.query('value')
+		if (!kind || !value) return c.json({ error: 'kind and value required' }, 400)
+		try {
+			return c.json({ kind, value, ...eng(c).showChannel(kind, value) })
+		} catch (e) {
+			log.error(`channels/show: ${e instanceof Error ? e.stack : e}`)
+			return c.json({ error: String(e) }, 500)
+		}
 	})
 
 	app.get('/api/git/churn', (c) => {

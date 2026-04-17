@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
@@ -307,8 +307,8 @@ function resolveImportPath(
 	importPath: string,
 	goModules: RepoModule[],
 	projectRoot: string,
-	fromFileDir?: string,
-	proximityCache?: Map<string, RepoModule[]>,
+	fromFileDir: string | undefined,
+	proximityCache: Map<string, RepoModule[]>,
 ): string | null {
 	let best: RepoModule | null = null
 	for (const mod of goModules) {
@@ -339,16 +339,37 @@ function resolveImportPath(
 	// root. reject any resolved vendor path that isn't inside its go
 	// module root.
 	const cacheKey = fromFileDir ?? ''
-	let ranked = proximityCache?.get(cacheKey)
+	let ranked = proximityCache.get(cacheKey)
 	if (!ranked) {
 		ranked = rankModulesByProximity(goModules, projectRoot, fromFileDir)
-		proximityCache?.set(cacheKey, ranked)
+		proximityCache.set(cacheKey, ranked)
 	}
 	for (const mod of ranked) {
 		const moduleAbsRoot = mod.rootDir ? join(projectRoot, mod.rootDir) : projectRoot
 		const vendorRoot = join(moduleAbsRoot, 'vendor')
 		const vendoredDir = join(vendorRoot, importPath)
+		// string-level containment catches `..`-style escapes (path.join
+		// normalizes them out) but doesn't follow symlinks. resolve
+		// both the candidate and the vendor root to realpaths so
+		// macOS /tmp -> /private/tmp doesn't trip, then confirm the
+		// candidate still lives under the resolved vendor dir. a
+		// `vendor/pkg -> ../../outside` symlink escapes vendorRealRoot
+		// after realpath, so it gets rejected. see #75 deep-review.
 		if (!isUnderRoot(vendoredDir, vendorRoot)) continue
+		let realDir: string
+		let realVendorRoot: string
+		try {
+			realDir = realpathSync(vendoredDir)
+			realVendorRoot = realpathSync(vendorRoot)
+		} catch {
+			continue
+		}
+		if (!isUnderRoot(realDir, realVendorRoot)) continue
+		// return the non-realpath'd vendoredDir so downstream
+		// `relative(projectRoot, dir)` calls keep the path inside the
+		// repo tree (macOS /tmp -> /private/tmp would otherwise
+		// produce an escape string). the containment check above
+		// already used realpaths to reject out-of-tree symlinks.
 		if (directoryHasGoFiles(vendoredDir)) return vendoredDir
 	}
 

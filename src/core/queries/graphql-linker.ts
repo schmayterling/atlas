@@ -152,8 +152,9 @@ function extractFromStandaloneSchema(
 		stableId: string
 		name: string
 		fileId: number
+		lineStart: number
 	}>(
-		`SELECT s.stable_id as stableId, s.name as name, s.file_id as fileId
+		`SELECT s.stable_id as stableId, s.name as name, s.file_id as fileId, s.line_start as lineStart
 		 FROM symbols s
 		 JOIN files fi ON fi.id = s.file_id
 		 WHERE s.name IN (${namePlaceholders})
@@ -161,10 +162,10 @@ function extractFromStandaloneSchema(
 		   AND fi.is_test = 0`,
 		...uniqueNames,
 	)
-	const symsByName = new Map<string, Array<{ stableId: string; fileId: number }>>()
+	const symsByName = new Map<string, Array<{ stableId: string; fileId: number; lineStart: number }>>()
 	for (const row of symRows) {
 		const list = symsByName.get(row.name) ?? []
-		list.push({ stableId: row.stableId, fileId: row.fileId })
+		list.push({ stableId: row.stableId, fileId: row.fileId, lineStart: row.lineStart })
 		symsByName.set(row.name, list)
 	}
 
@@ -184,6 +185,10 @@ function extractFromStandaloneSchema(
 		})
 		// cross-language mirror hits so listChannels groups match the
 		// expected "schema type X corresponds to ts interface X" shape.
+		// each mirror hit records the ts/go symbol's own line_start
+		// (its `fileId` points at the ts/go file, not the schema), so
+		// downstream consumers that display file:line get a coherent
+		// location. the schema path is preserved in metadata.
 		const matches = symsByName.get(def.name)
 		if (!matches) continue
 		for (const sym of matches) {
@@ -192,11 +197,12 @@ function extractFromStandaloneSchema(
 				fileId: sym.fileId,
 				kind: 'graphql_type',
 				value: def.name,
-				line: def.line,
+				line: sym.lineStart,
 				metadata: JSON.stringify({
 					definition: def.definition,
 					source: 'schema_file',
 					schemaPath: f.path,
+					schemaLine: def.line,
 					crossLanguageMirror: true,
 				}),
 			})

@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import type { AtlasConfig } from '../../shared/config.js'
 import { log } from '../../shared/logger.js'
@@ -32,7 +32,19 @@ export function discoverFiles(projectRoot: string, config: AtlasConfig): Discove
 	const testPatterns = config.testPatterns
 	const files: DiscoveredFile[] = []
 
-	walk(projectRoot, projectRoot, extensionToLanguage, excludePatterns, testPatterns, files)
+	// resolve projectRoot's own realpath once so the per-file symlink
+	// containment check below compares realpath-to-realpath. on macOS
+	// /tmp is a symlink to /private/tmp, so a test that indexes a
+	// mkdtempSync directory would otherwise see every file as
+	// escaping projectRoot. see #75 deep-review pass 6.
+	let rootReal: string
+	try {
+		rootReal = realpathSync(projectRoot)
+	} catch {
+		rootReal = projectRoot
+	}
+
+	walk(projectRoot, projectRoot, rootReal, extensionToLanguage, excludePatterns, testPatterns, files)
 
 	files.sort((a, b) => a.path.localeCompare(b.path))
 	return files
@@ -41,6 +53,7 @@ export function discoverFiles(projectRoot: string, config: AtlasConfig): Discove
 function walk(
 	dir: string,
 	projectRoot: string,
+	rootReal: string,
 	extensionToLanguage: Map<string, string>,
 	excludePatterns: string[],
 	testPatterns: string[],
@@ -69,13 +82,32 @@ function walk(
 		if (stat.isDirectory()) {
 			if (SKIP_DIRS.has(name)) continue
 			if (matchesAnyPattern(relPath, excludePatterns)) continue
-			walk(fullPath, projectRoot, extensionToLanguage, excludePatterns, testPatterns, results)
+			walk(fullPath, projectRoot, rootReal, extensionToLanguage, excludePatterns, testPatterns, results)
 		} else if (stat.isFile()) {
 			if (matchesAnyPattern(relPath, excludePatterns)) continue
 
 			const ext = extname(name)
 			const language = extensionToLanguage.get(ext)
 			if (!language) continue
+
+			// symlink containment guard: statSync follows symlinks by
+			// default, so a symlinked file whose real path escapes
+			// projectRoot would otherwise be indexed and read. reject
+			// anything whose realpath isn't under projectRoot (resolved
+			// once up top so /tmp -> /private/tmp on macOS doesn't
+			// trip every test-fixture). see #75 deep-review pass 6.
+			let realAbs: string
+			try {
+				realAbs = realpathSync(fullPath)
+			} catch (e) {
+				log.debug(`skipped ${fullPath}: realpath failed: ${e}`)
+				continue
+			}
+			const normRoot = rootReal.endsWith('/') ? rootReal : `${rootReal}/`
+			if (realAbs !== rootReal && !realAbs.startsWith(normRoot)) {
+				log.debug(`skipped ${fullPath}: resolves outside project root`)
+				continue
+			}
 
 			const sizeBytes = stat.size
 

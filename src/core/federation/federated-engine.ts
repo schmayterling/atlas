@@ -126,11 +126,13 @@ export interface BoundaryHop {
 // its outbound cross-project edges via the remote project's engine and
 // enqueue the landing point. the search records every distinct landing
 // in toProject under the hop cap, so two different edges from different
-// intermediate projects both surface. dedupe on (project, stableId) is
-// skipped for terminal (toProject) landings so distinct endpoints are
-// collected; intermediate nodes are deduped to keep cycles bounded.
-// maxHops is the number of cross_project_edges walked (hop=1 direct,
-// hop=2 one intermediate, etc.). see #72.
+// intermediate projects both surface. we track landings in their own
+// dedupe set so each (landing_project, landing_stable_id) pair is
+// recorded at most once (prevents exponential blowup when toProject
+// also appears as an intermediate hop in cycles). intermediate nodes
+// are deduped in `visited` to keep cycles bounded. maxHops is the
+// number of cross_project_edges walked (hop=1 direct, hop=2 one
+// intermediate, etc.). see #72 + deep-review.
 export function findCrossProjectBoundaries(
 	fromEngine: AtlasEngine,
 	fromProjectId: string,
@@ -138,6 +140,14 @@ export function findCrossProjectBoundaries(
 	toProjectId: string,
 	maxHops: number,
 ): BoundaryHop[] {
+	if (fromProjectId === toProjectId) {
+		// nothing to walk: same-project trace is handled by the caller
+		// without crossing any boundary. bail early rather than mining
+		// self-referencing cross_project_edges rows, which would be a
+		// misleading result.
+		return []
+	}
+
 	type QueueItem = {
 		engine: AtlasEngine
 		projectId: string
@@ -146,6 +156,7 @@ export function findCrossProjectBoundaries(
 	}
 	const hops: BoundaryHop[] = []
 	const visited = new Set<string>()
+	const landingSeen = new Set<string>()
 	const queue: QueueItem[] = [
 		{ engine: fromEngine, projectId: fromProjectId, stableId: fromStableId, chain: [] },
 	]
@@ -167,9 +178,12 @@ export function findCrossProjectBoundaries(
 				},
 			]
 			if (edge.targetProject === toProjectId) {
-				// terminal landing: record without marking visited so a
-				// second distinct edge landing on a different stable_id in
-				// toProject is not suppressed.
+				// record each distinct landing in toProject once. this
+				// prevents an exponential blowup when toProject appears
+				// as an intermediate hop in a cycle.
+				const landingKey = `${edge.targetProject}|${edge.targetStableId}`
+				if (landingSeen.has(landingKey)) continue
+				landingSeen.add(landingKey)
 				hops.push({ landingStableId: edge.targetStableId, boundaryChain: nextChain })
 				continue
 			}
@@ -177,8 +191,21 @@ export function findCrossProjectBoundaries(
 			if (visited.has(key)) continue
 			visited.add(key)
 			const nextProject = getProject(edge.targetProject)
-			if (!nextProject) continue
-			const nextEngine = getOrCreateEngine(nextProject.id, nextProject.root)
+			if (!nextProject) {
+				log.debug(
+					`findCrossProjectBoundaries: edge references unknown project "${edge.targetProject}", skipping subtree`,
+				)
+				continue
+			}
+			let nextEngine: AtlasEngine
+			try {
+				nextEngine = getOrCreateEngine(nextProject.id, nextProject.root)
+			} catch (e) {
+				log.warn(
+					`findCrossProjectBoundaries: failed to open engine for "${nextProject.id}": ${e instanceof Error ? e.message : e}`,
+				)
+				continue
+			}
 			queue.push({
 				engine: nextEngine,
 				projectId: nextProject.id,
