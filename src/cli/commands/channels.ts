@@ -17,6 +17,20 @@ const KNOWN_CHANNEL_KINDS = [
 	'proto_ref',
 ]
 
+// format channel_hits.metadata for human output. linkers write
+// structured JSON that is genuinely informative (queue pub/sub
+// direction, driver; graphql type/input/enum; openapi schemaPath),
+// so we surface it inline next to the file:line ref. see #70.
+function formatChannelMetadata(meta: Record<string, unknown> | null): string {
+	if (!meta) return ''
+	const parts: string[] = []
+	for (const [k, v] of Object.entries(meta)) {
+		if (v === null || v === undefined) continue
+		parts.push(`${k}=${String(v)}`)
+	}
+	return parts.join(' ')
+}
+
 export function channelsListCommand(
 	projectRoot: string,
 	json: boolean,
@@ -78,7 +92,9 @@ export function channelsShowCommand(
 			console.log()
 			console.log(pc.dim(`  hits:`))
 			for (const hit of result.hits) {
-				console.log(`    ${fileRef(hit.filePath, hit.line)}`)
+				const meta = formatChannelMetadata(hit.metadata)
+				const suffix = meta ? `  ${pc.dim(meta)}` : ''
+				console.log(`    ${fileRef(hit.filePath, hit.line)}${suffix}`)
 			}
 		}
 	} finally {

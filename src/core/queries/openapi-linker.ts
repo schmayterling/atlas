@@ -6,16 +6,16 @@ import type { AtlasStore } from '../storage/store.js'
 import { isUnderRoot, safeRealpath, shouldKeepIdentifier } from './channel-utils.js'
 
 // openapi_type channel linker. extracts schema definitions from
-// openapi 3.x / swagger 2.0 yaml files (`.yaml`/`.yml`) under the
-// project root and matches them against indexed ts/go symbols that
-// share a name. no yaml parser dep: an indent-aware line scan picks
-// out `components.schemas.X:` keys, enough for the common openapi 3
-// layout. arbitrary yaml structures (custom anchors, flow-style maps)
-// are missed. openapi json specs are not yet covered.
+// openapi 3.x / swagger 2.0 yaml files (`.yaml`/`.yml`) and openapi
+// json bundles (`.json`) under the project root, and matches them
+// against indexed ts/go symbols that share a name. no yaml parser
+// dep: an indent-aware line scan picks out `components.schemas.X:`
+// keys for yaml. json bundles parse with JSON.parse and walk
+// components.schemas / definitions directly.
 //
 // scope:
-//   - openapi 3.x components.schemas.* keys
-//   - swagger 2.0 definitions.* keys (legacy compat)
+//   - openapi 3.x components.schemas.* keys (yaml + json)
+//   - swagger 2.0 definitions.* keys (legacy compat, yaml + json)
 //   - matches indexed ts/go symbols by exact name; recorded as a
 //     heuristic name-link with no signature check
 //
@@ -167,6 +167,40 @@ function extractSchemasFromYaml(content: string, relPath: string): OpenApiSchema
 	return out
 }
 
+// openapi json bundles either live under `components.schemas.*`
+// (openapi 3.x) or `definitions.*` (swagger 2.0). we require the
+// `openapi` or `swagger` top-level marker to avoid treating random
+// json configs as schemas. line numbers aren't meaningful inside a
+// compact json, so we record line 1 for every hit.
+function extractSchemasFromJson(content: string, relPath: string): OpenApiSchema[] {
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(content)
+	} catch {
+		return []
+	}
+	if (!parsed || typeof parsed !== 'object') return []
+	const doc = parsed as Record<string, unknown>
+	if (!('openapi' in doc) && !('swagger' in doc)) return []
+	const out: OpenApiSchema[] = []
+	const components = doc.components as Record<string, unknown> | undefined
+	const schemas = components && typeof components === 'object'
+		? (components.schemas as Record<string, unknown> | undefined)
+		: undefined
+	if (schemas && typeof schemas === 'object') {
+		for (const name of Object.keys(schemas)) {
+			if (/^[A-Z][\w]*$/.test(name)) out.push({ name, relPath, line: 1 })
+		}
+	}
+	const definitions = doc.definitions as Record<string, unknown> | undefined
+	if (definitions && typeof definitions === 'object') {
+		for (const name of Object.keys(definitions)) {
+			if (/^[A-Z][\w]*$/.test(name)) out.push({ name, relPath, line: 1 })
+		}
+	}
+	return out
+}
+
 function walkOpenApi(root: string, dir: string, out: OpenApiSchema[]): void {
 	let entries: string[]
 	try {
@@ -202,21 +236,29 @@ function walkOpenApi(root: string, dir: string, out: OpenApiSchema[]): void {
 				continue
 			}
 		}
-		// only scan yaml files whose basename hints at openapi /
-		// swagger to avoid scanning every config yaml in the repo
+		// only scan files whose basename hints at openapi / swagger
+		// to avoid scanning every config yaml / json in the repo.
 		const lower = entry.toLowerCase()
+		const isYaml = lower.endsWith('.yaml') || lower.endsWith('.yml')
+		const isJson = lower.endsWith('.json')
 		const looksOpenApi =
-			(lower.endsWith('.yaml') || lower.endsWith('.yml')) &&
-			(lower.includes('openapi') || lower.includes('swagger') || lower === 'api.yaml' || lower === 'api.yml')
+			(isYaml || isJson) &&
+			(lower.includes('openapi') || lower.includes('swagger') ||
+				lower === 'api.yaml' || lower === 'api.yml' || lower === 'api.json')
 		if (!looksOpenApi) continue
 		try {
 			const content = readFileSync(abs, 'utf-8')
+			const relPath = relative(root, abs)
+			if (isJson) {
+				const found = extractSchemasFromJson(content, relPath)
+				out.push(...found)
+				continue
+			}
 			// quick smoke test: file must mention openapi or swagger
 			// somewhere in the first 200 lines, otherwise it's some
 			// other yaml that happens to share the basename.
 			const head = content.split('\n').slice(0, 200).join('\n')
 			if (!/openapi:|swagger:/i.test(head)) continue
-			const relPath = relative(root, abs)
 			const found = extractSchemasFromYaml(content, relPath)
 			out.push(...found)
 		} catch (e) {

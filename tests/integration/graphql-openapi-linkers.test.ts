@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../helpers/setup.js'
-import { AtlasEngine } from '../../src/core/engine.js'
+import type { AtlasEngine } from '../../src/core/engine.js'
+import { addProject } from '../../src/core/registry.js'
+import { closeAll, getOrCreateEngine } from '../../src/core/engine-pool.js'
 
 // covers #30b: graphql_type + openapi_type channel linkers. uses
 // tmpdir fixtures so we don't touch real schema files. graphql
@@ -107,15 +109,19 @@ type Order struct {
 `,
 	)
 
-	graphqlEngine = new AtlasEngine(graphqlRoot)
-	openapiEngine = new AtlasEngine(openapiRoot)
-	await graphqlEngine.index({ noEmbed: true, noSummarize: true, force: true })
-	await openapiEngine.index({ noEmbed: true, noSummarize: true, force: true })
+	// route through the engine pool (CLAUDE.md requirement) so any
+	// future web/MCP route test against these fixtures resolves to
+	// the same engine instance.
+	const graphqlProject = addProject(graphqlRoot)
+	const openapiProject = addProject(openapiRoot)
+	graphqlEngine = getOrCreateEngine(graphqlProject.id, graphqlRoot)
+	openapiEngine = getOrCreateEngine(openapiProject.id, openapiRoot)
+	await graphqlEngine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false })
+	await openapiEngine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false })
 })
 
 afterAll(() => {
-	graphqlEngine.close()
-	openapiEngine.close()
+	closeAll()
 	rmSync(graphqlRoot, { recursive: true, force: true })
 	rmSync(openapiRoot, { recursive: true, force: true })
 })

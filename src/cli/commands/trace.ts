@@ -1,4 +1,5 @@
 import pc from 'picocolors'
+import type { AtlasEngine } from '../../core/engine.js'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { anchorSymbol } from '../../core/federation/federated-engine.js'
 import { getProject } from '../../core/registry.js'
@@ -119,11 +120,21 @@ function traceCrossProject(
 		process.exit(1)
 	}
 
-	// look for direct cross_project_edges from `from` that land in
-	// `toProject`. if none, the user is asking for a path through more
-	// than one boundary which is out of scope for the MVP.
-	const xEdges = fromEngine.getCrossProjectEdgesByStableId(fromProject.id, fromAnchor.stableId)
-	const matchingHops = xEdges.outbound.filter((e) => e.targetProject === toProject.id)
+	// find every way to reach toProject::toAnchor starting from the
+	// from-anchor. direct hops are the simple case (a -> c via one
+	// cross_project_edges row). multi-hop searches go through 1+
+	// intermediate projects via BFS over cross_project_edges. hop
+	// count is capped (default 3) because the meta-graph over cross-
+	// project edges can grow quickly, and most real federation paths
+	// reach their destination in 1-2 hops. see #72.
+	const maxHops = Math.max(1, Math.min(opts.depth ?? 3, 5))
+	const matchingHops = findCrossProjectBoundaries(
+		fromEngine,
+		fromProject.id,
+		fromAnchor.stableId,
+		toProject.id,
+		maxHops,
+	)
 
 	const result = {
 		fromAnchor: { project: fromProject.id, ...fromAnchor },
@@ -138,19 +149,21 @@ function traceCrossProject(
 		} else {
 			console.error(
 				pc.yellow(
-					`no direct cross_project_edges from ${pc.cyan(fromProject.id)}::${from} into ${pc.cyan(toProject.id)}. multi-hop cross-project trace is out of scope for the MVP.`,
+					`no cross_project_edges path from ${pc.cyan(fromProject.id)}::${from} into ${pc.cyan(toProject.id)} within ${maxHops} hops.`,
 				),
 			)
 		}
 		return
 	}
 
-	// for each boundary hop, run a local trace inside the to-project
-	// using stable-id entry points on both ends. name-based resolution
-	// would pick the first same-named hit in the to-project, which is
-	// wrong when multiple symbols share a name.
+	// for each boundary hop (possibly multi-hop), run a local trace
+	// inside the destination project using stable-id entry points on
+	// both ends. name-based resolution would pick the first same-
+	// named hit in the to-project, which is wrong when multiple
+	// symbols share a name. the hop's landingStableId is the symbol
+	// that lands in toProject after the final cross-project edge.
 	for (const hop of matchingHops) {
-		const trace = toEngine.traceByStableIds(hop.targetStableId, toAnchor.stableId, {
+		const trace = toEngine.traceByStableIds(hop.landingStableId, toAnchor.stableId, {
 			maxPaths: opts.maxPaths,
 			maxDepth: opts.depth ?? 5,
 		})
@@ -187,4 +200,89 @@ function traceCrossProject(
 			}
 		}
 	}
+}
+
+// boundary-hop entry for (possibly multi-hop) cross-project paths.
+// `boundaryChain` lists every cross_project_edges row walked from the
+// from-anchor to `landingStableId` in toProject, ordered source → dest.
+// a direct hop has one entry in the chain.
+interface BoundaryHop {
+	landingStableId: string
+	boundaryChain: Array<{
+		sourceProject: string
+		sourceStableId: string
+		targetProject: string
+		targetStableId: string
+		kind: string
+	}>
+}
+
+// BFS over the meta-graph of cross_project_edges. each queue entry
+// is a (project, stableId, chain-so-far) triple. at every node we
+// take its outbound cross-project edges via the remote project's
+// engine and enqueue the landing point. the search terminates for a
+// node when it reaches toProject; the queue still processes other
+// branches so we collect all reachable hop chains under the hop cap.
+//
+// dedupe on (project, stableId) so cycles don't blow up. maxHops is
+// counted as the number of cross_project_edges walked, so depth=1
+// is the direct-hop case, depth=2 follows one intermediate boundary,
+// etc. capped at 5 to keep pathological federation graphs bounded.
+function findCrossProjectBoundaries(
+	fromEngine: AtlasEngine,
+	fromProjectId: string,
+	fromStableId: string,
+	toProjectId: string,
+	maxHops: number,
+): BoundaryHop[] {
+	type QueueItem = {
+		engine: AtlasEngine
+		projectId: string
+		stableId: string
+		chain: BoundaryHop['boundaryChain']
+	}
+	const hops: BoundaryHop[] = []
+	const visited = new Set<string>()
+	const queue: QueueItem[] = [
+		{ engine: fromEngine, projectId: fromProjectId, stableId: fromStableId, chain: [] },
+	]
+	visited.add(`${fromProjectId}|${fromStableId}`)
+
+	while (queue.length > 0) {
+		const item = queue.shift()!
+		if (item.chain.length >= maxHops) continue
+		const edges = item.engine.getCrossProjectEdgesByStableId(item.projectId, item.stableId)
+		for (const edge of edges.outbound) {
+			const key = `${edge.targetProject}|${edge.targetStableId}`
+			if (visited.has(key)) continue
+			visited.add(key)
+			const nextChain = [
+				...item.chain,
+				{
+					sourceProject: item.projectId,
+					sourceStableId: item.stableId,
+					targetProject: edge.targetProject,
+					targetStableId: edge.targetStableId,
+					kind: edge.kind,
+				},
+			]
+			if (edge.targetProject === toProjectId) {
+				hops.push({ landingStableId: edge.targetStableId, boundaryChain: nextChain })
+				// don't enqueue past the destination: the local trace
+				// inside toProject handles the rest.
+				continue
+			}
+			const nextProject = getProject(edge.targetProject)
+			if (!nextProject) continue
+			const nextEngine = getOrCreateEngine(nextProject.id, nextProject.root)
+			queue.push({
+				engine: nextEngine,
+				projectId: nextProject.id,
+				stableId: edge.targetStableId,
+				chain: nextChain,
+			})
+		}
+	}
+
+	return hops
 }

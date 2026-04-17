@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../helpers/setup.js'
-import { AtlasEngine } from '../../src/core/engine.js'
+import type { AtlasEngine } from '../../src/core/engine.js'
+import { addProject } from '../../src/core/registry.js'
+import { closeAll, getOrCreateEngine } from '../../src/core/engine-pool.js'
 
 // covers #30a: queue_topic + env_var channel linkers. uses tiny
 // multi-language fixtures (TS publisher + Go consumer matching on
@@ -85,15 +87,20 @@ def get_stripe_key() -> str:
 `,
 	)
 
-	queueEngine = new AtlasEngine(queueRoot)
-	envEngine = new AtlasEngine(envRoot)
-	await queueEngine.index({ noEmbed: true, noSummarize: true, force: true })
-	await envEngine.index({ noEmbed: true, noSummarize: true, force: true })
+	// route engines through the pool so web/MCP tests that resolve
+	// via getOrCreateEngine see the same indexed instance. CLAUDE.md
+	// requires this for any fixture that may later be exercised by
+	// web/MCP route tests.
+	const queueProject = addProject(queueRoot)
+	const envProject = addProject(envRoot)
+	queueEngine = getOrCreateEngine(queueProject.id, queueRoot)
+	envEngine = getOrCreateEngine(envProject.id, envRoot)
+	await queueEngine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false })
+	await envEngine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false })
 })
 
 afterAll(() => {
-	queueEngine.close()
-	envEngine.close()
+	closeAll()
 	rmSync(queueRoot, { recursive: true, force: true })
 	rmSync(envRoot, { recursive: true, force: true })
 })

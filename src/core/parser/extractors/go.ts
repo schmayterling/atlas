@@ -688,11 +688,20 @@ function tryExtractRouteCall(
 
 	// handler qname: if the second arg is a plain identifier (same-file
 	// function reference) we can point straight at it via the
-	// containing-file qname. otherwise fall back to the enclosing
-	// function's qname so api tracing at least surfaces the route.
+	// containing-file qname. selector expressions (`routes.getUsers`,
+	// `h.getUsers`) upgrade to the field name so the handler is still
+	// distinguishable. otherwise fall back to the enclosing function's
+	// qname, or a line:col anon id when the call is at module scope so
+	// multiple top-level registrations don't collide on 'module'. see
+	// #74 (same shape as the ts extractor).
 	let handlerQName: string
 	if (handlerArg.type === 'identifier') {
 		handlerQName = `${filePath}::${handlerArg.text}`
+	} else if (handlerArg.type === 'selector_expression') {
+		const field = handlerArg.childForFieldName('field')
+		handlerQName = field
+			? `${filePath}::${field.text}`
+			: findEnclosingFunctionQName(call, filePath)
 	} else {
 		handlerQName = findEnclosingFunctionQName(call, filePath)
 	}
@@ -743,5 +752,8 @@ function findEnclosingFunctionQName(node: SyntaxNode, filePath: string): string 
 		}
 		cursor = cursor.parent
 	}
-	return `${filePath}::module`
+	// module scope fallback: use the call's source position so
+	// multiple top-level registrations in one file get unique
+	// stable_ids. see #74.
+	return `${filePath}::anon@${node.startPosition.row + 1}:${node.startPosition.column + 1}`
 }

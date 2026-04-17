@@ -316,10 +316,23 @@ export class Indexer {
 		const source = readFileSync(fileInfo.absolutePath, 'utf-8')
 		const hash = contentHash(source)
 
+		// schema-only languages (graphql) are registered in the config
+		// so file-discovery picks them up, but they have no tree-sitter
+		// grammar or extractor. record the file row (0 symbols) so
+		// channel_hits.file_id can reference a real file, then bail
+		// before parsing. see #66.
 		const ext = extname(filePath)
 		const parserLang = getLanguageForExtension(ext)
 		if (!parserLang) {
-			state.warnings.push(`unsupported extension: ${ext} (${filePath})`)
+			const fileId = this.store.insertFile(
+				filePath,
+				hash,
+				fileInfo.language,
+				fileInfo.sizeBytes,
+				fileInfo.isTest,
+			)
+			const mod = matchFileToModule(filePath, state.repoModules)
+			if (mod) this.store.setFileRepoModule(fileId, mod.id)
 			return
 		}
 

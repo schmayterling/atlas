@@ -50,6 +50,24 @@ import {
 import { semanticSearch } from './queries/semantic-search.js'
 import { AtlasStore } from './storage/store.js'
 
+// parse channel_hits.metadata safely. linkers write structured JSON
+// (queue pub/sub direction, graphql definition kind, openapi
+// schemaPath), the sql linker writes null. a corrupt row shouldn't
+// poison the whole showChannel response — fall back to null and
+// keep moving. see #70.
+function parseChannelMetadata(raw: string | null): Record<string, unknown> | null {
+	if (!raw) return null
+	try {
+		const parsed = JSON.parse(raw)
+		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+			return parsed as Record<string, unknown>
+		}
+		return null
+	} catch {
+		return null
+	}
+}
+
 export class AtlasEngine {
 	private store: AtlasStore | null = null
 	private config: AtlasConfig
@@ -336,18 +354,28 @@ export class AtlasEngine {
 	// list every symbol that touched a specific channel value of a
 	// given kind. the store returns full channel_hits rows so
 	// consumers can render line numbers + file context without a
-	// second lookup.
+	// second lookup. `metadata` is parsed JSON when the linker wrote
+	// it (queue/env/graphql/openapi), or null when it didn't (sql).
+	// surfaced via the CLI, web route, and MCP tool so the write is
+	// not dead. see #70.
 	showChannel(kind: string, value: string): {
 		symbols: import('../shared/types.js').SymbolResult[]
-		hits: { symbolStableId: string; line: number; filePath: string }[]
+		hits: {
+			symbolStableId: string
+			line: number
+			filePath: string
+			metadata: Record<string, unknown> | null
+		}[]
 	} {
 		const store = this.getStore()
 		const rows = store.queryRawWithParams<{
 			symbolStableId: string
 			line: number
 			filePath: string
+			metadata: string | null
 		}>(
-			`SELECT ch.symbol_stable_id as symbolStableId, ch.line as line, f.path as filePath
+			`SELECT ch.symbol_stable_id as symbolStableId, ch.line as line,
+				f.path as filePath, ch.metadata as metadata
 			 FROM channel_hits ch
 			 JOIN files f ON f.id = ch.file_id
 			 WHERE ch.kind = ? AND ch.value = ?
@@ -358,9 +386,15 @@ export class AtlasEngine {
 		const uniqueIds = [...new Set(rows.map((r) => r.symbolStableId))]
 		const symMap = store.getSymbolsByStableIds(uniqueIds)
 		const symRecords = [...symMap.values()]
+		const hits = rows.map((r) => ({
+			symbolStableId: r.symbolStableId,
+			line: r.line,
+			filePath: r.filePath,
+			metadata: parseChannelMetadata(r.metadata),
+		}))
 		return {
 			symbols: store.symbolsToResults(symRecords),
-			hits: rows,
+			hits,
 		}
 	}
 

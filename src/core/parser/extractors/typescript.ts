@@ -678,7 +678,7 @@ function extractApiEndpoints(
 						endpoints.push({
 							pathPattern: url,
 							httpMethod: inferFetchMethod(args),
-							symbolQualifiedName: `${filePath}::${findContainingFunctionName(node) ?? 'module'}`,
+							symbolQualifiedName: attributionQName(filePath, node),
 							role: 'client',
 							framework: 'fetch',
 							line: node.startPosition.row + 1,
@@ -687,7 +687,14 @@ function extractApiEndpoints(
 				}
 			}
 
-			// detect app.get('/api/...', handler) or router.post('/api/...')
+			// detect app.get('/api/...', handler) or router.post('/api/...').
+			// when the second arg is a direct identifier (`getUsers`) we
+			// attribute the endpoint to that handler's qualified name so
+			// every top-level registration in the same file gets a
+			// distinct stable_id (see #74). inline arrow handlers and
+			// expressions without a clean name fall back to the enclosing
+			// function, or a line:col anon id so duplicate registrations
+			// inside one module still don't collide.
 			if (func.type === 'member_expression') {
 				const method = func.childForFieldName('property')
 				if (method && HTTP_METHODS.has(method.text)) {
@@ -695,10 +702,15 @@ function extractApiEndpoints(
 					if (firstArg?.type === 'string' || firstArg?.type === 'template_string') {
 						const url = extractStringValue(firstArg)
 						if (url && url.startsWith('/')) {
+							const handlerArg = args.namedChild(1) ?? null
+							const handlerName = extractHandlerName(handlerArg)
+							const qName = handlerName
+								? `${filePath}::${handlerName}`
+								: attributionQName(filePath, node)
 							endpoints.push({
 								pathPattern: url,
 								httpMethod: method.text === 'all' ? null : method.text.toUpperCase(),
-								symbolQualifiedName: `${filePath}::${findContainingFunctionName(node) ?? 'module'}`,
+								symbolQualifiedName: qName,
 								role: 'server',
 								framework: null,
 								line: node.startPosition.row + 1,
@@ -796,6 +808,36 @@ function findContainingFunctionName(node: SyntaxNode): string | null {
 			if (name) return name.text
 		}
 		current = current.parent
+	}
+	return null
+}
+
+// attribution qname for api-endpoint rows. prefers the enclosing
+// function name so a fetch() inside getUsers() attributes to getUsers;
+// otherwise synthesizes a unique anon id from the node's byte range
+// so multiple module-level registrations in the same file don't
+// collide on `filePath::module`. see #74.
+function attributionQName(filePath: string, node: SyntaxNode): string {
+	const fn = findContainingFunctionName(node)
+	if (fn) return `${filePath}::${fn}`
+	return `${filePath}::anon@${node.startPosition.row + 1}:${node.startPosition.column + 1}`
+}
+
+// handler-arg → name extraction for app.get(path, handler). supports:
+//   app.get('/u', getUsers)              -> 'getUsers'
+//   app.get('/u', this.getUsers)         -> 'getUsers'
+//   app.get('/u', routes.getUsers)       -> 'routes.getUsers'
+//   app.get('/u', (req, res) => {...})   -> null (caller synthesizes anon id)
+function extractHandlerName(node: SyntaxNode | null): string | null {
+	if (!node) return null
+	if (node.type === 'identifier') return node.text
+	if (node.type === 'member_expression') {
+		const property = node.childForFieldName('property')
+		const object = node.childForFieldName('object')
+		if (!property) return null
+		if (object?.type === 'this') return property.text
+		if (object?.type === 'identifier') return `${object.text}.${property.text}`
+		return property.text
 	}
 	return null
 }

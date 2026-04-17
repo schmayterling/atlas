@@ -45,6 +45,12 @@ const ConfigSchema = z.object({
 			python: { extensions: ['.py'] },
 			go: { extensions: ['.go'] },
 			rust: { extensions: ['.rs'] },
+			// graphql schema-only language. no tree-sitter grammar or
+			// extractor is registered; the indexer records a file row
+			// (0 symbols) so the graphql channel linker can attribute
+			// channel_hits.file_id against a real file rather than
+			// widening the FK constraint. see #66.
+			graphql: { extensions: ['.graphql', '.graphqls', '.gql'] },
 		}),
 	indexPath: z.string().default('.atlas/atlas.db'),
 })

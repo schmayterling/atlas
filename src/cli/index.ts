@@ -11,7 +11,14 @@ import { searchCommand } from './commands/search.js'
 import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
 import { watchCommand } from './commands/watch.js'
-import { projectsCommand } from './commands/projects.js'
+import {
+	projectsAdd,
+	projectsBuildEdges,
+	projectsClearEdges,
+	projectsLink,
+	projectsList,
+	projectsRemove,
+} from './commands/projects.js'
 import { useCommand } from './commands/use.js'
 import {
 	churnCommand,
@@ -261,12 +268,58 @@ program
 		})
 	})
 
-program
-	.command('projects <action> [args...]')
-	.description('manage projects (list, add <path>, remove <id>, link <from> <to>, build-edges [--all|--from <id> --to <id>] [--match-by-name], clear-edges [...ids])')
-	.action((action, args) => {
-		const opts = program.opts()
-		projectsCommand(action, args, opts.json)
+// projects subcommand group. each action is a real Commander
+// subcommand so flag validation (required values, missing pairs,
+// unknown flags) is handled by the library instead of hand-rolled
+// args.indexOf probes. see #69.
+const projects = program
+	.command('projects')
+	.description('manage projects (list, add, remove, link, build-edges, clear-edges)')
+
+projects
+	.command('list')
+	.description('list registered projects and their links')
+	.action(() => {
+		projectsList(program.opts().json)
+	})
+
+projects
+	.command('add [root] [name]')
+	.description('register a project at <root> with an optional display name')
+	.action((root?: string, name?: string) => {
+		projectsAdd(root, name, program.opts().json)
+	})
+
+projects
+	.command('remove <id>')
+	.description('unregister a project by id')
+	.action((id: string) => {
+		projectsRemove(id, program.opts().json)
+	})
+
+projects
+	.command('link <from-id> <to-id>')
+	.description('link two projects so federated queries fan out between them')
+	.action((from: string, to: string) => {
+		projectsLink(from, to, program.opts().json)
+	})
+
+projects
+	.command('build-edges')
+	.description('build cross_project_edges between linked project pairs')
+	.option('--all', 'use every cartesian pair of registered projects')
+	.option('--from <id>', 'project id of the source (requires --to)')
+	.option('--to <id>', 'project id of the target (requires --from)')
+	.option('--match-by-name', 'also run the heuristic symbol-name linker')
+	.action((cmdOpts: { all?: boolean; from?: string; to?: string; matchByName?: boolean }) => {
+		projectsBuildEdges(program.opts().json, cmdOpts)
+	})
+
+projects
+	.command('clear-edges [ids...]')
+	.description('clear cross_project_edges (pass project ids to limit, or empty to clear every project)')
+	.action((ids: string[]) => {
+		projectsClearEdges(ids, program.opts().json)
 	})
 
 program

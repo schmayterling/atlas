@@ -425,6 +425,22 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						(s) => `  ${s.name.padEnd(30)}  ${s.filePath}:${s.lineStart}`,
 					),
 				]
+				// metadata (#70): queue pub/sub direction, graphql kind,
+				// openapi schemaPath. skip the whole block when every row
+				// is sql (metadata=null) so we don't spam empty lines.
+				const metaRows = result.hits.filter((h) => h.metadata)
+				if (metaRows.length > 0) {
+					lines.push('', 'hits:')
+					for (const h of result.hits) {
+						const pieces = h.metadata
+							? Object.entries(h.metadata)
+								.filter(([, v]) => v !== null && v !== undefined)
+								.map(([k, v]) => `${k}=${String(v)}`)
+								.join(' ')
+							: ''
+						lines.push(`  ${h.filePath}:${h.line}${pieces ? '  ' + pieces : ''}`)
+					}
+				}
 				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
 			}),
 	)
