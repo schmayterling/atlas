@@ -689,19 +689,18 @@ function tryExtractRouteCall(
 	// handler qname: if the second arg is a plain identifier (same-file
 	// function reference) we can point straight at it via the
 	// containing-file qname. selector expressions (`routes.getUsers`,
-	// `h.getUsers`) upgrade to the field name so the handler is still
-	// distinguishable. otherwise fall back to the enclosing function's
-	// qname, or a line:col anon id when the call is at module scope so
-	// multiple top-level registrations don't collide on 'module'. see
-	// #74 (same shape as the ts extractor).
+	// `h.getUsers`) can't always be resolved to the real receiver-
+	// qualified method name from syntax alone — `h.getUsers` might be
+	// `Server.getUsers` (method on Server struct) or a package function
+	// `routes.getUsers`. the indexer emits go methods as
+	// `filePath::Receiver.methodName`, so pointing at `filePath::getUsers`
+	// would reference a non-existent symbol. fall back to the enclosing
+	// function's qname (or anon@line:col at module scope) which still
+	// gives each registration a unique stable_id without claiming to
+	// resolve the handler. see #74.
 	let handlerQName: string
 	if (handlerArg.type === 'identifier') {
 		handlerQName = `${filePath}::${handlerArg.text}`
-	} else if (handlerArg.type === 'selector_expression') {
-		const field = handlerArg.childForFieldName('field')
-		handlerQName = field
-			? `${filePath}::${field.text}`
-			: findEnclosingFunctionQName(call, filePath)
 	} else {
 		handlerQName = findEnclosingFunctionQName(call, filePath)
 	}
@@ -752,8 +751,9 @@ function findEnclosingFunctionQName(node: SyntaxNode, filePath: string): string 
 		}
 		cursor = cursor.parent
 	}
-	// module scope fallback: use the call's source position so
-	// multiple top-level registrations in one file get unique
-	// stable_ids. see #74.
-	return `${filePath}::anon@${node.startPosition.row + 1}:${node.startPosition.column + 1}`
+	// module scope fallback: use the call's byte offset so multiple
+	// top-level registrations in one file get unique stable_ids.
+	// node.startIndex is guaranteed unique per parse node, unlike
+	// row:col which can collide in minified sources. see #74.
+	return `${filePath}::anon@${node.startIndex}`
 }

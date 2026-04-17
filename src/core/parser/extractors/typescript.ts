@@ -814,13 +814,13 @@ function findContainingFunctionName(node: SyntaxNode): string | null {
 
 // attribution qname for api-endpoint rows. prefers the enclosing
 // function name so a fetch() inside getUsers() attributes to getUsers;
-// otherwise synthesizes a unique anon id from the node's byte range
-// so multiple module-level registrations in the same file don't
-// collide on `filePath::module`. see #74.
+// otherwise synthesizes a unique anon id from the node's byte offset
+// (node.startIndex is guaranteed unique per parse node, unlike row:col
+// which can collide in minified source). see #74.
 function attributionQName(filePath: string, node: SyntaxNode): string {
 	const fn = findContainingFunctionName(node)
 	if (fn) return `${filePath}::${fn}`
-	return `${filePath}::anon@${node.startPosition.row + 1}:${node.startPosition.column + 1}`
+	return `${filePath}::anon@${node.startIndex}`
 }
 
 // handler-arg → name extraction for app.get(path, handler). supports:
@@ -828,6 +828,9 @@ function attributionQName(filePath: string, node: SyntaxNode): string {
 //   app.get('/u', this.getUsers)         -> 'getUsers'
 //   app.get('/u', routes.getUsers)       -> 'routes.getUsers'
 //   app.get('/u', (req, res) => {...})   -> null (caller synthesizes anon id)
+//   app.get('/u', this.ctrl.getUsers)    -> null (nested chain; bare
+//       property name would collide with locals, so fall through to
+//       the anon id rather than guess). see #74.
 function extractHandlerName(node: SyntaxNode | null): string | null {
 	if (!node) return null
 	if (node.type === 'identifier') return node.text
@@ -837,7 +840,7 @@ function extractHandlerName(node: SyntaxNode | null): string | null {
 		if (!property) return null
 		if (object?.type === 'this') return property.text
 		if (object?.type === 'identifier') return `${object.text}.${property.text}`
-		return property.text
+		return null
 	}
 	return null
 }

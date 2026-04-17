@@ -1,7 +1,5 @@
 import { listProjects, addProject, removeProject, linkProjects, getProjectLinks, getLinkedProjects, getProject } from '../../core/registry.js'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
-import { buildCrossProjectEdges } from '../../core/queries/api-trace.js'
-import { buildCrossProjectEdgesBySymbolName } from '../../core/queries/symbol-name-linker.js'
 import pc from 'picocolors'
 
 // subcommand actions. each is exported so the commander definition in
@@ -125,13 +123,13 @@ export function projectsBuildEdges(
 	for (const pair of pairs) {
 		const fromEngine = getOrCreateEngine(pair.from.id, pair.from.root)
 		const toEngine = getOrCreateEngine(pair.to.id, pair.to.root)
-		const fromStore = fromEngine.getStoreForCrossProject()
-		const toStore = toEngine.getStoreForCrossProject()
-		const routeMatches = buildCrossProjectEdges(fromStore, pair.from.id, toStore, pair.to.id)
-		const nameMatches = opts.matchByName
-			? buildCrossProjectEdgesBySymbolName(fromStore, pair.from.id, toStore, pair.to.id)
-			: 0
-		summary.push({ from: pair.from.id, to: pair.to.id, routeMatches, nameMatches })
+		const counts = fromEngine.buildCrossProjectEdges(
+			pair.from.id,
+			toEngine,
+			pair.to.id,
+			{ matchByName: opts.matchByName },
+		)
+		summary.push({ from: pair.from.id, to: pair.to.id, ...counts })
 	}
 
 	if (json) {

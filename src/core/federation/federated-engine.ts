@@ -107,6 +107,90 @@ export function mergeSemanticResults<T extends { distance: number }>(
 	return merged.slice(0, limit)
 }
 
+// boundary-hop entry for (possibly multi-hop) cross-project paths.
+// `boundaryChain` lists every cross_project_edges row walked from the
+// source anchor to `landingStableId` inside the destination project,
+// ordered source → dest. a direct hop has one entry in the chain.
+export interface BoundaryHop {
+	landingStableId: string
+	boundaryChain: Array<{
+		sourceProject: string
+		sourceStableId: string
+		targetProject: string
+		targetStableId: string
+		kind: string
+	}>
+}
+
+// BFS over the meta-graph of cross_project_edges. at each node we take
+// its outbound cross-project edges via the remote project's engine and
+// enqueue the landing point. the search records every distinct landing
+// in toProject under the hop cap, so two different edges from different
+// intermediate projects both surface. dedupe on (project, stableId) is
+// skipped for terminal (toProject) landings so distinct endpoints are
+// collected; intermediate nodes are deduped to keep cycles bounded.
+// maxHops is the number of cross_project_edges walked (hop=1 direct,
+// hop=2 one intermediate, etc.). see #72.
+export function findCrossProjectBoundaries(
+	fromEngine: AtlasEngine,
+	fromProjectId: string,
+	fromStableId: string,
+	toProjectId: string,
+	maxHops: number,
+): BoundaryHop[] {
+	type QueueItem = {
+		engine: AtlasEngine
+		projectId: string
+		stableId: string
+		chain: BoundaryHop['boundaryChain']
+	}
+	const hops: BoundaryHop[] = []
+	const visited = new Set<string>()
+	const queue: QueueItem[] = [
+		{ engine: fromEngine, projectId: fromProjectId, stableId: fromStableId, chain: [] },
+	]
+	visited.add(`${fromProjectId}|${fromStableId}`)
+
+	while (queue.length > 0) {
+		const item = queue.shift()!
+		if (item.chain.length >= maxHops) continue
+		const edges = item.engine.getCrossProjectEdgesOutbound(item.projectId, item.stableId)
+		for (const edge of edges) {
+			const nextChain = [
+				...item.chain,
+				{
+					sourceProject: item.projectId,
+					sourceStableId: item.stableId,
+					targetProject: edge.targetProject,
+					targetStableId: edge.targetStableId,
+					kind: edge.kind,
+				},
+			]
+			if (edge.targetProject === toProjectId) {
+				// terminal landing: record without marking visited so a
+				// second distinct edge landing on a different stable_id in
+				// toProject is not suppressed.
+				hops.push({ landingStableId: edge.targetStableId, boundaryChain: nextChain })
+				continue
+			}
+			const key = `${edge.targetProject}|${edge.targetStableId}`
+			if (visited.has(key)) continue
+			visited.add(key)
+			const nextProject = getProject(edge.targetProject)
+			if (!nextProject) continue
+			const nextEngine = getOrCreateEngine(nextProject.id, nextProject.root)
+			queue.push({
+				engine: nextEngine,
+				projectId: nextProject.id,
+				stableId: edge.targetStableId,
+				chain: nextChain,
+			})
+		}
+	}
+
+	return hops
+}
+
 // restricts a project list to the connected component reachable via
 // linkProjects from the active project. lifted out of search.ts so
 // all federated commands share the same definition. falls back to

@@ -100,11 +100,18 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 // standalone .graphql / .graphqls / .gql schema file extraction.
 // the indexer has already registered a files row (see extractOneFile
 // no-extractor branch), so channel_hits.file_id points at a real
-// file. there's no enclosing code symbol, so attribution uses a
-// synthetic stable_id tied to the schema file itself so every hit in
-// that file groups together but distinct files don't collide.
+// file. for each type/input/enum definition:
+//   1. emit one hit attributed to a synthetic per-file stable_id so
+//      every definition in the same schema file groups together, and
+//      distinct schema files don't collide.
+//   2. emit additional hits attributed to any indexed ts/go symbol
+//      (interface / type / class) sharing the type name, so
+//      listChannels (which requires ≥2 distinct symbols per group)
+//      actually groups the schema type with its language-level twin.
+//      without this step, a schema-first project never produces
+//      cross-language groups in listChannels. see #66 + deep-review.
 function extractFromStandaloneSchema(
-	_store: AtlasStore,
+	store: AtlasStore,
 	projectRoot: string,
 	rootReal: string,
 	f: { id: number; path: string },
@@ -121,22 +128,78 @@ function extractFromStandaloneSchema(
 		return
 	}
 	const lineOffsets = buildLineOffsets(source)
-	// synthetic per-file stable_id so all hits in this schema group
-	// under one symbol in listChannels / showChannel. kind 'module'
-	// matches the convention used by other file-level attributions.
 	const synthSid = stableSymbolId(f.path, 'module', `${f.path}::schema`)
+
+	// collect definitions first so the cross-language lookup is one
+	// batched query instead of n per-definition queries.
+	const definitions: Array<{ definition: string; name: string; line: number }> = []
 	for (const m of source.matchAll(GRAPHQL_DEF_RE)) {
 		const definition = m[1]
 		const name = m[2]
 		if (!shouldKeepIdentifier(name)) continue
 		const matchOffset = m.index ?? 0
+		definitions.push({
+			definition,
+			name,
+			line: offsetToLine(lineOffsets, matchOffset) + 1,
+		})
+	}
+	if (definitions.length === 0) return
+
+	const uniqueNames = Array.from(new Set(definitions.map((d) => d.name)))
+	const namePlaceholders = uniqueNames.map(() => '?').join(',')
+	const symRows = store.queryRawWithParams<{
+		stableId: string
+		name: string
+		fileId: number
+	}>(
+		`SELECT s.stable_id as stableId, s.name as name, s.file_id as fileId
+		 FROM symbols s
+		 JOIN files fi ON fi.id = s.file_id
+		 WHERE s.name IN (${namePlaceholders})
+		   AND s.kind IN ('interface', 'type', 'class')
+		   AND fi.is_test = 0`,
+		...uniqueNames,
+	)
+	const symsByName = new Map<string, Array<{ stableId: string; fileId: number }>>()
+	for (const row of symRows) {
+		const list = symsByName.get(row.name) ?? []
+		list.push({ stableId: row.stableId, fileId: row.fileId })
+		symsByName.set(row.name, list)
+	}
+
+	for (const def of definitions) {
+		// synthetic hit keeps the schema file itself groupable.
 		hits.push({
 			symbolStableId: synthSid,
 			fileId: f.id,
 			kind: 'graphql_type',
-			value: name,
-			line: offsetToLine(lineOffsets, matchOffset) + 1,
-			metadata: JSON.stringify({ definition, source: 'schema_file', schemaPath: f.path }),
+			value: def.name,
+			line: def.line,
+			metadata: JSON.stringify({
+				definition: def.definition,
+				source: 'schema_file',
+				schemaPath: f.path,
+			}),
 		})
+		// cross-language mirror hits so listChannels groups match the
+		// expected "schema type X corresponds to ts interface X" shape.
+		const matches = symsByName.get(def.name)
+		if (!matches) continue
+		for (const sym of matches) {
+			hits.push({
+				symbolStableId: sym.stableId,
+				fileId: sym.fileId,
+				kind: 'graphql_type',
+				value: def.name,
+				line: def.line,
+				metadata: JSON.stringify({
+					definition: def.definition,
+					source: 'schema_file',
+					schemaPath: f.path,
+					crossLanguageMirror: true,
+				}),
+			})
+		}
 	}
 }

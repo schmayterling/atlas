@@ -77,6 +77,10 @@ export function resolveGoProject(
 	// cache package names per dir so we only read/parse the target
 	// package's package_clause once per resolver run. see #28.
 	const packageNameCache = new Map<string, string | null>()
+	// cache proximity-ranked module lists per importing file dir so
+	// the sort in rankModulesByProximity runs once per unique source
+	// directory instead of per-import. see #65 + deep-review pass 5.
+	const proximityCache = new Map<string, RepoModule[]>()
 
 	for (const absPath of absoluteFilePaths) {
 		const relPath = toForwardSlash(relative(projectRoot, absPath))
@@ -119,7 +123,7 @@ export function resolveGoProject(
 			// file's declared package, falling back to the path's
 			// last component when we can't resolve the directory
 			// (external / unresolved). see #28.
-			const dir = resolveImportPath(raw.importPath, goModules, projectRoot, fromFileDir)
+			const dir = resolveImportPath(raw.importPath, goModules, projectRoot, fromFileDir, proximityCache)
 			let localName: string | null = null
 			if (dir) {
 				localName = discoverPackageName(dir, packageNameCache, dirListCache)
@@ -143,7 +147,7 @@ export function resolveGoProject(
 			if (emitted.has(importPath)) continue
 			emitted.add(importPath)
 			if (!pathToDir.has(importPath)) {
-				pathToDir.set(importPath, resolveImportPath(importPath, goModules, projectRoot, fromFileDir))
+				pathToDir.set(importPath, resolveImportPath(importPath, goModules, projectRoot, fromFileDir, proximityCache))
 			}
 			const dir = pathToDir.get(importPath) ?? null
 			const line = importLines.get(importPath) ?? 0
@@ -304,6 +308,7 @@ function resolveImportPath(
 	goModules: RepoModule[],
 	projectRoot: string,
 	fromFileDir?: string,
+	proximityCache?: Map<string, RepoModule[]>,
 ): string | null {
 	let best: RepoModule | null = null
 	for (const mod of goModules) {
@@ -333,7 +338,12 @@ function resolveImportPath(
 	// normalizes that to escape the vendor dir and eventually the repo
 	// root. reject any resolved vendor path that isn't inside its go
 	// module root.
-	const ranked = rankModulesByProximity(goModules, projectRoot, fromFileDir)
+	const cacheKey = fromFileDir ?? ''
+	let ranked = proximityCache?.get(cacheKey)
+	if (!ranked) {
+		ranked = rankModulesByProximity(goModules, projectRoot, fromFileDir)
+		proximityCache?.set(cacheKey, ranked)
+	}
 	for (const mod of ranked) {
 		const moduleAbsRoot = mod.rootDir ? join(projectRoot, mod.rootDir) : projectRoot
 		const vendorRoot = join(moduleAbsRoot, 'vendor')

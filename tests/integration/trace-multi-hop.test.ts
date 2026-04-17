@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import '../helpers/setup.js'
 import { addProject } from '../../src/core/registry.js'
 import { closeAll, getOrCreateEngine } from '../../src/core/engine-pool.js'
+import { findCrossProjectBoundaries } from '../../src/core/federation/federated-engine.js'
 
 // covers #72: multi-hop cross-project trace. three projects a -> b -> c,
 // each with an api boundary crossing, exercise the BFS in
@@ -98,35 +99,34 @@ afterAll(() => {
 })
 
 describe('multi-hop cross-project trace (#72)', () => {
-	test('walks a -> b -> c via the cross_project_edges chain', () => {
+	test('findCrossProjectBoundaries walks a -> b -> c via the cross_project_edges chain', () => {
 		const aEngine = getOrCreateEngine(aId, aRoot)
-		// start at a::entry, walk two hops to c::leaf
 		const entry = aEngine.getStoreForCrossProject().queryRaw<{ stable_id: string }>(
 			`SELECT stable_id FROM symbols WHERE name = 'entry'`,
 		)[0]
+		// exercise the production helper rather than re-implementing a
+		// parallel BFS in the test. the helper is what the trace cli
+		// actually calls, so regressions in BFS semantics (visited set,
+		// hop cap, terminal landing collection) surface here.
+		const hops = findCrossProjectBoundaries(aEngine, aId, entry.stable_id, cId, 3)
+		expect(hops.length).toBeGreaterThan(0)
+		const landingProjects = hops.map((h) => h.boundaryChain[h.boundaryChain.length - 1].targetProject)
+		expect(landingProjects).toContain(cId)
+		const leaf = hops[0]
+		expect(leaf.boundaryChain.length).toBe(2)
+		expect(leaf.boundaryChain[0].targetProject).toBe(bId)
+		expect(leaf.boundaryChain[1].targetProject).toBe(cId)
+	})
 
-		// BFS by hand (simpler than importing the private helper). walk
-		// every outbound cross-project edge, hopping through intermediate
-		// projects. verify that c::leaf is reachable within 2 hops.
-		const visited = new Set<string>()
-		const queue: Array<{ projectId: string; stableId: string; depth: number }> = [
-			{ projectId: aId, stableId: entry.stable_id, depth: 0 },
-		]
-		let reachedLeaf = false
-		while (queue.length > 0) {
-			const item = queue.shift()!
-			if (item.depth >= 3) continue
-			const engine = getOrCreateEngine(item.projectId, item.projectId === aId ? aRoot : item.projectId === bId ? bRoot : cRoot)
-			const edges = engine.getCrossProjectEdgesByStableId(item.projectId, item.stableId)
-			for (const edge of edges.outbound) {
-				const key = `${edge.targetProject}|${edge.targetStableId}`
-				if (visited.has(key)) continue
-				visited.add(key)
-				if (edge.targetProject === cId) reachedLeaf = true
-				queue.push({ projectId: edge.targetProject, stableId: edge.targetStableId, depth: item.depth + 1 })
-			}
-		}
-		expect(reachedLeaf).toBe(true)
+	test('hop cap is respected (maxHops=1 blocks the a -> b -> c chain)', () => {
+		const aEngine = getOrCreateEngine(aId, aRoot)
+		const entry = aEngine.getStoreForCrossProject().queryRaw<{ stable_id: string }>(
+			`SELECT stable_id FROM symbols WHERE name = 'entry'`,
+		)[0]
+		// direct a -> c edge does not exist; only a -> b and b -> c do,
+		// so a single hop must find nothing landing in cId.
+		const hops = findCrossProjectBoundaries(aEngine, aId, entry.stable_id, cId, 1)
+		expect(hops.length).toBe(0)
 	})
 
 	test('direct single-hop edges from a still work (no regression)', () => {

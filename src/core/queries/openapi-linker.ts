@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { log } from '../../shared/logger.js'
 import type { ChannelHit } from '../../shared/types.js'
@@ -176,7 +176,8 @@ function extractSchemasFromJson(content: string, relPath: string): OpenApiSchema
 	let parsed: unknown
 	try {
 		parsed = JSON.parse(content)
-	} catch {
+	} catch (e) {
+		log.warn(`openapi-linker: JSON.parse failed for ${relPath}: ${e}`)
 		return []
 	}
 	if (!parsed || typeof parsed !== 'object') return []
@@ -221,20 +222,22 @@ function walkOpenApi(root: string, dir: string, out: OpenApiSchema[]): void {
 		if (lstat.isSymbolicLink()) {
 			const real = safeRealpath(abs)
 			if (!real || !isUnderRoot(real, root)) continue
-		}
-		if (lstat.isDirectory() || lstat.isSymbolicLink()) {
-			let isDir = lstat.isDirectory()
-			if (lstat.isSymbolicLink()) {
-				try {
-					isDir = lstatSync(realpathSync(abs)).isDirectory()
-				} catch {
-					isDir = false
-				}
+			// resolve link target shape without a second unguarded
+			// realpathSync; the previous call already validated root
+			// containment and gave us the real path.
+			let targetStat
+			try {
+				targetStat = lstatSync(real)
+			} catch {
+				continue
 			}
-			if (isDir) {
+			if (targetStat.isDirectory()) {
 				walkOpenApi(root, abs, out)
 				continue
 			}
+		} else if (lstat.isDirectory()) {
+			walkOpenApi(root, abs, out)
+			continue
 		}
 		// only scan files whose basename hints at openapi / swagger
 		// to avoid scanning every config yaml / json in the repo.

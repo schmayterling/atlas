@@ -166,7 +166,8 @@ program
 	.command('trace <from> <to>')
 	.description('trace execution paths between two symbols')
 	.option('--max-paths <n>', 'max paths to show', '5')
-	.option('--depth <n>', 'max path depth', '10')
+	.option('--depth <n>', 'max path depth inside a project', '10')
+	.option('--hops <n>', 'max cross-project boundary hops (default 3, max 5)', '3')
 	.option('--from-project <id>', 'project id where the <from> symbol lives (required for cross-project trace)')
 	.option('--to-project <id>', 'project id where the <to> symbol lives (required for cross-project trace)')
 	.action((from, to, cmdOpts) => {
@@ -174,6 +175,7 @@ program
 		traceCommand(opts.project, from, to, opts.json, {
 			maxPaths: Number(cmdOpts.maxPaths),
 			depth: Number(cmdOpts.depth),
+			hops: Number(cmdOpts.hops),
 			fromProject: cmdOpts.fromProject,
 			toProject: cmdOpts.toProject,
 		})
@@ -199,18 +201,26 @@ program
 program
 	.command('flows')
 	.description('show detected execution flows')
-	.action(() => {
+	.action(async () => {
 		const opts = program.opts()
-		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const { getOrCreateEngine } = await import('../core/engine-pool.js')
+		const pc = (await import('picocolors')).default
 		const engine = getOrCreateEngine(undefined, opts.project)
 		const flows = engine.flows()
-		if (opts.json) { console.log(JSON.stringify(flows, null, 2)); engine.close(); return }
-		if (flows.length === 0) { console.log('no flows detected. run `atlas index` with Ollama to detect flows.'); engine.close(); return }
-		const pc = require('picocolors')
+		if (opts.json) {
+			console.log(JSON.stringify(flows, null, 2))
+			engine.close()
+			return
+		}
+		if (flows.length === 0) {
+			console.log('no flows detected. run `atlas index` with Ollama to detect flows.')
+			engine.close()
+			return
+		}
 		console.log(pc.bold(`${flows.length} flow${flows.length > 1 ? 's' : ''} detected\n`))
 		for (const f of flows) {
-			console.log(`  ${pc.cyan(f.name)}${f.description ? ` — ${f.description}` : ''}`)
-			console.log(`    ${f.symbols.map((s: any) => s.name).join(' → ')}`)
+			console.log(`  ${pc.cyan(f.name)}${f.description ? `: ${f.description}` : ''}`)
+			console.log(`    ${f.symbols.map((s) => s.name).join(' -> ')}`)
 			console.log()
 		}
 		engine.close()
@@ -220,18 +230,26 @@ program
 	.command('duplicates')
 	.description('show potential duplicate code')
 	.option('--include-tests', 'include duplicate pairs in test files')
-	.action((cmdOpts) => {
+	.action(async (cmdOpts) => {
 		const opts = program.opts()
-		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const { getOrCreateEngine } = await import('../core/engine-pool.js')
+		const pc = (await import('picocolors')).default
 		const engine = getOrCreateEngine(undefined, opts.project)
 		const dups = engine.duplicates({ includeTests: cmdOpts.includeTests })
-		if (opts.json) { console.log(JSON.stringify(dups, null, 2)); engine.close(); return }
-		if (dups.length === 0) { console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.'); engine.close(); return }
-		const pc = require('picocolors')
+		if (opts.json) {
+			console.log(JSON.stringify(dups, null, 2))
+			engine.close()
+			return
+		}
+		if (dups.length === 0) {
+			console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.')
+			engine.close()
+			return
+		}
 		console.log(pc.bold(`${dups.length} potential duplicate${dups.length > 1 ? 's' : ''}\n`))
 		for (const d of dups) {
-			console.log(`  ${pc.yellow((d.similarity * 100).toFixed(0) + '%')} ${d.symbolA.name} ↔ ${d.symbolB.name}`)
-			console.log(`    ${d.symbolA.filePath}:${d.symbolA.lineStart}  ↔  ${d.symbolB.filePath}:${d.symbolB.lineStart}`)
+			console.log(`  ${pc.yellow((d.similarity * 100).toFixed(0) + '%')} ${d.symbolA.name} <-> ${d.symbolB.name}`)
+			console.log(`    ${d.symbolA.filePath}:${d.symbolA.lineStart}  <->  ${d.symbolB.filePath}:${d.symbolB.lineStart}`)
 			if (d.description) console.log(`    ${d.description}`)
 			console.log()
 		}

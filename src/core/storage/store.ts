@@ -962,6 +962,13 @@ export class AtlasStore {
 		project: string,
 		stableId: string,
 	): CrossProjectEdgeRow[] {
+		// defensive runtime allowlist: the ts union narrows callers at
+		// compile time, but column-name interpolation into sql can't
+		// be parameterized, so reject anything unexpected at runtime.
+		// see project guideline: don't interpolate user input into sql.
+		if (field !== 'source' && field !== 'target') {
+			throw new Error(`queryCrossProjectEdges: invalid field ${String(field)}`)
+		}
 		const projectCol = `${field}_project`
 		const stableIdCol = `${field}_stable_id`
 		return this.db

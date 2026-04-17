@@ -338,7 +338,9 @@ export class Indexer {
 
 		const extractor = getExtractor(parserLang)
 		if (!extractor) {
-			state.warnings.push(`no extractor for language: ${parserLang} (${filePath})`)
+			const msg = `no extractor for language: ${parserLang} (${filePath})`
+			state.warnings.push(msg)
+			log.warn(msg)
 			return
 		}
 

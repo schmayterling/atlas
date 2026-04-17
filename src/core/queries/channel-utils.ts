@@ -87,7 +87,8 @@ const COMMON_STOPWORDS = new Set<string>([
 // sql keyword denylist that often appears between sql keywords and a
 // real table name (e.g. `FROM (SELECT ...)`, `JOIN ON`, `INTO TEMPORARY`).
 // these are technically valid sql but should never be classified as
-// table identifiers.
+// table identifiers. boolean/null literals live in COMMON_STOPWORDS
+// instead, since they're universal junk across every channel kind.
 const SQL_RESERVED_WORDS = new Set<string>([
 	'select',
 	'insert',
@@ -119,9 +120,6 @@ const SQL_RESERVED_WORDS = new Set<string>([
 	'intersect',
 	'distinct',
 	'all',
-	'true',
-	'false',
-	'null',
 ])
 
 // additional sqlite internal table names that are real in the schema

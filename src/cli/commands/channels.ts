@@ -20,12 +20,15 @@ const KNOWN_CHANNEL_KINDS = [
 // format channel_hits.metadata for human output. linkers write
 // structured JSON that is genuinely informative (queue pub/sub
 // direction, driver; graphql type/input/enum; openapi schemaPath),
-// so we surface it inline next to the file:line ref. see #70.
+// so we surface it inline next to the file:line ref. nested objects
+// and arrays would render as `[object Object]` / `1,2`, which is
+// noise — skip those values rather than emit junk. see #70.
 function formatChannelMetadata(meta: Record<string, unknown> | null): string {
 	if (!meta) return ''
 	const parts: string[] = []
 	for (const [k, v] of Object.entries(meta)) {
 		if (v === null || v === undefined) continue
+		if (typeof v === 'object') continue
 		parts.push(`${k}=${String(v)}`)
 	}
 	return parts.join(' ')

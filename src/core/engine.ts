@@ -30,7 +30,8 @@ import { traceFlow } from './queries/flow-trace.js'
 import { searchSymbols } from './queries/search.js'
 import { findHotspots, type HotspotEntry } from './queries/hotspots.js'
 import { findHotFragile, findUntestedSymbols, getTestCoverage } from './queries/test-coverage.js'
-import { traceApi, type ApiTraceResult } from './queries/api-trace.js'
+import { buildCrossProjectEdges as buildCrossProjectEdgesQuery, traceApi, type ApiTraceResult } from './queries/api-trace.js'
+import { buildCrossProjectEdgesBySymbolName as buildCrossProjectEdgesBySymbolNameQuery } from './queries/symbol-name-linker.js'
 import { summarizeSymbol, type SummaryResult } from './llm/summarizer.js'
 import { getFlows, type DetectedFlow } from './queries/flow-detection.js'
 import { findDuplicates, type DuplicatePair } from './queries/duplicate-detection.js'
@@ -54,7 +55,8 @@ import { AtlasStore } from './storage/store.js'
 // (queue pub/sub direction, graphql definition kind, openapi
 // schemaPath), the sql linker writes null. a corrupt row shouldn't
 // poison the whole showChannel response — fall back to null and
-// keep moving. see #70.
+// surface a warning so the data-integrity issue isn't invisible.
+// see #70.
 function parseChannelMetadata(raw: string | null): Record<string, unknown> | null {
 	if (!raw) return null
 	try {
@@ -63,7 +65,8 @@ function parseChannelMetadata(raw: string | null): Record<string, unknown> | nul
 			return parsed as Record<string, unknown>
 		}
 		return null
-	} catch {
+	} catch (e) {
+		log.warn(`channel metadata parse failed: ${e instanceof Error ? e.message : e}`)
 		return null
 	}
 }
@@ -462,6 +465,16 @@ export class AtlasEngine {
 		}
 	}
 
+	// outbound-only variant for hot-path BFS walkers that don't need
+	// inbound edges (e.g. findCrossProjectBoundaries). skips one SQL
+	// round-trip per node.
+	getCrossProjectEdgesOutbound(
+		projectId: string,
+		stableId: string,
+	): { targetProject: string; targetStableId: string; kind: string }[] {
+		return this.getStore().getCrossProjectEdgesFrom(projectId, stableId)
+	}
+
 	// stable-id-keyed variant of deps/blast/trace for federation hops.
 	// the cross_project_edges row gives us an exact remote stable_id.
 	// re-resolving that by name via resolveSymbol() would pick the
@@ -526,9 +539,31 @@ export class AtlasEngine {
 		return store.findStableIdByNaturalKey(sym.qualifiedName, sym.kind, sym.filePath)
 	}
 
-	// get the store for cross-project operations (used by engine-pool)
+	// get the store for cross-project operations. intended for
+	// federation internals only; cli/mcp/web should prefer
+	// buildCrossProjectEdges or clearCrossProjectEdges below so the
+	// store handoff stays encapsulated inside engine.ts.
 	getStoreForCrossProject(): AtlasStore {
 		return this.getStore()
+	}
+
+	// build cross_project_edges between this engine and another
+	// engine. wraps the route-match + (optional) name-match linkers so
+	// the cli never has to pull raw stores out of the engine (see #75
+	// architecture review). returns per-linker match counts.
+	buildCrossProjectEdges(
+		fromProjectId: string,
+		otherEngine: AtlasEngine,
+		otherProjectId: string,
+		opts?: { matchByName?: boolean },
+	): { routeMatches: number; nameMatches: number } {
+		const fromStore = this.getStore()
+		const toStore = otherEngine.getStore()
+		const routeMatches = buildCrossProjectEdgesQuery(fromStore, fromProjectId, toStore, otherProjectId)
+		const nameMatches = opts?.matchByName
+			? buildCrossProjectEdgesBySymbolNameQuery(fromStore, fromProjectId, toStore, otherProjectId)
+			: 0
+		return { routeMatches, nameMatches }
 	}
 
 	// drop every cross_project_edges row in this engine's db. used by

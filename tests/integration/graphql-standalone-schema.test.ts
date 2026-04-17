@@ -81,15 +81,14 @@ describe('graphql standalone schema extraction (#66)', () => {
 		expect(userRow).toBeDefined()
 	})
 
-	test('User groups under listChannels with both the ts interface and the schema hit', () => {
+	test('User groups under listChannels across the ts interface and the schema (#66 cross-language mirror)', () => {
+		// the standalone linker emits a cross-language mirror hit against
+		// any ts/go interface/type/class sharing the name, so listChannels
+		// groups the schema-side User with the ts interface User. this is
+		// the acceptance criterion on #66.
 		const groups = engine.listChannels('graphql_type')
 		const user = groups.find((g) => g.value === 'User')
-		// the ts interface has no gql`` tag so it won't show up as a
-		// graphql_type hit, but the schema's User still does. to cross
-		// the 2-symbol threshold we add an additional gql`` block.
-		// for now, at minimum the standalone hit must exist in the raw
-		// channel_hits (verified above); listChannels gating is a
-		// separate concern.
-		expect(user === undefined || user.symbolStableIds.length >= 1).toBe(true)
+		expect(user).toBeDefined()
+		expect(user!.symbolStableIds.length).toBeGreaterThanOrEqual(2)
 	})
 })
