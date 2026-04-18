@@ -20,6 +20,7 @@ describe('mcp server tool registration', () => {
 		const names = result.tools.map((t) => t.name).sort()
 		expect(names).toContain('atlas_status')
 		expect(names).toContain('atlas_search')
+		expect(names).toContain('atlas_overview')
 		expect(names).toContain('atlas_deps')
 		expect(names).toContain('atlas_blast_radius')
 		expect(names).toContain('atlas_trace')
@@ -142,6 +143,36 @@ describe('mcp server tool dispatch', () => {
 		})
 		// empty query is allowed but returns no results, doesn't throw
 		expect(result.isError).toBeFalsy()
+	})
+
+	// atlas_overview bundles resolve + deps(up/down) + blast + tests +
+	// subsystem into a single tool call so an agent doesn't chain 5+
+	// tools to answer "tell me about X". the test asserts every section
+	// header is present on a known fixture symbol so a regression that
+	// drops any of them fails loudly.
+	test('atlas_overview returns all sections for a known symbol', async () => {
+		const result = await client.callTool({
+			name: 'atlas_overview',
+			arguments: { symbol: 'AuthService', limit: 5 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		const text = content[0].text
+		expect(text).toContain('AuthService')
+		expect(text).toContain('upstream callers')
+		expect(text).toContain('downstream callees')
+		expect(text).toContain('blast radius:')
+		expect(text).toContain('test coverage:')
+	})
+
+	test('atlas_overview returns symbol-not-found for an unknown symbol', async () => {
+		const result = await client.callTool({
+			name: 'atlas_overview',
+			arguments: { symbol: 'definitely_not_a_symbol_xyz' },
+		})
+		expect(result.isError).toBeTruthy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('symbol not found')
 	})
 })
 

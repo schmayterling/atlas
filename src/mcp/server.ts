@@ -8,6 +8,7 @@ import {
 	formatBlast,
 	formatDeadCode,
 	formatDeps,
+	formatOverview,
 	formatSearch,
 	formatStatus,
 	formatTrace,
@@ -96,7 +97,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		{ name: 'atlas', version: '0.1.0' },
 		{
 			instructions:
-				'atlas indexes codebases and answers structural questions about code. call atlas_status first to check if the index is fresh. use atlas_search for symbol lookup, atlas_semantic_search for natural language queries, atlas_deps for dependency graphs, atlas_blast_radius for change impact analysis, atlas_trace for execution path tracing, atlas_dead_code for finding unreferenced symbols, atlas_test_coverage to see which test files exercise a symbol, and atlas_hot_fragile to rank files by churn × untested-symbol count.',
+				'atlas indexes codebases and answers structural questions about code. call atlas_status first to check if the index is fresh. use atlas_overview for a single-call "tell me about this symbol" bundle (identity + callers + callees + blast + tests + subsystem). drop to atlas_search for symbol lookup, atlas_semantic_search for natural language queries, atlas_deps for full dependency graphs, atlas_blast_radius for change impact analysis, atlas_trace for execution path tracing, atlas_dead_code for finding unreferenced symbols, atlas_test_coverage to see which test files exercise a symbol, and atlas_hot_fragile to rank files by churn × untested-symbol count.',
 		},
 	)
 
@@ -190,6 +191,33 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					}
 				const text = `${result.kind} ${result.name}\n  file: ${result.filePath}:${result.lineStart}\n  signature: ${result.signature ?? 'none'}\n  exported: ${result.isExported}\n  usages: ${result.usageCount}, dependents: ${result.dependentCount}`
 				return { content: [{ type: 'text' as const, text }] }
+			}),
+	)
+
+	// --- atlas_overview ---
+	// one-shot bundle for "tell me about X" queries. returns identity +
+	// upstream callers + downstream callees + blast radius count +
+	// test coverage + subsystem in a single tool call, so an agent
+	// doesn't chain resolve/deps/blast/test_coverage/subsystem. lists
+	// are capped to `limit` (default 10) so the payload stays bounded.
+	server.tool(
+		'atlas_overview',
+		'comprehensive overview of a symbol: identity, callers, callees, blast radius, test coverage, subsystem (single tool call instead of chaining 5+)',
+		{
+			symbol: z.string().describe('symbol name or file:name reference'),
+			depth: z.number().optional().describe('max traversal depth for deps and blast (default 2)'),
+			limit: z.number().optional().describe('max entries per list section (default 10)'),
+		},
+		({ symbol, depth, limit }) =>
+			wrap(() => {
+				const result = engine.overview(symbol, { depth, limit })
+				if (!result) {
+					return {
+						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
+						isError: true,
+					}
+				}
+				return { content: [{ type: 'text' as const, text: formatOverview(result) }] }
 			}),
 	)
 

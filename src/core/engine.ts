@@ -16,8 +16,10 @@ import type {
 	StatusResult,
 	SubsystemDetail,
 	SubsystemSummary,
+	DependencyNode,
 	SymbolDetail,
 	SymbolKind,
+	SymbolOverview,
 	SymbolResult,
 	TestCoverage,
 } from '../shared/types.js'
@@ -323,6 +325,52 @@ export class AtlasEngine {
 
 	testCoverage(query: string): TestCoverage | null {
 		return getTestCoverage(this.getStore(), query)
+	}
+
+	// one-shot overview bundle: identity + upstream callers + downstream
+	// callees + blast-radius summary + test coverage + subsystem, all
+	// resolved off a single symbol query. exists so MCP agents answering
+	// "tell me about X" can issue one tool call instead of chaining
+	// resolve + deps(up) + deps(down) + blast + testCoverage + subsystem.
+	// limits are applied here so the returned payload stays bounded
+	// regardless of how big the underlying graph is. returns null when
+	// the symbol can't be resolved.
+	overview(
+		query: string,
+		opts?: { depth?: number; limit?: number },
+	): SymbolOverview | null {
+		const store = this.getStore()
+		const sym = store.resolveSymbol(query)
+		if (!sym) return null
+		const symbolResult = store.symbolToResult(sym)
+		const depth = opts?.depth ?? 2
+		const limit = opts?.limit ?? 10
+
+		const deps = getDependencies(store, sym.stableId, { direction: 'both', depth })
+		const upstream = deps.upstream.slice(0, limit)
+		const downstream = deps.downstream.slice(0, limit)
+
+		const blast = getBlastRadius(store, sym.stableId, { depth: depth + 1 })
+		const blastItems = blast ? [...blast.direct, ...blast.transitive] : []
+		const blastSample: DependencyNode[] = blastItems.slice(0, limit).map((a) => ({
+			symbol: a.symbol,
+			edgeKind: a.relationship,
+			confidence: 'resolved' as const,
+			depth: a.depth,
+			children: [],
+		}))
+
+		const coverage = getTestCoverage(store, query)
+		const subsystem = this.symbolSubsystem(sym.stableId)
+
+		return {
+			symbol: symbolResult,
+			upstream,
+			downstream,
+			blastRadius: { total: blastItems.length, sample: blastSample },
+			testCoverage: coverage,
+			subsystem,
+		}
 	}
 
 	untestedSymbols(opts?: { kind?: SymbolKind; limit?: number }): SymbolResult[] {

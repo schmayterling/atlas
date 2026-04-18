@@ -5,6 +5,7 @@ import type {
 	FlowTraceResult,
 	SearchResult,
 	StatusResult,
+	SymbolOverview,
 } from '../shared/types.js'
 
 export function formatStatus(r: StatusResult): string {
@@ -92,5 +93,58 @@ export function formatDeadCode(r: DeadCodeResult): string {
 	for (const sym of r.symbols) {
 		lines.push(`  ${sym.kind} ${sym.name}  ${sym.filePath}:${sym.lineStart}`)
 	}
+	return lines.join('\n')
+}
+
+// one-shot overview for atlas_overview. a single text block with
+// sections keeps the agent from chaining resolve + deps + blast +
+// testCoverage + subsystem. counts are included so the agent can
+// decide whether to drill into atlas_deps / atlas_blast_radius for
+// the full list.
+export function formatOverview(r: SymbolOverview): string {
+	const s = r.symbol
+	const lines: string[] = []
+	lines.push(`${s.kind} ${s.name}`)
+	lines.push(`  file: ${s.filePath}:${s.lineStart}`)
+	if (s.signature) lines.push(`  signature: ${s.signature}`)
+	lines.push(`  exported: ${s.isExported}`)
+	if (r.subsystem) lines.push(`  subsystem: ${r.subsystem.name} (${r.subsystem.id})`)
+
+	lines.push('', `upstream callers (${r.upstream.length}):`)
+	if (r.upstream.length === 0) {
+		lines.push('  (none)')
+	} else {
+		for (const n of r.upstream) {
+			lines.push(`  ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  [${n.edgeKind}]`)
+		}
+	}
+
+	lines.push('', `downstream callees (${r.downstream.length}):`)
+	if (r.downstream.length === 0) {
+		lines.push('  (none)')
+	} else {
+		for (const n of r.downstream) {
+			lines.push(`  ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  [${n.edgeKind}]`)
+		}
+	}
+
+	lines.push('', `blast radius: ${r.blastRadius.total} affected symbol${r.blastRadius.total === 1 ? '' : 's'}`)
+	if (r.blastRadius.sample.length > 0 && r.blastRadius.total > r.downstream.length) {
+		lines.push(`  sample (first ${r.blastRadius.sample.length}):`)
+		for (const n of r.blastRadius.sample) {
+			lines.push(`    ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  depth=${n.depth}`)
+		}
+	}
+
+	lines.push('', `test coverage:`)
+	if (!r.testCoverage || r.testCoverage.tests.length === 0) {
+		lines.push('  (no tests)')
+	} else {
+		lines.push(`  covered by ${r.testCoverage.tests.length} test file${r.testCoverage.tests.length === 1 ? '' : 's'} (${r.testCoverage.coveredBy}):`)
+		for (const t of r.testCoverage.tests) {
+			lines.push(`    ${t.confidence.padEnd(8)} ${t.testFilePath}`)
+		}
+	}
+
 	return lines.join('\n')
 }

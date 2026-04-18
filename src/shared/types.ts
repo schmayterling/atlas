@@ -362,3 +362,18 @@ export interface SymbolDetail {
 	downstream: DependencyNode[]
 	sourceCode?: string
 }
+
+// one-shot overview bundle for agents that would otherwise chain
+// resolve + deps(up) + deps(down) + blast + testCoverage + subsystem.
+// caps are applied before return so an LLM agent gets a bounded payload.
+export interface SymbolOverview {
+	symbol: SymbolResult
+	upstream: DependencyNode[]
+	downstream: DependencyNode[]
+	blastRadius: {
+		total: number
+		sample: DependencyNode[]
+	}
+	testCoverage: TestCoverage | null
+	subsystem: SubsystemSummary | null
+}
