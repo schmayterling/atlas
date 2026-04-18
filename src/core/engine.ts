@@ -75,6 +75,17 @@ function parseChannelMetadata(raw: string | null): Record<string, unknown> | nul
 	}
 }
 
+function languageForFile(path: string): string {
+	if (path.endsWith('.tsx')) return 'tsx'
+	if (path.endsWith('.ts')) return 'typescript'
+	if (path.endsWith('.jsx')) return 'jsx'
+	if (path.endsWith('.js')) return 'javascript'
+	if (path.endsWith('.py')) return 'python'
+	if (path.endsWith('.go')) return 'go'
+	if (path.endsWith('.rs')) return 'rust'
+	return 'typescript'
+}
+
 export class AtlasEngine {
 	private store: AtlasStore | null = null
 	private config: AtlasConfig
@@ -773,6 +784,62 @@ export class AtlasEngine {
 		if (!detail) throw new Error(`symbol not found: ${symbolQuery}`)
 		const store = this.getStore()
 		return summarizeSymbol(store, detail, opts)
+	}
+
+	// --- symbol article (web /s/<qn>) ---
+
+
+	// bundles symbolDetail + test coverage + subsystem + last-changed +
+	// contributors into one payload, with shiki-rendered source html.
+	// powers the wiki article page in a single round-trip.
+	async symbolArticle(query: string): Promise<import('../shared/types.js').SymbolArticleResult | null> {
+		const detail = await this.symbolDetail(query)
+		if (!detail) return null
+		const store = this.getStore()
+		const sym = store.resolveSymbol(query)
+		if (!sym) return null
+
+		const language = languageForFile(detail.symbol.filePath)
+		let sourceHtml: string | null = null
+		if (detail.sourceCode) {
+			try {
+				const { highlight } = await import('../web/highlight.js')
+				sourceHtml = await highlight(detail.sourceCode, language)
+			} catch (e) { log.debug(`symbolArticle: highlight failed: ${e}`) }
+		}
+
+		let testCoverage: TestCoverage | null = null
+		try { testCoverage = this.testCoverage(query) } catch { /* no test_links */ }
+
+		let subsystem: SubsystemSummary | null = null
+		try { subsystem = this.symbolSubsystem(sym.stableId) } catch { /* no subsystems */ }
+
+		let lastChanged: { hash: string; authorName: string; subject: string; authoredAt: number } | null = null
+		try {
+			const lc = this.lastChanged(detail.symbol.filePath)
+			if (lc) lastChanged = { hash: lc.hash, authorName: lc.authorName, subject: lc.subject, authoredAt: lc.authoredAt }
+		} catch { /* no git history */ }
+
+		let contributors: { authorName: string; commits: number }[] = []
+		try {
+			contributors = this.contributors(detail.symbol.filePath).slice(0, 5).map((c) => ({
+				authorName: c.authorName, commits: c.commits,
+			}))
+		} catch { /* no git history */ }
+
+		return {
+			symbol: detail.symbol,
+			summary: detail.summary ?? null,
+			sourceCode: detail.sourceCode ?? null,
+			sourceHtml,
+			language,
+			upstream: detail.upstream,
+			downstream: detail.downstream,
+			testCoverage,
+			subsystem,
+			lastChanged,
+			contributors,
+		}
 	}
 
 	// --- symbol detail ---

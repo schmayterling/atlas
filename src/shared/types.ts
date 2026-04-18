@@ -354,6 +354,23 @@ export interface HotFragileEntry {
 	fragilityScore: number
 }
 
+// symbol article: bundle that powers the web /s/<qn> page in one
+// round-trip. richer than SymbolDetail (which the cli/mcp also use):
+// pre-rendered shiki html, test coverage, subsystem, and last-changed.
+export interface SymbolArticleResult {
+	symbol: SymbolResult
+	summary: string | null
+	sourceCode: string | null
+	sourceHtml: string | null
+	language: string
+	upstream: DependencyNode[]
+	downstream: DependencyNode[]
+	testCoverage: TestCoverage | null
+	subsystem: SubsystemSummary | null
+	lastChanged: { hash: string; authorName: string; subject: string; authoredAt: number } | null
+	contributors: { authorName: string; commits: number }[]
+}
+
 // symbol detail for web UI
 export interface SymbolDetail {
 	symbol: SymbolResult

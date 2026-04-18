@@ -111,6 +111,16 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 		} catch (e) { log.error(`symbol: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
+	app.get('/api/article/symbol', async (c) => {
+		const q = c.req.query('q')
+		if (!q) return c.json({ error: 'q required' }, 400)
+		try {
+			const result = await eng(c).symbolArticle(q)
+			if (!result) return c.json({ error: 'symbol not found' }, 404)
+			return c.json(result)
+		} catch (e) { log.error(`article/symbol: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
 	app.get('/api/wiki', async (c) => {
 		const { marked } = await import('marked')
 		const symbolQuery = c.req.query('symbol')

@@ -12,6 +12,7 @@ import type {
 	StatusResult,
 	SubsystemDetail,
 	SubsystemSummary,
+	SymbolArticleResult,
 	SymbolDetail,
 	SymbolResult,
 } from '../../../shared/types.js'
@@ -105,6 +106,7 @@ export const api = {
 	subsystem: (id: string) => get<SubsystemDetail>('/subsystem', { id }),
 	entryPoints: (limit = 8) => get<SymbolResult[]>('/entry-points', { limit: String(limit) }),
 	hotFragile: (limit = 30) => get<HotFragileEntry[]>('/hot-fragile', { limit: String(limit) }),
+	symbolArticle: (q: string) => get<SymbolArticleResult>('/article/symbol', { q }),
 }
 
 export interface ChurnEntry {

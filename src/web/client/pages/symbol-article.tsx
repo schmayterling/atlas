@@ -1,5 +1,5 @@
 import { useLocation, Link } from 'wouter'
-import { ExternalLink, Sparkles } from 'lucide-react'
+import { ExternalLink, Sparkles, Beaker, Clock, Users, Boxes } from 'lucide-react'
 import { useState } from 'react'
 import { api } from '../lib/api.js'
 import { useQuery } from '../lib/query.js'
@@ -8,17 +8,27 @@ import {
 	Section, KindBadge, Badge, SymbolLink, FileLink, CodeBlock, Spinner, EmptyState, Button,
 } from '../ui/index.js'
 
+function timeAgo(ts: number | null | undefined): string {
+	if (!ts) return ''
+	const d = Date.now() - ts
+	if (d < 60_000) return 'just now'
+	if (d < 3600_000) return `${Math.floor(d / 60_000)}m ago`
+	if (d < 86400_000) return `${Math.floor(d / 3600_000)}h ago`
+	return `${Math.floor(d / 86400_000)}d ago`
+}
+
 export function SymbolArticle() {
 	const [location] = useLocation()
 	const qn = location.startsWith('/s/') ? decodeURIComponent(location.slice(3)) : null
 
-	const detail = useQuery(qn ? `symbol:${qn}` : null, () => api.symbolDetail(qn!))
+	const article = useQuery(qn ? `article:${qn}` : null, () => api.symbolArticle(qn!))
 
 	if (!qn) return <EmptyState title="no symbol" />
-	if (detail.error) return <EmptyState title="symbol not found" description={detail.error.message} />
-	if (!detail.data) return <Spinner lines={6} />
+	if (article.error) return <EmptyState title="symbol not found" description={article.error.message} />
+	if (!article.data) return <Spinner lines={6} />
 
-	const { symbol, summary, upstream, downstream, sourceCode } = detail.data
+	const a = article.data
+	const { symbol } = a
 
 	return (
 		<ArticleShell
@@ -29,15 +39,20 @@ export function SymbolArticle() {
 							<KindBadge kind={symbol.kind} />
 							<FileLink path={symbol.filePath} line={symbol.lineStart} />
 							{symbol.isExported && <Badge tone="accent">exported</Badge>}
+							{a.subsystem && (
+								<Link href={`/sub/${encodeURIComponent(a.subsystem.id)}`} className="text-text-muted hover:text-accent inline-flex items-center gap-1">
+									<Boxes size={11} /> {a.subsystem.name}
+								</Link>
+							)}
 						</>
 					}
 					title={<span className="font-mono">{symbol.name}</span>}
 					subtitle={symbol.signature ? <code className="text-sm bg-surface-sunken px-2 py-1 rounded">{symbol.signature}</code> : undefined}
 				/>
 			}
-			aside={<SymbolFacts qn={qn} symbol={symbol} upstream={upstream} downstream={downstream} />}
+			aside={<SymbolFacts qn={qn} article={a} />}
 		>
-			<SummarySection qn={qn} initial={summary} />
+			<SummarySection qn={qn} initial={a.summary ?? undefined} />
 
 			{symbol.docComment && (
 				<Section id="docs" title="documentation">
@@ -45,47 +60,73 @@ export function SymbolArticle() {
 				</Section>
 			)}
 
-			{sourceCode && (
-				<Section id="source" title="source" defaultOpen>
-					<HighlightedSource code={sourceCode} language={langForFile(symbol.filePath)} />
+			{(a.sourceHtml || a.sourceCode) && (
+				<Section id="source" title="source" right={`${symbol.lineEnd - symbol.lineStart + 1} lines`}>
+					<CodeBlock html={a.sourceHtml ?? undefined} code={a.sourceCode ?? undefined} language={a.language} maxHeight={520} />
 				</Section>
 			)}
 
-			{downstream.length > 0 && (
-				<Section id="calls" title="calls" right={`${downstream.length}`}>
-					<DepList items={downstream} />
+			{a.downstream.length > 0 && (
+				<Section id="calls" title="calls" right={`${a.downstream.length}`}>
+					<DepList items={a.downstream} />
 				</Section>
 			)}
 
-			{upstream.length > 0 && (
-				<Section id="called-by" title="called by" right={`${upstream.length}`}>
-					<DepList items={upstream} />
+			{a.upstream.length > 0 && (
+				<Section id="called-by" title="called by" right={`${a.upstream.length}`}>
+					<DepList items={a.upstream} />
 				</Section>
 			)}
 
-			{upstream.length === 0 && downstream.length === 0 && (
+			{a.testCoverage && a.testCoverage.tests.length > 0 && (
+				<Section id="tests" title="tests" right={a.testCoverage.coveredBy}>
+					<ul className="space-y-1">
+						{a.testCoverage.tests.map((t, i) => (
+							<li key={i} className="flex items-center gap-2 py-1">
+								<Beaker size={12} className="text-text-muted" />
+								<FileLink path={t.testFilePath} muted />
+								<Badge tone={t.confidence === 'called' ? 'success' : 'neutral'}>{t.confidence}</Badge>
+							</li>
+						))}
+					</ul>
+				</Section>
+			)}
+
+			{(a.lastChanged || a.contributors.length > 0) && (
+				<Section id="history" title="history">
+					{a.lastChanged && (
+						<div className="flex items-center gap-2 mb-3 text-sm">
+							<Clock size={13} className="text-text-muted" />
+							<span className="text-text-secondary">{a.lastChanged.subject}</span>
+							<span className="text-text-muted text-xs">— {a.lastChanged.authorName}, {timeAgo(a.lastChanged.authoredAt)}</span>
+							<span className="text-text-faint text-xs font-mono ml-auto">{a.lastChanged.hash.slice(0, 7)}</span>
+						</div>
+					)}
+					{a.contributors.length > 0 && (
+						<div>
+							<div className="flex items-center gap-1.5 text-xs text-text-muted mb-2">
+								<Users size={12} /> top contributors to this file
+							</div>
+							<ul className="space-y-1">
+								{a.contributors.map((c) => (
+									<li key={c.authorName} className="flex items-center justify-between text-sm py-1">
+										<span className="text-text">{c.authorName}</span>
+										<span className="text-xs text-text-muted tabular-nums">{c.commits} commits</span>
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+				</Section>
+			)}
+
+			{a.upstream.length === 0 && a.downstream.length === 0 && (
 				<Section id="empty" title="connections" collapsible={false}>
 					<div className="text-sm text-text-muted">no incoming or outgoing edges recorded.</div>
 				</Section>
 			)}
 		</ArticleShell>
 	)
-}
-
-function langForFile(path: string): string {
-	if (path.endsWith('.tsx')) return 'tsx'
-	if (path.endsWith('.ts')) return 'typescript'
-	if (path.endsWith('.jsx')) return 'jsx'
-	if (path.endsWith('.js')) return 'javascript'
-	if (path.endsWith('.py')) return 'python'
-	return 'typescript'
-}
-
-// renders raw source as fallback. shiki rendering happens server-side and
-// will be served via an article endpoint in phase 3; for phase 1 we send
-// raw and let the browser render it monospaced.
-function HighlightedSource({ code, language }: { code: string; language: string }) {
-	return <CodeBlock code={code} language={language} maxHeight={520} />
 }
 
 function DepList({ items }: { items: { symbol: any; edgeKind: string; line?: number | null }[] }) {
@@ -140,7 +181,8 @@ function SummarySection({ qn, initial }: { qn: string; initial?: string }) {
 	)
 }
 
-function SymbolFacts({ qn, symbol, upstream, downstream }: { qn: string; symbol: any; upstream: any[]; downstream: any[] }) {
+function SymbolFacts({ qn, article }: { qn: string; article: any }) {
+	const { symbol, upstream, downstream, subsystem, testCoverage } = article
 	return (
 		<FactList
 			items={[
@@ -150,6 +192,18 @@ function SymbolFacts({ qn, symbol, upstream, downstream }: { qn: string; symbol:
 				{ label: 'visibility', value: symbol.isExported ? 'exported' : 'internal' },
 				{ label: 'callers', value: <span className="tabular-nums">{upstream.length}</span> },
 				{ label: 'callees', value: <span className="tabular-nums">{downstream.length}</span> },
+				{
+					label: 'tests',
+					value: testCoverage
+						? <span className="tabular-nums">{testCoverage.tests.length} ({testCoverage.coveredBy})</span>
+						: <span className="text-text-faint">none</span>,
+				},
+				{
+					label: 'subsystem',
+					value: subsystem
+						? <Link href={`/sub/${encodeURIComponent(subsystem.id)}`} className="text-accent hover:underline">{subsystem.name}</Link>
+						: <span className="text-text-faint">—</span>,
+				},
 				{
 					label: 'graph',
 					value: (

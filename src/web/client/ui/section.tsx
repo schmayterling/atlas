@@ -1,8 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
+import { useOutline } from '../components/article-shell.js'
 
 // section: a collapsible chunk of an article. id becomes the anchor target.
-// title is rendered as h2. supports defaultOpen and a right-side aside.
+// title is rendered as h2. registers itself with the surrounding article
+// shell's outline (if any).
 
 export function Section({
 	id,
@@ -20,8 +22,16 @@ export function Section({
 	children: ReactNode
 }) {
 	const [open, setOpen] = useState(defaultOpen)
+	const outline = useOutline()
+
+	useEffect(() => {
+		if (!outline) return
+		outline.register({ id, label: title })
+		return () => outline.unregister(id)
+	}, [id, title])
+
 	return (
-		<section id={id} className="scroll-mt-16 mt-8 first:mt-0">
+		<section id={id} className="scroll-mt-20 mt-8 first:mt-0">
 			<div className="flex items-center justify-between border-b border-border pb-2 mb-3">
 				<button
 					onClick={() => collapsible && setOpen(!open)}
