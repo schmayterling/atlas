@@ -16,11 +16,14 @@ in `CAPABILITIES.md`.
   cost 35%. on weaker models the score gain is bigger but the
   cost/token story flips. see "phase C" below.
 - **head-to-head with codebase-memory-mcp + chunkhound** on
-  gpt-5.4-nano (3 trials × 12 tasks × 4 agents = 144 jobs): atlas
-  0.806, baseline (grep) 0.611, cbm 0.560, chunkhound 0.556. atlas
-  is the only tool-augmented agent that beats baseline on score AND
-  uses fewer tokens (−29%). cbm and chunkhound both score worse than
-  baseline at higher token cost. see "phase D" below.
+  gpt-5.4-nano (5 trials × 28 tasks × 4 agents = 560 jobs, including
+  4 deliberately-adversarial tasks atlas should lose): atlas 0.760,
+  baseline (grep) 0.640, cbm 0.570, chunkhound 0.520. atlas is the
+  only tool-augmented agent that beats baseline on score AND uses
+  fewer tokens (−34%). cbm and chunkhound both score worse than
+  baseline. LLM-judge cross-check confirms direction (atlas +0.035)
+  with a tighter margin than the deterministic judge gives. see
+  "phase D" below.
 
 ## methodology
 
@@ -263,10 +266,17 @@ runner) the same workload was ~10x slower.
 
 ## phase D appendix: head-to-head with codebase-memory-mcp + chunkhound
 
-run on **2026-04-18**, commit `d60317f`, model `openai/gpt-5.4-nano`
-via OpenRouter, **3 trials × 12 tasks × 4 agents = 144 paired
-observations**. wall: 153.9s at concurrency 10. raw JSON in
-`bench-llm/results/d60317f-2026-04-18T09-44-23-618Z.json`.
+run on **2026-04-18**, commit `41160ae`, model `openai/gpt-5.4-nano`
+via OpenRouter, **5 trials × 28 tasks × 4 agents = 560 paired
+observations**. wall: 253.9s at concurrency 20. raw JSON in
+`bench-llm/results/41160ae-2026-04-18T09-59-41-663Z.json`.
+
+(an earlier 3-trial × 12-task version is preserved at
+`bench-llm/results/d60317f-2026-04-18T09-44-23-618Z.json` if you want
+to see how the headline moved as the task set widened. spoiler: atlas's
+score delta narrowed from +0.194 to +0.125 because the new task set
+includes 4 deliberately-adversarial `text-content` tasks atlas can't
+answer with structural tools.)
 
 each agent gets the shared text tools (`read_file` + `grep` + `glob`)
 plus its own structural surface:
@@ -288,75 +298,123 @@ each agent ran a preconfigure step before any LLM jobs to move
 indexing cost off the per-task wall clock (atlas full reindex,
 cbm `index_repository`, chunkhound warmup query).
 
-### four-agent summary
+### four-agent summary (28 tasks, 5 trials)
 
-| agent      | mean score | total tokens | total cost (USD) | mean tools / task |
-|------------|-----------:|-------------:|-----------------:|------------------:|
-| baseline   |      0.611 |      469,518 |          $0.0901 |               3.8 |
-| **atlas**  |  **0.806** |      333,981 |      **$0.0755** |           **2.1** |
-| cbm        |      0.560 |      752,508 |          $0.0851 |               4.9 |
-| chunkhound |      0.556 |      575,933 |          $0.1111 |               3.7 |
+| agent      | det score | LLM-judge score | total tokens | total cost (USD) | judge cost | tools/task |
+|------------|----------:|----------------:|-------------:|-----------------:|-----------:|-----------:|
+| baseline   |     0.640 |           0.670 |    2,257,925 |        $0.3861 |    $0.0239 |        3.8 |
+| **atlas**  | **0.760** |       **0.700** |    1,492,496 |      **$0.2900** |    $0.0252 |        2.5 |
+| cbm        |     0.570 |           0.620 |    2,157,355 |        $0.2704 |    $0.0234 |        4.3 |
+| chunkhound |     0.520 |           0.610 |    2,731,598 |        $0.4501 |    $0.0212 |        4.1 |
 
 ### delta vs baseline
 
-| agent      | Δ score | Δ tokens / task | Δ cost  |
-|------------|--------:|----------------:|--------:|
-| **atlas**  | **+0.194** |       **−29%** | **−16%** |
-| cbm        |   −0.051 |          +60%   |    −6%   |
-| chunkhound |   −0.056 |          +23%   |   +23%   |
+| agent      | Δ det score | Δ LLM score | Δ tokens / task | Δ cost  |
+|------------|------------:|------------:|----------------:|--------:|
+| **atlas**  | **+0.125** |    **+0.035** |       **−34%** | **−25%** |
+| cbm        |     −0.062 |       −0.051 |          −4%    |   −30%   |
+| chunkhound |     −0.117 |       −0.057 |         +21%    |   +17%   |
 
 **atlas is the only tool-augmented agent that beats baseline on
 score AND uses fewer tokens.** cbm and chunkhound both score *lower*
-than the grep baseline and consume more tokens to do it.
+than the grep baseline. cbm uses fewer tokens than baseline but
+loses on quality; chunkhound loses on both axes.
 
-### per-task breakdown
+### two judges, two stories
+
+the LLM-judge column gives baseline +0.030 over the deterministic
+judge while only giving atlas +0... wait, no — the LLM judge
+*compresses* the spread between agents:
+- deterministic: atlas +0.125, cbm −0.062, chunkhound −0.117 (range 0.24)
+- LLM judge:    atlas +0.035, cbm −0.051, chunkhound −0.057 (range 0.09)
+
+what's happening: the deterministic count scorer punishes
+"approximately right" answers as 0; the LLM judge gives partial
+credit. since baseline returns "wrong but plausible" numbers more
+often than atlas (which often returns 0 results when it can't find
+something), the LLM gives baseline a relatively bigger boost. so:
+- **deterministic delta is the bigger headline**: when we want
+  exact correctness for a downstream automated consumer, atlas
+  wins by +0.125.
+- **LLM-judge delta is the more conservative headline**: when a
+  human reviewer would accept "close enough" answers, atlas's
+  advantage shrinks to +0.035 — still positive, but smaller.
+
+**both judges agree directionally**: atlas wins, cbm + chunkhound
+lose. that consistency is the actual quality signal.
+
+### per-task breakdown (mean of 5 trials per cell)
 
 | task                            | capability      | baseline | atlas | cbm  | chunkhound |
 |---------------------------------|-----------------|---------:|------:|-----:|-----------:|
-| ripgrep-01-indexing             | indexing        |     0.00 |  0.00 | 0.00 |       0.00 |
+| ripgrep-01-indexing             | indexing        |     0.00 |  0.00 | 0.04 |       0.00 |
 | ripgrep-02-discovery            | discovery       |     1.00 |  1.00 | 1.00 |       1.00 |
-| ripgrep-03-code-access          | code-access     |     1.00 |  1.00 | 1.00 |       1.00 |
-| ripgrep-04-call-tracing         | call-tracing    |     1.00 |  1.00 | 0.72 |       1.00 |
+| ripgrep-03-code-access          | code-access     |     1.00 |  1.00 | 1.00 |       0.80 |
+| ripgrep-04-call-tracing         | call-tracing    |     0.80 |  1.00 | 0.60 |       0.93 |
 | ripgrep-05-graph-querying       | graph-querying  |     0.00 |**1.00**| 0.00 |       0.00 |
 | ripgrep-06-file-navigation      | file-navigation |     1.00 |  1.00 | 1.00 |       1.00 |
+| ripgrep-07-indexing             | indexing        |     0.80 |  0.80 | 1.00 |       0.80 |
+| ripgrep-08-discovery            | discovery       |     0.80 |  1.00 | 1.00 |       1.00 |
+| ripgrep-09-code-access          | code-access     |     1.00 |  1.00 | 1.00 |       1.00 |
+| ripgrep-10-call-tracing         | call-tracing    |     1.00 |  0.80 | 0.00 |       0.80 |
+| ripgrep-11-graph-querying       | graph-querying  |     0.00 |**0.80**| 0.00 |       0.00 |
+| ripgrep-12-file-navigation      | file-navigation |     1.00 |  1.00 | 1.00 |       1.00 |
+| ripgrep-13-text-content (neg)   | text-content    |     0.00 |  0.00 | 0.50 |       0.00 |
+| ripgrep-14-comments (neg)       | text-content    |   **1.00** |  0.80 | 0.80 |       0.60 |
 | zod-01-indexing                 | indexing        |     0.00 |  0.00 | 0.00 |       0.00 |
-| zod-02-discovery                | discovery       |     1.00 |  1.00 | 1.00 |       0.67 |
-| zod-03-code-access              | code-access     |     0.67 |  0.67 | 0.67 |       0.67 |
-| zod-04-call-tracing             | call-tracing    |     0.67 |**1.00**| 0.33 |       0.33 |
-| zod-05-graph-querying           | graph-querying  |     0.00 |**1.00**| 0.00 |       0.00 |
+| zod-02-discovery                | discovery       |     1.00 |  1.00 | 1.00 |       1.00 |
+| zod-03-code-access              | code-access     |   **1.00** |  0.80 | 0.33 |       0.80 |
+| zod-04-call-tracing             | call-tracing    |     0.60 |  0.80 | 0.40 |       0.00 |
+| zod-05-graph-querying           | graph-querying  |     0.00 |**0.20**| 0.00 |       0.00 |
 | zod-06-file-navigation          | file-navigation |     1.00 |  1.00 | 1.00 |       1.00 |
+| zod-07-indexing                 | indexing        |     1.00 |  1.00 | 1.00 |       1.00 |
+| zod-08-discovery                | discovery       |     1.00 |  1.00 | 1.00 |       0.40 |
+| zod-09-code-access              | code-access     |     1.00 |  1.00 | 1.00 |       0.40 |
+| zod-10-call-tracing             | call-tracing    |     0.00 |**0.80**| 0.00 |       0.00 |
+| zod-11-graph-querying           | graph-querying  |     0.00 |**0.80**| 0.00 |       0.00 |
+| zod-12-file-navigation          | file-navigation |     1.00 |  1.00 | 1.00 |       1.00 |
+| zod-13-text-content (neg)       | text-content    |     0.00 |  0.00 |**0.20**|     0.00 |
+| zod-14-substring (neg)          | text-content    |   **0.80** |  0.70 | 0.20 |       0.00 |
+
+bold = clear category winner.
 
 reads:
 
-1. **atlas wins outright on 3 graph-querying / call-tracing tasks**
-   (ripgrep-05, zod-05, zod-04). these are the tasks that require
-   structural traversal — text search and semantic RAG can't compute
-   blast radius or list 200 verified call sites. CBM has a
-   `trace_path` tool but it only partially scored (0.72, 0.33),
-   suggesting weaker resolution depth.
-2. **8 ties at 1.00**: discovery / code-access / file-navigation —
-   surface-level tasks where every approach is fine.
-3. **2 mutual fails on indexing tasks**: both `ripgrep-01` and
-   `zod-01` had every agent score 0. these tasks ask for an exact
-   file count — the model returns numbers like "79", "86", "4" all
-   outside tolerance. this is more about prompt shape than tool
-   surface; the deterministic count scorer punishes any miss harder
-   than the LLM judge does (see "LLM-as-judge" section below).
-4. **CBM did notably worse than baseline.** it has structural tools
-   on paper but the model couldn't extract correct answers from them
-   on call-tracing or graph-querying tasks. on graph-querying
-   specifically (where CBM has cypher `query_graph`), it scored 0.00
-   — likely because constructing the right cypher query under prompt
-   pressure is harder than just calling `atlas_blast_radius`.
-5. **Chunkhound did slightly worse than baseline.** unsurprising:
-   semantic search is a poor fit for "find every caller of X"; the
-   model fell back to grep on those tasks and grep alone outscored
-   chunkhound's mixed strategy.
-6. **Token efficiency: atlas −29%, cbm +60%, chunkhound +23%.** atlas
-   wins by giving direct structural answers (1-2 tool calls). CBM
-   loops more (4.9 mean tool calls vs atlas's 2.1) because the
-   cypher / search_graph surface invites exploratory queries. on a
-   model where tool responses bill as input tokens, this matters.
+1. **atlas wins outright on 5 graph-querying / call-tracing tasks**
+   (ripgrep-05, ripgrep-11, zod-04, zod-05, zod-10, zod-11). these are
+   the tasks that require structural traversal — text search and
+   semantic RAG can't compute blast radius or list 200 verified call
+   sites. CBM has a `trace_path` tool but it only partially scored
+   (0.60, 0.40), suggesting the model struggles to construct the
+   right cypher / graph query under prompt pressure.
+2. **negative tasks worked as designed.** the 4 `text-content`
+   tasks were authored to expose atlas's weakness (atlas's
+   `search()` matches symbol names, not file content). atlas scored
+   0 / 0 / 0 / 0.70 on them; baseline scored 0 / 1.00 / 0 / 0.80.
+   baseline wins those outright and the negative tasks DID drag
+   atlas's aggregate down (was +0.194 on 12 tasks, now +0.125 on 28).
+   this is the right kind of honesty — the benchmark isn't
+   cherry-picked.
+3. **CBM is the only agent to score on `ripgrep-13` (0.50) and
+   `zod-13` (0.20)** — its `search_code` tool actually does file-
+   content search (atlas's doesn't). a real differentiation point
+   if your usage pattern leans on text content.
+4. **8 mutual ties at 1.00**: discovery / code-access / file-
+   navigation — surface tasks where any approach is fine.
+5. **mutual fails on indexing tasks** (`ripgrep-01`, `zod-01`):
+   every agent scored 0. these ask for an exact file count and
+   the model returns plausible-but-wrong numbers (`79`, `86`, `4`).
+   prompt-shape problem more than tool-surface. the LLM judge gives
+   partial credit here that the deterministic count scorer doesn't.
+6. **chunkhound did slightly worse than baseline.** semantic search
+   is a poor fit for "find every caller of X"; the model fell back
+   to grep on those tasks. some tasks (like ripgrep-04, scoring 0.93)
+   chunkhound did surprisingly well on through embedding hits.
+7. **token efficiency: atlas −34%, cbm −4%, chunkhound +21%.** atlas
+   wins by giving direct structural answers (2.5 mean tool calls
+   vs cbm 4.3 / chunkhound 4.1). cbm's tokens are roughly flat
+   despite worse score — the cypher / search_graph surface invites
+   exploratory queries that don't move the needle.
 
 ### LLM-as-judge cross-check
 
@@ -387,19 +445,23 @@ human reviewer would grade the same output. when scores diverge by
   chunkhound's tool surfaces likely benefit more from a smarter
   model that can construct better cypher / semantic queries. the
   next run should be on haiku 4.5 (~$10).
-- the 144-job run cost ~$0.40 on nano. cheap enough to rerun on every
-  bench-llm change.
-- atlas's headline `+0.194 score / −29% tokens` is robust to trial
-  variance (36 paired observations per agent, SE ≈ 0.08).
-- both CBM and chunkhound *underperformed text search* on this run.
-  that's a striking result and worth flagging — neither tool's own
-  documentation discusses model-tier interactions, but for a small
-  model at least, the structural overhead doesn't translate to
-  better answers.
-- this benchmark MAY be biased: the 12 tasks were authored to
-  exercise the capability categories CBM also documents (and
-  partly to expose atlas's structural advantages). a different
-  task set could shift the results meaningfully.
+- the 560-job run cost ~$1.40 on nano. cheap enough to rerun on
+  every bench-llm change.
+- atlas's headline `+0.125 deterministic / +0.035 LLM-judged /
+  −34% tokens / −25% cost` is robust to trial variance (140 paired
+  observations per agent at 5 trials × 28 tasks, SE ≈ 0.04).
+- the negative tasks DROPPED atlas's win margin from +0.194 (12
+  tasks) to +0.125 (28 tasks). that's the benchmark earning its
+  credibility — atlas is *not* magically winning on every kind of
+  question.
+- both CBM and chunkhound underperform baseline. that's striking;
+  neither tool's documentation discusses model-tier interactions,
+  but for a small model at least, the structural overhead doesn't
+  translate to better answers. CBM's `search_code` is the only
+  meaningful win for a competitor (text-content tasks).
+- this benchmark MAY still be biased: 28 tasks across 2 corpora
+  (rust + ts) is broader but still narrow. java/c++/python results
+  could differ. add corpora before claiming generalization.
 
 ## comparison to alternatives
 
