@@ -52,11 +52,29 @@ which cbm-mcp     # should resolve
 **chunkhound** (one-time):
 ```bash
 pip install chunkhound
-export VOYAGE_API_KEY=...   # or OPENAI_API_KEY for embeddings
-which chunkhound  # should resolve
+which chunkhound       # should resolve
+
+# embeddings: this benchmark ships a config that points chunkhound at
+# the local ollama server, so you do NOT need a paid voyage / openai
+# key. you DO need ollama running with the nomic-embed-text model:
+ollama pull nomic-embed-text
+ollama serve &         # if not already running
+
+# verify ollama is up:
+curl -s http://localhost:11434/api/tags | grep nomic-embed-text
 ```
 
-then:
+the chunkhound config used by bench-llm lives at
+`bench-llm/config/chunkhound.json`. it points chunkhound at
+`http://localhost:11434/v1` with the `nomic-embed-text` model — the
+same embedding atlas uses, so neither tool gets a quality advantage
+from a paid embedding tier. swap models / providers by editing the
+file directly, or set `CHUNKHOUND_CONFIG_FILE` to point elsewhere.
+
+**explicit `--agents` flag is required to include cbm + chunkhound.**
+the default `--agents` list is `baseline,atlas` so existing benchmark
+runs don't suddenly try to spawn binaries that aren't installed.
+to include cbm and chunkhound:
 
 ```bash
 bun run bench-llm --full --agents baseline,atlas,cbm,chunkhound \

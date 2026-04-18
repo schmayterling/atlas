@@ -1,0 +1,28 @@
+{
+	"embedding": {
+		"provider": "openai",
+		"base_url": "http://localhost:11434/v1",
+		"model": "nomic-embed-text",
+		"api_key": "ollama"
+	},
+	"indexing": {
+		"include": [
+			"**/*.ts",
+			"**/*.tsx",
+			"**/*.js",
+			"**/*.jsx",
+			"**/*.py",
+			"**/*.go",
+			"**/*.rs"
+		],
+		"exclude": [
+			"**/node_modules/**",
+			"**/__pycache__/**",
+			"**/.git/**",
+			"**/dist/**",
+			"**/build/**",
+			"**/target/**"
+		]
+	},
+	"debug": false
+}

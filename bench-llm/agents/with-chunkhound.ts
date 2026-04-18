@@ -6,14 +6,25 @@
 //
 // install (one-time):
 //   pip install chunkhound
-//   export VOYAGE_API_KEY=... (or OPENAI_API_KEY for embeddings)
+//
+// embedding backend (this benchmark):
+//   bench-llm/config/chunkhound.json points chunkhound at the local
+//   ollama server (http://localhost:11434/v1) with the
+//   nomic-embed-text model. that's the same embedding atlas uses, so
+//   neither tool gets a quality advantage from a paid embedding tier.
+//   to swap models or providers, edit the config file directly.
 //
 // behavior:
-//   - chunkhound auto-discovers files on first query; we pass the
-//     corpus root as cwd to the spawned process.
-//   - no explicit init step; semantic indexing happens lazily on
-//     first search (which can add a one-time cost to the first task).
+//   - chunkhound process is spawned with cwd=corpusRoot so its
+//     project-local .chunkhound directory lands inside the cached
+//     clone, not in atlas's repo.
+//   - CHUNKHOUND_CONFIG_FILE env var points at the shared bench
+//     config so every corpus shares one embedding backend.
+//   - lazy indexing: first semantic_search query triggers embedding
+//     of the corpus. expect a one-time delay on the first task per
+//     corpus (proportional to file count + embedding model speed).
 
+import { resolve } from 'node:path'
 import type { LlmAgentResult, LlmTaskInput } from '../lib/llm-agent.js'
 import { runLlmAgent } from '../lib/llm-agent.js'
 import { TEXT_TOOLS, makeTextHandler } from '../lib/text-tools.js'
@@ -21,7 +32,10 @@ import { openMcpAgent } from '../lib/mcp-client.js'
 import type { McpAgentHandle } from '../lib/mcp-client.js'
 import type { ToolCall } from '../lib/openrouter.js'
 
+const REPO_ROOT = resolve(import.meta.dir, '..', '..')
 const CHUNKHOUND_BIN = process.env.CHUNKHOUND_BIN || 'chunkhound'
+const CHUNKHOUND_CONFIG = process.env.CHUNKHOUND_CONFIG_FILE
+	|| resolve(REPO_ROOT, 'bench-llm', 'config', 'chunkhound.json')
 
 const handles = new Map<string, Promise<McpAgentHandle>>()
 
@@ -31,7 +45,12 @@ async function getHandle(corpusRoot: string): Promise<McpAgentHandle> {
 		p = openMcpAgent({
 			name: 'chunkhound',
 			command: CHUNKHOUND_BIN,
-			args: ['mcp', '--cwd', corpusRoot],
+			args: ['mcp', '--stdio'],
+			cwd: corpusRoot,
+			env: {
+				...process.env,
+				CHUNKHOUND_CONFIG_FILE: CHUNKHOUND_CONFIG,
+			} as Record<string, string>,
 		}, corpusRoot)
 		handles.set(corpusRoot, p)
 	}

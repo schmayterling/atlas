@@ -28,6 +28,11 @@ export interface McpAgentSpec {
 	command: string
 	args: string[]
 	env?: Record<string, string>
+	// working directory for the spawned process. some servers
+	// (chunkhound) write project-local state into cwd, so we point
+	// it at the corpus root rather than letting it leak into atlas's
+	// own repo.
+	cwd?: string
 	// optional one-shot init called once per corpus before the first
 	// LLM call. e.g. CBM: { name: 'index_repository', args: { path } }
 	init?: (callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>, corpusRoot: string) => Promise<void>
@@ -49,6 +54,7 @@ export async function openMcpAgent(spec: McpAgentSpec, corpusRoot: string): Prom
 		command: spec.command,
 		args: spec.args,
 		env: spec.env,
+		cwd: spec.cwd,
 	})
 	const client = new Client({ name: 'bench-llm', version: '0.0.1' })
 	await client.connect(transport)
