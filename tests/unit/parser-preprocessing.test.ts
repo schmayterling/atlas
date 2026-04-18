@@ -34,6 +34,27 @@ describe('stripInlineImportTypes', () => {
 		const src = "import { X } from './a.js'\n"
 		expect(stripInlineImportTypes(src)).toBe(src)
 	})
+
+	// deep-review pass 2/4/10 codex caught the original regex clobbering
+	// runtime dynamic-import chains by rewriting `import('./m.js').then`
+	// into a bare `then` call. the negative lookahead skips any match
+	// where the identifier is immediately followed by `(`.
+	test('leaves runtime dynamic-import method chains untouched', () => {
+		const samples = [
+			"const p = import('./m.js').then((m) => m.run())",
+			"import('./m.js').catch((e) => console.error(e))",
+			"import('./m.js').finally(() => cleanup())",
+		]
+		for (const src of samples) {
+			expect(stripInlineImportTypes(src)).toBe(src)
+		}
+	})
+
+	test('fast-path returns unchanged source when no inline import()', () => {
+		const src = 'export const answer = 42\nfunction foo() { return answer }\n'
+		// same object-identity check is not guaranteed, but content must match
+		expect(stripInlineImportTypes(src)).toBe(src)
+	})
 })
 
 describe('class body with inline import() types', () => {

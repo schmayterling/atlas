@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import '../helpers/setup.js'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

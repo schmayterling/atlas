@@ -10,7 +10,8 @@
 //   bun run bench -- --update         rewrite each scenario's expected.json
 //   bun run bench -- federation-chain only run that scenario
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 export interface ScenarioContext {
@@ -23,12 +24,10 @@ export interface ScenarioContext {
 
 export interface ScenarioResult {
 	queries: Record<string, unknown>
-	timings?: Record<string, number>
 }
 
 export interface Scenario {
 	name: string
-	description?: string
 	// upper bound on total wall time across every indexed project + query
 	// run. catches bfs-blowup class bugs (see #72 r2). milliseconds.
 	timeBudgetMs?: number
@@ -94,17 +93,21 @@ async function runScenario(
 		return { name: scenarioDir, ok: false, message: `no default export in ${scenarioPath}` }
 	}
 
-	const tmpRoot = await import('node:fs').then((fs) =>
-		fs.mkdtempSync(join(require('node:os').tmpdir(), 'atlas-bench-')),
-	)
+	const tmpRoot = mkdtempSync(join(tmpdir(), 'atlas-bench-'))
 
 	const start = Date.now()
 	let result: ScenarioResult
 	try {
 		result = await scenario.run({ tmpRoot, scenarioDir })
-	} finally {
-		// leave tmpRoot for inspection if the scenario throws. cleanup
-		// happens via the harness helper in harness.ts on success.
+	} catch (e) {
+		// surface the tmpRoot path so the reviewer can inspect partial
+		// state. cleanup would lose that artifact. deep-review pass 9
+		// flagged the bare throw path as un-debuggable.
+		return {
+			name: scenario.name,
+			ok: false,
+			message: `threw: ${e instanceof Error ? e.stack ?? e.message : e}; tmpRoot preserved at ${tmpRoot}`,
+		}
 	}
 	const elapsed = Date.now() - start
 	if (scenario.timeBudgetMs && elapsed > scenario.timeBudgetMs) {
@@ -126,11 +129,14 @@ async function runScenario(
 	try {
 		expected = readFileSync(expectedPath, 'utf-8')
 	} catch {
-		writeFileSync(expectedPath, actual)
+		// deep-review pass 1/10 codex: do not silently mint a snapshot
+		// during normal verification. require explicit --update so the
+		// reviewer approves the first baseline instead of the harness
+		// mutating the repo and going green.
 		return {
 			name: scenario.name,
-			ok: true,
-			message: `initial snapshot written (${elapsed}ms)`,
+			ok: false,
+			message: `no expected.json at ${expectedPath}. rerun with \`bun run bench -- --update\` to generate the initial snapshot.`,
 		}
 	}
 	if (actual === expected) {

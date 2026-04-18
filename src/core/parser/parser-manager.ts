@@ -93,9 +93,24 @@ function needsTypeScriptPreprocessing(language: string): boolean {
 // match no symbol row and deps/blast-radius/trace all show `<unknown>`.
 // see #81. we replace `import('...').Name` with `Name` plus trailing
 // spaces so byte offsets stay intact for downstream line/column data.
-const INLINE_IMPORT_TYPE_RE = /import\(\s*['"][^'"]+['"]\s*\)\s*\.([A-Za-z_$][A-Za-z0-9_$]*)/g
+//
+// the trailing `(?!\w|\s*\()` excludes two cases:
+//   - `\w` prevents the identifier match from backtracking to a shorter
+//     prefix (e.g. capturing "the" out of "then" because the `n` isn't a
+//     method call). without this the regex would silently mangle any
+//     identifier that contains a substring with a non-call follow-up
+//   - `\s*\(` excludes runtime dynamic-import method chains like
+//     `import('./m.js').then(...)`, `.catch(...)`, `.finally(...)`
+// deep-review pass 2/4/10 codex flagged the original regex as clobbering
+// legitimate runtime code.
+const INLINE_IMPORT_TYPE_RE = /import\(\s*['"][^'"]+['"]\s*\)\s*\.([A-Za-z_$][A-Za-z0-9_$]*)(?!\w|\s*\()/g
 
 export function stripInlineImportTypes(source: string): string {
+	// fast-path: the regex scan costs are O(source length) per file. most
+	// ts/js files have no inline `import(` type expressions, so a single
+	// indexOf skips the replace entirely. deep-review pass 5 flagged the
+	// unconditional global scan as wasted indexing time.
+	if (!source.includes('import(')) return source
 	return source.replace(INLINE_IMPORT_TYPE_RE, (match, name: string) => {
 		const pad = match.length - name.length
 		return pad > 0 ? name + ' '.repeat(pad) : name

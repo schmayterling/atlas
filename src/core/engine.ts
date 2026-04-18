@@ -22,6 +22,7 @@ import type {
 	TestCoverage,
 } from '../shared/types.js'
 import { Indexer } from './indexer/indexer.js'
+import { getCurrentCommit } from './indexer/change-detector.js'
 import { getBlastRadius } from './queries/blast-radius.js'
 import { findDeadCode } from './queries/dead-code.js'
 import { findGeneratedFileIds } from './queries/generated-code.js'
@@ -74,7 +75,7 @@ function parseChannelMetadata(raw: string | null): Record<string, unknown> | nul
 export class AtlasEngine {
 	private store: AtlasStore | null = null
 	private config: AtlasConfig
-	readonly projectRoot: string
+	private projectRoot: string
 	private dbPath: string
 	// cached set of generated/mock/fake/codegen file ids. computed
 	// lazily via findGeneratedFileIds the first time any query that
@@ -563,6 +564,22 @@ export class AtlasEngine {
 	// directly for a raw sql count. see #78.
 	getCrossProjectEdgeCount(): number {
 		return this.getStore().getCrossProjectEdgeCount()
+	}
+
+	// narrow accessor for the last indexed commit recorded in atlas_meta.
+	// keeps MCP / web callers off engine.status() (which walks 6+ other
+	// queries) when all they need is the freshness sha. see deep-review #82
+	// perf + architecture feedback.
+	getLastIndexedCommit(): string | null {
+		return this.getStore().getMeta('last_indexed_commit')
+	}
+
+	// current HEAD of the project's git repo (or null when unavailable).
+	// thin wrapper over change-detector.getCurrentCommit so MCP / web
+	// stay on the engine boundary instead of importing indexer modules
+	// directly. see deep-review #82 architecture feedback.
+	getCurrentCommit(): string | null {
+		return getCurrentCommit(this.projectRoot)
 	}
 
 	// build cross_project_edges between this engine and another

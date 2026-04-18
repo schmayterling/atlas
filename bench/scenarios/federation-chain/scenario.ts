@@ -10,7 +10,6 @@ import { findCrossProjectBoundaries } from '../../../src/core/federation/federat
 // tests. see #83.
 const scenario: Scenario = {
 	name: 'federation-chain',
-	description: 'a->b->c boundary walk with back-edge cycle',
 	timeBudgetMs: 30_000,
 	async run(ctx) {
 		const here = ctx.scenarioDir
@@ -37,11 +36,11 @@ const scenario: Scenario = {
 			// stable_id at each hop is also the source of the next edge
 			// written in the next project's db so getCrossProjectEdges-
 			// Outbound on that db returns something. a c -> a back-edge
-			// from backToA to entry exercises cycle handling, and the
-			// remaining invokeLeaf / entry ids are asserted as loaded so
-			// the scenario fails loudly if tree-sitter drops an export.
+			// from backToA to entry exercises cycle handling. invokeLeaf
+			// is resolved up front so the scenario fails loudly if
+			// tree-sitter drops the export even though the scenario
+			// itself does not reference it at a boundary.
 			void invokeLeafId
-			void entryId
 			a.engine.getStoreForCrossProject().insertCrossProjectEdge({
 				sourceProject: a.id,
 				sourceStableId: invokeMiddleId,

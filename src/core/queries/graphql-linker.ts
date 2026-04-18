@@ -159,7 +159,16 @@ function extractFromStandaloneSchema(
 		list.push({ stableId: row.stableId, fileId: row.fileId, lineStart: row.lineStart })
 		symsByName.set(row.name, list)
 	}
+	// deep-review pass 2/5 codex: sqlite row order is undefined, so
+	// MIRROR_HIT_CAP.slice(0, N) would drop an arbitrary subset when a
+	// name has more than N matches. sort by (fileId, lineStart) so the
+	// surviving N are deterministic and the same ts/go twin lands in the
+	// channel group across runs.
+	for (const list of symsByName.values()) {
+		list.sort((a, b) => a.fileId - b.fileId || a.lineStart - b.lineStart)
+	}
 
+	const cappedSummary: string[] = []
 	for (const def of definitions) {
 		// synthetic hit keeps the schema file itself groupable.
 		hits.push({
@@ -189,9 +198,7 @@ function extractFromStandaloneSchema(
 		if (!matches) continue
 		const capped = matches.length > MIRROR_HIT_CAP ? matches.slice(0, MIRROR_HIT_CAP) : matches
 		if (matches.length > MIRROR_HIT_CAP) {
-			log.warn(
-				`graphql-linker: ${f.path}::${def.name} matched ${matches.length} ts/go symbols, capping to ${MIRROR_HIT_CAP} mirror hits`,
-			)
+			cappedSummary.push(`${def.name}(${matches.length})`)
 		}
 		for (const sym of capped) {
 			hits.push({
@@ -209,5 +216,13 @@ function extractFromStandaloneSchema(
 				}),
 			})
 		}
+	}
+	// single summary per schema file instead of one log.warn per type.
+	// see deep-review pass 9: per-definition warnings on a schema with
+	// many common names flood the warn channel.
+	if (cappedSummary.length > 0) {
+		log.warn(
+			`graphql-linker: ${f.path} capped mirror hits (>${MIRROR_HIT_CAP}) for ${cappedSummary.length} types: ${cappedSummary.join(', ')}`,
+		)
 	}
 }

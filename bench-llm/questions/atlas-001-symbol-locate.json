@@ -6,8 +6,7 @@
 	"question": "Where is the function `resolveOriginalSymbol` defined?",
 	"expected": {
 		"type": "symbol-set",
-		"symbols": ["src/core/indexer/ts-resolver.ts::resolveOriginalSymbol"],
-		"locations": ["src/core/indexer/ts-resolver.ts:641"]
+		"symbols": ["src/core/indexer/ts-resolver.ts::resolveOriginalSymbol"]
 	},
 	"rubric_notes": "baseline should win this via grep. atlas should tie. included as a sanity check so the suite has at least one easy case.",
 	"budget": { "toolCalls": 5, "tokens": 5000 }

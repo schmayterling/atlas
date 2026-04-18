@@ -3,7 +3,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { AtlasEngine } from '../core/engine.js'
 import { getOrCreateEngine } from '../core/engine-pool.js'
-import { getCurrentCommit } from '../core/indexer/change-detector.js'
 import { log } from '../shared/logger.js'
 import {
 	formatBlast,
@@ -21,16 +20,45 @@ type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean
 // (or ignore) when mismatched, and null otherwise. atlas_status is
 // exempt because it already exposes the raw lastCommit field and a
 // duplicate prefix would just be noise. see #82.
+//
+// uses the narrow engine.getLastIndexedCommit() instead of engine.status()
+// so a freshness check does not pay for 6 table counts + a statSync per
+// MCP tool call. getCurrentCommit is cached with a short TTL so agent
+// sessions with dozens of tool calls do not fork `git rev-parse` for
+// every one. see deep-review pass 5 findings.
+const STALE_HEAD_TTL_MS = 5_000
+const headCache = new WeakMap<AtlasEngine, { sha: string | null; ts: number }>()
+
+function readHead(engine: AtlasEngine): string | null {
+	const now = Date.now()
+	const hit = headCache.get(engine)
+	if (hit && now - hit.ts < STALE_HEAD_TTL_MS) return hit.sha
+	const sha = engine.getCurrentCommit()
+	headCache.set(engine, { sha, ts: now })
+	return sha
+}
+
+// test hook: tests that swap engine.getCurrentCommit between cases
+// need the TTL cache cleared so the next readHead() actually calls the
+// stub. not exported for production consumers.
+export function _resetStalenessCacheForTests(engine: AtlasEngine) {
+	headCache.delete(engine)
+}
+
 function stalenessPrefix(engine: AtlasEngine): string | null {
 	try {
-		const indexed = engine.status().lastCommit
+		const indexed = engine.getLastIndexedCommit()
 		if (!indexed) return null
-		const current = getCurrentCommit(engine.projectRoot)
+		const current = readHead(engine)
 		if (!current) return null
 		if (indexed === current) return null
 		return `[atlas-index-stale: indexed at ${indexed.slice(0, 7)}, HEAD at ${current.slice(0, 7)}. results may be out of date; run \`atlas index\` to refresh.]\n`
 	} catch (e) {
-		log.debug(`stalenessPrefix: ${e}`)
+		// CLAUDE.md: "don't catch and log.debug() failures from pipelines
+		// that users care about. use log.warn so silent failures are
+		// visible." the staleness signal is user-facing; if the check
+		// itself breaks, the user needs to know it went quiet.
+		log.warn(`stalenessPrefix: check failed (${e instanceof Error ? e.message : e})`)
 		return null
 	}
 }

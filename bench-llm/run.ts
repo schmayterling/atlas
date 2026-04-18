@@ -104,7 +104,7 @@ async function main() {
 	const totals: Record<string, { sum: number; n: number }> = {}
 	for (const a of agents) totals[a.name] = { sum: 0, n: 0 }
 
-	console.log(`bench-llm phase 1 — corpus=${opts.corpus} questions=${questions.length}`)
+	console.log(`bench-llm phase 1: corpus=${opts.corpus} questions=${questions.length}`)
 	console.log('')
 	for (const q of questions) {
 		console.log(`[${q.id}] ${q.capability}  ${q.question.slice(0, 80)}${q.question.length > 80 ? '…' : ''}`)

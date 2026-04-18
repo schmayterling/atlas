@@ -5,7 +5,7 @@
 import type { AgentAnswer } from './run.js'
 
 export type Expected =
-	| { type: 'symbol-set'; symbols: string[]; locations?: string[] }
+	| { type: 'symbol-set'; symbols: string[] }
 	| { type: 'open-ended'; mustInclude: string[] }
 
 export function judge(expected: Expected, answer: AgentAnswer): number {

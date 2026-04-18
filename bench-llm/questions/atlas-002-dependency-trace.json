@@ -6,8 +6,7 @@
 	"question": "Which files in this repo call the query-layer function `buildCrossProjectEdges` defined in src/core/queries/api-trace.ts (not the engine wrapper of the same name)? List each caller with the call-site file:line. Imported-but-not-called does not count.",
 	"expected": {
 		"type": "symbol-set",
-		"symbols": ["src/core/engine.ts::buildCrossProjectEdges"],
-		"locations": ["src/core/engine.ts:580"]
+		"symbols": ["src/core/engine.ts::buildCrossProjectEdges"]
 	},
 	"rubric_notes": "the only caller is src/core/engine.ts's AtlasEngine.buildCrossProjectEdges method via the import alias buildCrossProjectEdgesQuery. projects.ts / web/server.ts call the engine wrapper, not the query. this is the question that surfaced the #81 class-body parse bug — before the fix, atlas reported 0 callers because tree-sitter silently dropped AtlasEngine.buildCrossProjectEdges.",
 	"budget": { "toolCalls": 10, "tokens": 10000 }

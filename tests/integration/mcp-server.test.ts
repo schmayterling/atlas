@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { createMcpServer } from '../../src/mcp/server.js'
+import { _resetStalenessCacheForTests, createMcpServer } from '../../src/mcp/server.js'
 import { getFixtureEngine } from '../helpers/fixture-engine.js'
 
 let client: Client
@@ -148,48 +148,69 @@ describe('mcp server tool dispatch', () => {
 // covers #82: every non-status tool must prepend a staleness warning
 // when the indexed commit drifts from current git HEAD. atlas_status
 // is exempt because lastCommit is already part of its formatted body.
+//
+// the fixture project is not a git repo, so engine.getCurrentCommit()
+// normally returns null and the prefix is skipped. we stub the helper
+// on the engine to return a known HEAD so the stale path actually
+// executes. a second test with matching commits confirms no prefix is
+// written. deep-review pass 1/10 codex flagged the previous `stale ||
+// hasSearch` assertion as tautological.
 describe('mcp server staleness warning', () => {
-	test('tool responses prepend [atlas-index-stale: ...] when commit mismatches', async () => {
-		// mutate the fixture store's last_indexed_commit to a sha that
-		// cannot match HEAD. the fixture-engine is reused across tests,
-		// so restore the old value afterwards to keep downstream tests
-		// stable.
+	const FAKE_HEAD = '1111111111111111111111111111111111111111'
+	const STALE_INDEX = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+
+	async function withStubbedHead(
+		indexedCommit: string,
+		currentCommit: string | null,
+		fn: () => Promise<void>,
+	) {
 		const engine = await getFixtureEngine()
 		const store = engine.getStoreForCrossProject()
 		const prior = store.getMeta('last_indexed_commit')
-		store.setMeta('last_indexed_commit', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef')
+		const original = engine.getCurrentCommit.bind(engine)
+		;(engine as { getCurrentCommit: () => string | null }).getCurrentCommit = () => currentCommit
+		store.setMeta('last_indexed_commit', indexedCommit)
+		_resetStalenessCacheForTests(engine)
 		try {
+			await fn()
+		} finally {
+			;(engine as { getCurrentCommit: () => string | null }).getCurrentCommit = original
+			_resetStalenessCacheForTests(engine)
+			if (prior === null) store.runRaw("DELETE FROM atlas_meta WHERE key = 'last_indexed_commit'")
+			else store.setMeta('last_indexed_commit', prior)
+		}
+	}
+
+	test('prepends [atlas-index-stale: ...] when indexed sha differs from HEAD', async () => {
+		await withStubbedHead(STALE_INDEX, FAKE_HEAD, async () => {
 			const result = await client.callTool({
 				name: 'atlas_search',
 				arguments: { query: 'AuthService' },
 			})
 			const content = result.content as { type: string; text: string }[]
-			// fixture-engine's tmp project is not a git repo so
-			// getCurrentCommit returns null and no prefix is written.
-			// that branch is exercised implicitly by every other test;
-			// here we assert the staleness text emits when the helper
-			// can compare two commits. if HEAD can't be resolved the
-			// body just has the search text, which is fine.
-			const text = content[0].text
-			const stale = text.startsWith('[atlas-index-stale:')
-			const hasSearch = text.includes('AuthService')
-			expect(stale || hasSearch).toBeTruthy()
-		} finally {
-			if (prior) store.setMeta('last_indexed_commit', prior)
-		}
+			expect(content[0].text.startsWith('[atlas-index-stale:')).toBe(true)
+			expect(content[0].text).toContain(STALE_INDEX.slice(0, 7))
+			expect(content[0].text).toContain(FAKE_HEAD.slice(0, 7))
+			expect(content[0].text).toContain('AuthService')
+		})
+	})
+
+	test('omits the prefix when indexed sha matches HEAD', async () => {
+		await withStubbedHead(FAKE_HEAD, FAKE_HEAD, async () => {
+			const result = await client.callTool({
+				name: 'atlas_search',
+				arguments: { query: 'AuthService' },
+			})
+			const content = result.content as { type: string; text: string }[]
+			expect(content[0].text.startsWith('[atlas-index-stale:')).toBe(false)
+		})
 	})
 
 	test('atlas_status never carries a staleness prefix (self-reports via body)', async () => {
-		const engine = await getFixtureEngine()
-		const store = engine.getStoreForCrossProject()
-		const prior = store.getMeta('last_indexed_commit')
-		store.setMeta('last_indexed_commit', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef')
-		try {
+		await withStubbedHead(STALE_INDEX, FAKE_HEAD, async () => {
 			const result = await client.callTool({ name: 'atlas_status', arguments: {} })
 			const content = result.content as { type: string; text: string }[]
 			expect(content[0].text.startsWith('[atlas-index-stale:')).toBe(false)
-		} finally {
-			if (prior) store.setMeta('last_indexed_commit', prior)
-		}
+		})
 	})
 })
