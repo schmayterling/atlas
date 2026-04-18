@@ -642,8 +642,10 @@ export class Indexer {
 		try {
 			const { runEmbeddingPipeline } = await import('../embeddings/embed-pipeline.js')
 			const embedResult = await runEmbeddingPipeline(this.store, this.projectRoot)
-			if (embedResult.embedded > 0) {
-				log.info(`embedded ${embedResult.embedded} symbols (${embedResult.skipped} cached)`)
+			if (embedResult.embedded > 0 || embedResult.skipped > 0) {
+				log.info(`embeddings: ${embedResult.embedded} new, ${embedResult.skipped} cached`)
+			} else {
+				log.info('embeddings: pipeline produced no results (check vector ext / ollama / embedding_meta)')
 			}
 		} catch (e) {
 			log.warn(`embedding pipeline failed: ${e}`)

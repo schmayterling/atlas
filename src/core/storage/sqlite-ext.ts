@@ -25,11 +25,11 @@ export function initSqliteExtensions() {
 					log.debug(`using Homebrew SQLite from ${p}`)
 					return
 				} catch (e) {
-					log.debug(`failed to set custom SQLite at ${p}: ${e}`)
+					log.warn(`failed to set custom SQLite at ${p}: ${e}`)
 				}
 			}
 		}
-		log.debug('no Homebrew SQLite found, vector search disabled')
+		log.warn('no Homebrew SQLite found, vector search disabled')
 	} else {
 		// linux: bun's bundled SQLite supports extensions
 		vectorsEnabled = true
@@ -54,7 +54,7 @@ export function loadVecExtension(db: Database) {
 		const sqliteVec = require('sqlite-vec')
 		sqliteVec.load(db)
 	} catch (e) {
-		log.debug(`failed to load sqlite-vec extension: ${e}`)
+		log.warn(`failed to load sqlite-vec extension: ${e}`)
 		vectorsEnabled = false
 	}
 }

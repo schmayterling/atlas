@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
-import { loadVecExtension } from './sqlite-ext.js'
+import { isVectorSearchAvailable, loadVecExtension } from './sqlite-ext.js'
 import type {
 	ChannelHit,
 	ChannelHitGroup,
@@ -161,6 +161,78 @@ export class AtlasStore {
 			])
 		}
 		this.applyMigrations(Number(existing?.value ?? SCHEMA_VERSION))
+		this.healVectorSchema()
+	}
+
+	// self-heal for v2/v7 which create symbol_embeddings + embedding_meta but are
+	// marked optional: true because they depend on sqlite-vec. if those ran on a
+	// process where the vec extension hadn't been loaded (e.g. a non-CLI entry
+	// point that skipped initSqliteExtensions), the whole transaction rolled back
+	// and schema_version marched past v2/v7 without the tables ever being created.
+	// once vec IS available we can retroactively create the missing tables. the
+	// idempotent DDL matches v7's post-state (768 dim, empty embedding_meta so
+	// hashes get invalidated and the next index pass re-embeds).
+	//
+	// also handles the partial-migration case: if v2 succeeded (tables exist at
+	// 384 dim) but v7 failed (upgrade to 768 skipped), embedding_meta alone is
+	// not sufficient to detect the broken state. we also probe the vec0 column
+	// dimension via a zero-vector insert and recreate at 768 dim if it's wrong.
+	private healVectorSchema() {
+		if (!isVectorSearchAvailable()) return
+		const embeddingMeta = this.db
+			.query<{ name: string }, []>(
+				"SELECT name FROM sqlite_master WHERE type='table' AND name='embedding_meta'",
+			)
+			.get()
+		if (!embeddingMeta) {
+			try {
+				this.createVectorTables()
+				log.info('healed vector schema: created symbol_embeddings + embedding_meta (v2/v7 optional migration had been skipped without vec)')
+			} catch (e) {
+				log.warn(`vector schema heal failed: ${e}`)
+			}
+			return
+		}
+
+		// embedding_meta exists but v7 may have been skipped. check the dim by
+		// reading the virtual-table DDL from sqlite_master. if it's not 768 we
+		// drop + recreate + clear hashes so the next embed pass repopulates
+		// at the correct dimension.
+		try {
+			const row = this.db
+				.query<{ sql: string | null }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='symbol_embeddings'",
+				)
+				.get()
+			const ddl = row?.sql ?? ''
+			if (ddl && !/float\[768\]/.test(ddl)) {
+				this.db.run('DROP TABLE IF EXISTS symbol_embeddings')
+				this.db.run(
+					'CREATE VIRTUAL TABLE symbol_embeddings USING vec0(embedding float[768])',
+				)
+				this.db.run('DELETE FROM embedding_meta')
+				log.info('healed vector schema: symbol_embeddings recreated at 768 dim (v7 had been skipped without vec)')
+			}
+		} catch (e) {
+			log.warn(`vector schema dim-check failed: ${e}`)
+		}
+	}
+
+	private createVectorTables() {
+		this.db.run(
+			'CREATE VIRTUAL TABLE IF NOT EXISTS symbol_embeddings USING vec0(embedding float[768])',
+		)
+		this.db.run(
+			`CREATE TABLE IF NOT EXISTS embedding_meta (
+				symbol_stable_id TEXT PRIMARY KEY,
+				symbol_id INTEGER NOT NULL,
+				embed_text TEXT NOT NULL,
+				embed_hash TEXT NOT NULL
+			)`,
+		)
+		this.db.run(
+			'CREATE INDEX IF NOT EXISTS idx_embedding_meta_id ON embedding_meta(symbol_id)',
+		)
 	}
 
 	private runDdl(ddl: string, label = 'ddl') {

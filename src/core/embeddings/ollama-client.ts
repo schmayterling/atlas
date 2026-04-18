@@ -110,7 +110,11 @@ export class OllamaClient {
 		return data.embeddings
 	}
 
-	async embedBatched(texts: string[], batchSize = 64): Promise<(number[] | null)[]> {
+	async embedBatched(
+		texts: string[],
+		batchSize = 64,
+		onProgress?: (completed: number, total: number) => void,
+	): Promise<(number[] | null)[]> {
 		const results: (number[] | null)[] = new Array(texts.length).fill(null)
 		const batchCount = Math.ceil(texts.length / batchSize)
 		const budget = { remaining: Math.max(batchCount * 2, 16) }
@@ -118,6 +122,7 @@ export class OllamaClient {
 		for (let i = 0; i < texts.length; i += batchSize) {
 			const end = Math.min(i + batchSize, texts.length)
 			await this.embedBatchRecoverable(texts, i, end, results, budget)
+			if (onProgress) onProgress(end, texts.length)
 		}
 
 		return results

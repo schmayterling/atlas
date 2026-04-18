@@ -12,6 +12,8 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { initSqliteExtensions } from '../src/core/storage/sqlite-ext.js'
+initSqliteExtensions()
 import { ensureCorpus, listCorpora, loadManifest } from './lib/corpus.js'
 import { judge, type Expected } from './lib/judge.js'
 import { runTextSearchAgent, isTextSearchAvailable, type Task } from './agents/text-search.js'

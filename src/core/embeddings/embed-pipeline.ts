@@ -79,7 +79,7 @@ export async function runEmbeddingPipeline(
 	projectRoot: string,
 ): Promise<{ embedded: number; skipped: number }> {
 	if (!isVectorSearchAvailable()) {
-		log.debug('vector search not available, skipping embeddings')
+		log.warn('vector search not available, skipping embeddings')
 		return { embedded: 0, skipped: 0 }
 	}
 
@@ -87,7 +87,7 @@ export async function runEmbeddingPipeline(
 		"SELECT name FROM sqlite_master WHERE type='table' AND name='embedding_meta'",
 	)
 	if (tables.length === 0) {
-		log.debug('embedding_meta table not found, skipping')
+		log.warn('embedding_meta table not found, skipping')
 		return { embedded: 0, skipped: 0 }
 	}
 
@@ -151,10 +151,22 @@ export async function runEmbeddingPipeline(
 		return { embedded: 0, skipped }
 	}
 
-	// embed in batches
+	// embed in batches. log progress every ~2s on large corpora so the
+	// pipeline doesn't look hung during long ollama runs.
 	log.info(`embedding ${candidates.length} symbols...`)
 	const texts = candidates.map((c) => c.embedText)
-	const embeddings = await ollama.embedBatched(texts)
+	const start = performance.now()
+	let lastLog = start
+	const embeddings = await ollama.embedBatched(texts, 64, (completed, total) => {
+		const now = performance.now()
+		if (completed === total || now - lastLog >= 2000) {
+			const pct = Math.round((completed / total) * 100)
+			const elapsed = ((now - start) / 1000).toFixed(1)
+			const rate = Math.round(completed / ((now - start) / 1000))
+			log.info(`  embedding ${completed}/${total} (${pct}%), ${elapsed}s, ${rate} sym/s`)
+			lastLog = now
+		}
+	})
 
 	let embedded = 0
 	let failed = 0
