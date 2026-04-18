@@ -21,14 +21,19 @@ openai + gemini + open-weights, so swapping models is `--model
 requires `OPENROUTER_API_KEY` env var.
 
 ```bash
-OPENROUTER_API_KEY=sk-or-... bun run bench-llm --ci          # ~5 cheapest tasks
-OPENROUTER_API_KEY=sk-or-... bun run bench-llm --full        # full curated subset
-bun run bench-llm --ci --model openai/gpt-4o-mini            # cheaper-tier comparison
-bun run bench-llm --task ripgrep-04-call-tracing             # one task
+OPENROUTER_API_KEY=sk-or-... bun run bench-llm --ci              # ~5 cheapest tasks
+OPENROUTER_API_KEY=sk-or-... bun run bench-llm --full            # full curated subset
+bun run bench-llm --ci --model openai/gpt-4o-mini                # cheaper-tier comparison
+bun run bench-llm --task ripgrep-04-call-tracing                 # one task
+bun run bench-llm --full --trials 3                              # 3 trials per task
+bun run bench-llm --full --concurrency 8                         # 8 jobs in flight
 ```
 
-defaults: `anthropic/claude-haiku-4.5`, 1 trial per task. raise with
-`--trials 3` for variance estimation.
+defaults: `anthropic/claude-haiku-4.5`, 1 trial per task,
+concurrency 5. raise `--trials` for variance estimation; raise
+`--concurrency` to shorten wall time. openrouter handles upstream
+rate limits, but bumping past ~10 on a free-tier key tends to
+produce 429s that show up as error rows.
 
 ## what's measured
 

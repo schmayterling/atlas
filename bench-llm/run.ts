@@ -5,14 +5,22 @@
 // per-task + per-capability deltas.
 //
 // usage:
-//   OPENROUTER_API_KEY=... bun run bench-llm --ci          ~5 cheapest tasks (~$1)
-//   OPENROUTER_API_KEY=... bun run bench-llm --full        full curated subset (~$5-10)
-//   bun run bench-llm --ci --model openai/gpt-4o-mini      cheaper model
-//   bun run bench-llm --task ripgrep-02-discovery          one task
+//   OPENROUTER_API_KEY=... bun run bench-llm --ci                 ~5 cheapest tasks
+//   OPENROUTER_API_KEY=... bun run bench-llm --full               full curated subset
+//   bun run bench-llm --ci --model openai/gpt-4o-mini             cheaper model
+//   bun run bench-llm --task ripgrep-02-discovery                 one task
+//   bun run bench-llm --full --trials 3                           3 trials per task
+//   bun run bench-llm --full --concurrency 8                      8 agents in flight
 //
 // the task source is bench-eval/tasks/<corpus>/. that's the same task
 // set the deterministic bench-eval/run.ts uses, so we're answering the
 // SAME questions as the structural eval — just with an LLM in the loop.
+//
+// concurrency: every (task, trial, agent) combination is an independent
+// job. they're dispatched through a simple async pool with a configurable
+// worker count (default 5). openrouter gateways upstream rate limits, so
+// bumping beyond ~10 on a free-tier key usually starts producing 429s
+// that show up as error rows in the results.
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -24,9 +32,11 @@ import { getOrCreateEngine } from '../src/core/engine-pool.js'
 import { runBaselineAgent } from './agents/baseline.js'
 import { runWithAtlasAgent } from './agents/with-atlas.js'
 import type { LlmAgentResult } from './lib/llm-agent.js'
+import { runPool } from './lib/pool.js'
 
 const REPO_ROOT = resolve(import.meta.dir, '..')
 const DEFAULT_MODEL = 'anthropic/claude-haiku-4.5'
+const DEFAULT_CONCURRENCY = 5
 
 // ci subset: cheap tasks where one variant clearly beats the other or
 // where the wall-time stays under a few iterations. expanded after the
@@ -45,10 +55,14 @@ interface CliOptions {
 	model: string
 	trials: number
 	corpora: string[] | null
+	concurrency: number
 }
 
 function parseCli(argv: string[]): CliOptions {
-	const opts: CliOptions = { mode: 'ci', taskFilter: null, model: DEFAULT_MODEL, trials: 1, corpora: null }
+	const opts: CliOptions = {
+		mode: 'ci', taskFilter: null, model: DEFAULT_MODEL, trials: 1,
+		corpora: null, concurrency: DEFAULT_CONCURRENCY,
+	}
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
 		if (a === '--ci') opts.mode = 'ci'
@@ -57,6 +71,7 @@ function parseCli(argv: string[]): CliOptions {
 		else if (a === '--model') opts.model = argv[++i]
 		else if (a === '--trials') opts.trials = Math.max(1, Number(argv[++i]))
 		else if (a === '--corpus') (opts.corpora ??= []).push(argv[++i])
+		else if (a === '--concurrency') opts.concurrency = Math.max(1, Number(argv[++i]))
 	}
 	return opts
 }
@@ -92,6 +107,7 @@ interface TrialResult {
 	corpus: string
 	capability: string
 	agent: 'baseline' | 'with-atlas'
+	trial: number
 	score: number
 	tokens: number
 	cost: number
@@ -101,30 +117,23 @@ interface TrialResult {
 	error?: string
 }
 
-async function runTask(corpus: string, corpusRoot: string, task: Task, model: string, trials: number): Promise<TrialResult[]> {
-	const engine = getOrCreateEngine(undefined, corpusRoot)
-	const taskInput = {
-		id: task.id, capability: task.capability, intent: (task as any).intent ?? '',
-		expectedShape: expectedShape(task),
-	}
-
-	const results: TrialResult[] = []
-	for (let trial = 0; trial < trials; trial++) {
-		const baseRun = await runBaselineAgent({ model, task: taskInput, corpusRoot })
-		const baseScore = judge(task.expected as Expected, baseRun.answer)
-		results.push(toTrial(corpus, task, 'baseline', baseRun, baseScore))
-
-		const atlasRun = await runWithAtlasAgent({ model, task: taskInput, corpusRoot, engine })
-		const atlasScore = judge(task.expected as Expected, atlasRun.answer)
-		results.push(toTrial(corpus, task, 'with-atlas', atlasRun, atlasScore))
-	}
-	return results
+// one unit of work for the pool: a single (task, trial, agent) run.
+interface Job {
+	corpus: string
+	corpusRoot: string
+	task: Task
+	trial: number
+	agent: 'baseline' | 'with-atlas'
+	model: string
 }
 
-function toTrial(corpus: string, task: Task, agent: 'baseline' | 'with-atlas', r: LlmAgentResult, score: number): TrialResult {
+function toTrial(job: Job, r: LlmAgentResult, score: number): TrialResult {
 	return {
-		taskId: task.id, corpus, capability: task.capability,
-		agent,
+		taskId: job.task.id,
+		corpus: job.corpus,
+		capability: job.task.capability,
+		agent: job.agent,
+		trial: job.trial,
 		score,
 		tokens: r.tokens.total,
 		cost: r.cost,
@@ -135,16 +144,36 @@ function toTrial(corpus: string, task: Task, agent: 'baseline' | 'with-atlas', r
 	}
 }
 
+async function runJob(job: Job): Promise<TrialResult> {
+	const taskInput = {
+		id: job.task.id,
+		capability: job.task.capability,
+		intent: (job.task as any).intent ?? '',
+		expectedShape: expectedShape(job.task),
+	}
+	let r: LlmAgentResult
+	if (job.agent === 'baseline') {
+		r = await runBaselineAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot })
+	} else {
+		const engine = getOrCreateEngine(undefined, job.corpusRoot)
+		r = await runWithAtlasAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot, engine })
+	}
+	const score = judge(job.task.expected as Expected, r.answer)
+	return toTrial(job, r, score)
+}
+
 function pad(s: string, n: number): string { return s.length >= n ? s : s + ' '.repeat(n - s.length) }
 function padNum(n: number, w: number, dec = 2): string { return n.toFixed(dec).padStart(w, ' ') }
 
 function summarize(rows: TrialResult[]): void {
 	console.log('\n=== llm head-to-head ===')
-	console.log(`${pad('task', 38)}  ${pad('agent', 12)}  score   tokens   cost    tools  ms`)
-	for (const r of rows) {
+	console.log(`${pad('task', 38)}  ${pad('agent', 12)}  trial  score   tokens   cost    tools  ms`)
+	const sorted = [...rows].sort((a, b) => a.taskId.localeCompare(b.taskId) || a.agent.localeCompare(b.agent) || a.trial - b.trial)
+	for (const r of sorted) {
 		console.log(
 			pad(r.taskId, 38), '',
 			pad(r.agent, 12), '',
+			pad(String(r.trial + 1), 5), '',
 			padNum(r.score, 5), '',
 			pad(String(r.tokens), 8), '',
 			padNum(r.cost, 6, 4), '',
@@ -156,9 +185,8 @@ function summarize(rows: TrialResult[]): void {
 
 	const byAgent = new Map<string, TrialResult[]>()
 	for (const r of rows) {
-		const key = r.agent
-		if (!byAgent.has(key)) byAgent.set(key, [])
-		byAgent.get(key)!.push(r)
+		if (!byAgent.has(r.agent)) byAgent.set(r.agent, [])
+		byAgent.get(r.agent)!.push(r)
 	}
 
 	console.log('\naggregate per agent:')
@@ -211,35 +239,64 @@ async function main() {
 		process.exit(1)
 	}
 
-	console.log(`bench-llm: model=${opts.model} mode=${opts.mode} tasks=${filtered.length} trials=${opts.trials}`)
+	// pre-ensure every corpus serially. cheap — a no-op when cached.
+	// doing this up front means the parallel pool doesn't race on
+	// clone + checkout.
+	const corpusRoots = new Map<string, string>()
+	for (const corpus of new Set(filtered.map((f) => f.corpus))) {
+		const ensured = ensureCorpus(loadManifest(corpus), { freshClone: false })
+		corpusRoots.set(corpus, ensured.rootPath)
+	}
+
+	// build the full job list: (task × trial × agent). run all in parallel
+	// up to `concurrency`. openrouter handles rate limiting upstream.
+	const jobs: Job[] = []
+	for (const { corpus, task } of filtered) {
+		const corpusRoot = corpusRoots.get(corpus)!
+		for (let trial = 0; trial < opts.trials; trial++) {
+			jobs.push({ corpus, corpusRoot, task, trial, agent: 'baseline', model: opts.model })
+			jobs.push({ corpus, corpusRoot, task, trial, agent: 'with-atlas', model: opts.model })
+		}
+	}
+
+	console.log(`bench-llm: model=${opts.model} mode=${opts.mode} tasks=${filtered.length} trials=${opts.trials} concurrency=${opts.concurrency} total-jobs=${jobs.length}`)
+
+	const startAll = performance.now()
+	const poolResults = await runPool(jobs, opts.concurrency, runJob, (done, total, last) => {
+		const job = jobs[last.index]
+		if (last.error) {
+			console.log(`  [${done}/${total}] ${job.task.id} ${job.agent} trial=${job.trial + 1} ERROR: ${last.error.message.slice(0, 80)}`)
+			return
+		}
+		const r = last.value!
+		console.log(
+			`  [${done}/${total}] ${job.task.id} ${job.agent.padEnd(12)} t${job.trial + 1} score=${r.score.toFixed(2)} tokens=${r.tokens} cost=$${r.cost.toFixed(4)} tools=${r.toolCalls} ${r.wallMs}ms`,
+		)
+	})
+	const wallSec = ((performance.now() - startAll) / 1000).toFixed(1)
 
 	const allRows: TrialResult[] = []
-	const corpusEnsured = new Set<string>()
-
-	for (const { corpus, task } of filtered) {
-		if (!corpusEnsured.has(corpus)) {
-			const m = loadManifest(corpus)
-			ensureCorpus(m, { freshClone: false })
-			corpusEnsured.add(corpus)
-		}
-		const root = join(REPO_ROOT, '.bench-cache', corpus, /* short */ '')
-		// resolve to the actual cached path
-		const ensured = ensureCorpus(loadManifest(corpus))
-		const trials = await runTask(corpus, ensured.rootPath, task, opts.model, opts.trials)
-		allRows.push(...trials)
-		for (const t of trials) {
-			const tag = t.agent.padEnd(12)
-			console.log(`  ${task.id} ${tag} score=${t.score.toFixed(2)} tokens=${t.tokens} cost=$${t.cost.toFixed(4)} tools=${t.toolCalls}`)
-		}
-		void root
+	let errored = 0
+	for (const pr of poolResults) {
+		if (pr.value) allRows.push(pr.value)
+		else errored++
 	}
+	if (errored > 0) console.log(`\n(${errored} job(s) errored, excluded from aggregates)`)
+	console.log(`(wall: ${wallSec}s across ${opts.concurrency} concurrent workers)`)
 
 	summarize(allRows)
 
 	mkdirSync(join(REPO_ROOT, 'bench-llm', 'results'), { recursive: true })
 	const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 	const outFile = join(REPO_ROOT, 'bench-llm', 'results', `${commitSha()}-${stamp}.json`)
-	writeFileSync(outFile, JSON.stringify({ commit: commitSha(), model: opts.model, trials: opts.trials, results: allRows }, null, 2))
+	writeFileSync(outFile, JSON.stringify({
+		commit: commitSha(),
+		model: opts.model,
+		trials: opts.trials,
+		concurrency: opts.concurrency,
+		wallSec: Number(wallSec),
+		results: allRows,
+	}, null, 2))
 	console.log(`\nwrote ${outFile}`)
 }
 
