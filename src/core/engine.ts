@@ -411,6 +411,12 @@ export class AtlasEngine {
 		})
 	}
 
+	// top exported, non-test symbols by inbound edge count. powers the
+	// home-page "entry points" panel.
+	topExported(limit = 8): SymbolResult[] {
+		return this.getStore().topExported(limit)
+	}
+
 	// ranks exported functions/methods by fanin × churn × (1 - coverage).
 	// see queries/hotspots.ts for the scoring formula.
 	hotspots(opts?: { limit?: number; coverage?: 'called' | 'imported' | 'none' }): HotspotEntry[] {

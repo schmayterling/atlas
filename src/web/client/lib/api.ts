@@ -6,6 +6,7 @@ import type {
 	DuplicatePair,
 	FileInfo,
 	FlowTraceResult,
+	HotFragileEntry,
 	SearchResult,
 	SemanticSearchResult,
 	StatusResult,
@@ -14,6 +15,8 @@ import type {
 	SymbolDetail,
 	SymbolResult,
 } from '../../../shared/types.js'
+
+export type { HotFragileEntry } from '../../../shared/types.js'
 
 const BASE = '/api'
 
@@ -100,6 +103,8 @@ export const api = {
 		}),
 	subsystems: () => get<SubsystemSummary[]>('/subsystems'),
 	subsystem: (id: string) => get<SubsystemDetail>('/subsystem', { id }),
+	entryPoints: (limit = 8) => get<SymbolResult[]>('/entry-points', { limit: String(limit) }),
+	hotFragile: (limit = 30) => get<HotFragileEntry[]>('/hot-fragile', { limit: String(limit) }),
 }
 
 export interface ChurnEntry {

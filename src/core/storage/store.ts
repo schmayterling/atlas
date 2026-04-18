@@ -454,6 +454,27 @@ export class AtlasStore {
 			.all(...params)
 	}
 
+	// top exported, non-test symbols ranked by inbound edge count.
+	// powers the home page "entry points" section. excludes properties
+	// and modules which are noise for "what's the public api here".
+	topExported(limit = 8): SymbolResult[] {
+		return this.db
+			.query<SymbolResult, [number]>(
+				`SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
+				f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
+				s.is_exported as isExported, s.doc_comment as docComment,
+				0 as usageCount,
+				(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
+				FROM symbols s
+				JOIN files f ON f.id = s.file_id
+				WHERE s.is_exported = 1 AND f.is_test = 0
+				  AND s.kind IN ('function', 'class', 'interface', 'type', 'enum')
+				ORDER BY dependentCount DESC, s.name
+				LIMIT ?`,
+			)
+			.all(limit)
+	}
+
 	// --- edges ---
 
 	getDirectEdgesFrom(stableId: string, kind?: EdgeKind): EdgeRecord[] {

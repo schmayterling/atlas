@@ -284,6 +284,13 @@ export function createApp(projectRoot: string, outDir: string | null = null): Ho
 		catch (e) { log.error(`subsystems: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
 	})
 
+	app.get('/api/entry-points', (c) => {
+		try {
+			const limit = parseIntParam(c.req.query('limit'), 50) ?? 8
+			return c.json(eng(c).topExported(limit))
+		} catch (e) { log.error(`entry-points: ${e instanceof Error ? e.stack : e}`); return c.json({ error: String(e) }, 500) }
+	})
+
 	app.get('/api/hot-fragile', (c) => {
 		try {
 			const limit = parseIntParam(c.req.query('limit'), 500) ?? 20

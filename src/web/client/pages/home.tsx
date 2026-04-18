@@ -1,8 +1,8 @@
 import { Link } from 'wouter'
-import { Library, Sparkles, Boxes, GitBranch, Activity, FileText } from 'lucide-react'
+import { Library, Sparkles, Boxes, GitBranch, Activity, FileText, Clock, Flame, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { useQuery } from '../lib/query.js'
-import { Spinner, EmptyState, Badge } from '../ui/index.js'
+import { Spinner, EmptyState, Badge, SymbolLink, FileLink } from '../ui/index.js'
 
 function formatBytes(b: number): string {
 	if (b < 1024) return `${b} B`
@@ -47,9 +47,30 @@ function QuickLink({ href, icon: Icon, title, desc }: { href: string; icon: any;
 	)
 }
 
+function Panel({ icon: Icon, title, action, children }: { icon: any; title: string; action?: React.ReactNode; children: React.ReactNode }) {
+	return (
+		<section>
+			<div className="flex items-center justify-between mb-3">
+				<h2 className="text-md font-semibold flex items-center gap-2">
+					<Icon size={15} className="text-text-muted" />
+					{title}
+				</h2>
+				{action}
+			</div>
+			<div className="border border-border rounded-[var(--radius-default)] bg-surface-raised divide-y divide-border">
+				{children}
+			</div>
+		</section>
+	)
+}
+
 export function HomePage() {
 	const status = useQuery('status', () => api.status())
 	const subsystems = useQuery('subsystems', () => api.subsystems())
+	const entryPoints = useQuery('entry-points', () => api.entryPoints(8))
+	const churn = useQuery('home-churn', () => api.churn({ limit: 8, sinceDays: 30 }))
+	const dead = useQuery('home-dead', () => api.deadCode())
+	const hotFragile = useQuery('home-hotfragile', () => api.hotFragile(5))
 
 	if (status.error) return <div className="text-error">{status.error.message}</div>
 	if (!status.data) return <Spinner lines={5} />
@@ -65,6 +86,9 @@ export function HomePage() {
 			/>
 		)
 	}
+
+	const deadExports = dead.data?.symbols.filter((x) => x.isExported).slice(0, 5) ?? []
+	const hasAttention = (hotFragile.data && hotFragile.data.length > 0) || deadExports.length > 0
 
 	return (
 		<div className="space-y-10">
@@ -100,6 +124,83 @@ export function HomePage() {
 					<QuickLink href="/graph" icon={GitBranch} title="graph" desc="visualize dependencies" />
 				</div>
 			</section>
+
+			<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+				<Panel icon={Sparkles} title="entry points" action={<Link href="/browse" className="text-xs text-text-muted hover:text-accent">browse all →</Link>}>
+					{!entryPoints.data ? (
+						<div className="p-4"><Spinner lines={4} /></div>
+					) : entryPoints.data.length === 0 ? (
+						<div className="p-4 text-sm text-text-muted">no exported symbols yet.</div>
+					) : (
+						entryPoints.data.map((s) => (
+							<div key={s.qualifiedName} className="flex items-center gap-3 px-4 py-2.5">
+								<SymbolLink name={s.name} qualifiedName={s.qualifiedName} kind={s.kind} />
+								<FileLink path={s.filePath} muted basename />
+								<span className="ml-auto text-xs text-text-muted tabular-nums">{s.dependentCount} dep</span>
+							</div>
+						))
+					)}
+				</Panel>
+
+				<Panel icon={Clock} title="recently changed" action={<span className="text-xs text-text-muted">last 30d</span>}>
+					{!churn.data ? (
+						<div className="p-4"><Spinner lines={4} /></div>
+					) : churn.data.length === 0 ? (
+						<div className="p-4 text-sm text-text-muted">no recorded git activity. run <code className="bg-surface-sunken px-1 rounded text-accent font-mono text-xs">atlas index --git</code>.</div>
+					) : (
+						churn.data.map((c) => (
+							<div key={c.filePath} className="flex items-center gap-3 px-4 py-2.5">
+								<FileLink path={c.filePath} basename />
+								<span className="text-xs text-text-faint truncate">{c.topAuthor}</span>
+								<span className="ml-auto text-xs text-text-muted tabular-nums">{c.commits} commits</span>
+							</div>
+						))
+					)}
+				</Panel>
+			</div>
+
+			{hasAttention && (
+				<section>
+					<h2 className="text-md font-semibold mb-3 flex items-center gap-2">
+						<AlertTriangle size={15} className="text-warning" />
+						needs attention
+					</h2>
+					<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+						{hotFragile.data && hotFragile.data.length > 0 && (
+							<div className="border border-border rounded-[var(--radius-default)] bg-surface-raised">
+								<div className="px-4 py-2 border-b border-border flex items-center gap-2 text-xs text-text-muted">
+									<Flame size={12} />
+									hot &amp; fragile
+								</div>
+								<div className="divide-y divide-border">
+									{hotFragile.data.map((row) => (
+										<div key={row.filePath} className="flex items-center gap-3 px-4 py-2.5">
+											<FileLink path={row.filePath} basename />
+											<span className="ml-auto text-xs text-text-muted tabular-nums">{row.commits} × {row.untestedCount} untested</span>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+						{deadExports.length > 0 && (
+							<div className="border border-border rounded-[var(--radius-default)] bg-surface-raised">
+								<div className="px-4 py-2 border-b border-border flex items-center gap-2 text-xs text-text-muted">
+									<Sparkles size={12} />
+									unused exports
+								</div>
+								<div className="divide-y divide-border">
+									{deadExports.map((s) => (
+										<div key={s.qualifiedName} className="flex items-center gap-3 px-4 py-2.5">
+											<SymbolLink name={s.name} qualifiedName={s.qualifiedName} kind={s.kind} />
+											<FileLink path={s.filePath} muted basename />
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+					</div>
+				</section>
+			)}
 
 			<section>
 				<h2 className="text-md font-semibold mb-3 flex items-center gap-2">
