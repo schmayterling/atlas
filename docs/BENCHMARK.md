@@ -253,8 +253,93 @@ runner) the same workload was ~10x slower.
   push the win further; a gpt-5-nano-specific prompt could cut the
   +99% token regression on gemini.
 
+## comparison to alternatives
+
+three other tools compete for the same MCP slot atlas occupies. all
+self-published numbers below — we have NOT yet run any of them
+against the bench-eval task set, so this is architectural / methodology
+comparison only. apples-to-apples results would require wiring each
+as a third agent in `bench-llm/agents/` (tracked as a follow-up).
+
+### codebase-memory-mcp (CBM) — github.com/DeusData/codebase-memory-mcp
+
+closest direct competitor.
+
+| dimension | CBM | atlas |
+|---|---|---|
+| approach | tree-sitter syntax graph + cypher queries | tree-sitter for Py/Go/Rust **+ TS compiler resolution for TS/JS** + sqlite graph |
+| languages | 66 (claimed; quality tiered) | 5 (TS, JS, Python, Go, Rust) |
+| binary | single static, zero deps | bun runtime + sqlite-vec + optional Ollama |
+| MCP tools | 14 (`index_repository`, `search_graph`, `trace_call_path`, `query_graph` cypher, `get_code_snippet`, `get_architecture`, `manage_adr`, `ingest_traces`, others) | 8 (atlas_search, atlas_overview, atlas_deps, atlas_blast_radius, atlas_trace, atlas_call_sites, atlas_test_coverage, atlas_files) |
+| published indexing speed | "Linux kernel 28M LOC, 75K files in 3 min on M3 Pro" | ripgrep 98 files / 970ms; zod 339 files / 17.4s on M-series (no kernel test yet) |
+| published query latency | "<1ms cypher, <10ms name search, ~150ms dead code" | search 0.47-0.59ms, deps 0.6-43ms, blast 0.6-19ms (50-run avg) |
+| published token-reduction claim | 99.2% (5 queries: 3,400 vs 412,000 tokens) | 39% per task (haiku, 3 trials × 12 tasks) — a much smaller, much more conservative number measured under different conditions |
+| published accuracy / capability score | 91.8% aggregate over 35 langs × 12 questions, "83% answer quality" on 31 repos | atlas 1.00 vs text-search 0.75 on the deterministic eval; haiku +17pp / 0.86 in the LLM eval |
+| benchmark reproducibility | text recipe, no scripted runner | `bun install && bun run bench-eval --all` + `bench-llm` with results JSON committed to git |
+
+**honest read:** CBM has 13× the language breadth, a unified
+single-binary distribution story, and a more permissive cypher query
+surface. atlas trades that breadth for **TS compiler-resolved edges**
+(catches aliased imports / re-exports / `as` rebindings that
+tree-sitter syntactically misses) and a benchmark anyone can rerun
+with three commands. CBM's published headline ("99.2% token reduction")
+is from a 5-query cherry-picked comparison; atlas's headline (−39%
+on haiku across 36 paired observations) is the methodologically
+boring number that holds up. for one-time exploratory queries on
+exotic languages, CBM. for repeatable structural work on TS-heavy
+codebases, atlas.
+
+### chunkhound — github.com/chunkhound/chunkhound
+
+different category — semantic-RAG-first, not graph-first.
+
+| dimension | chunkhound | atlas |
+|---|---|---|
+| approach | hybrid: tree-sitter chunking (cAST) + embedding retrieval (HNSW) + LLM-driven research orchestration | tree-sitter + TS compiler graph + optional embedding |
+| languages | 32 via tree-sitter (no compiler resolution for any) | 5 with depth |
+| MCP tools | 3 (semantic search, regex search, code research) | 8 structural |
+| call graph / dependency edges | none — semantic search only | yes, with confidence + edge kinds |
+| blast radius / impact analysis | no | yes |
+| test coverage mapping | no | yes |
+| published claims | "cAST: 4.3pt gain on retrieval benchmarks", "10-100× faster indexing", "5 minutes to first query", token budgets 30k-150k auto-scaled | see this doc |
+
+**honest read:** chunkhound and atlas are **complementary, not
+competitive**. chunkhound is great for "find code about authentication"
+(natural-language semantic). atlas is great for "every caller of
+`processPayment` and what tests exercise it" (structural). a real
+agent stack might use chunkhound for retrieval + atlas for
+verification. chunkhound has not published head-to-head numbers
+against any specific competitor; the 4.3pt cAST gain is on retrieval
+benchmarks vs naive chunking, not vs structural tools.
+
+### what would real head-to-head numbers look like
+
+to make this comparison rigorous we'd need to:
+
+1. wire CBM as a third agent in `bench-llm/agents/cbm.ts` — its
+   `index_repository` + `search_graph` + `trace_call_path` map cleanly
+   to atlas's `atlas_search` + `atlas_deps` + `atlas_call_sites`
+2. wire chunkhound similarly — its semantic + regex would handle
+   the discovery / code-access tasks; it would skip call-tracing and
+   graph-querying entirely (mark them not-comparable, like our text-
+   search baseline)
+3. run all three (atlas / CBM / chunkhound) against the same 12 tasks
+   on the same 4 LLM models, 3 trials each = 144 paired observations
+   per (tool, model) pair
+4. publish the matrix
+
+cost estimate: 144 obs × 4 models × 3 tools = 1,728 LLM rounds. on
+haiku that's ~$10. on free-tier nano + gemini that's ~$2. **probably
+the single highest-leverage benchmark investment available** — it
+turns "atlas claims X" into "atlas vs CBM vs chunkhound on the same
+tasks under identical conditions" which is the only credibility tier
+above our current one.
+
+tracked as a follow-up.
+
 ## what's next
 
+- wire CBM + chunkhound as bench-llm agents (above)
 - 4-corpus complete set (django + next.js + 1 awkward) — django and
   next.js each take 5-10 min to clone + index, so they ship in a
   separate commit
