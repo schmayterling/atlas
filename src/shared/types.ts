@@ -31,6 +31,24 @@ export const EDGE_KINDS = [
 	// used by dead-code reachability so interface-dispatched methods are
 	// not reported dead. see #50.
 	'dispatches_to',
+	// constructor call: `new Foo(...)` emits from the containing
+	// function/method to the resolved class symbol. ts-only today; go's
+	// `&Foo{}` and python's `Foo()` are future work. targets the class
+	// symbol (not a synthesized constructor) so the primary user query
+	// "who instantiates X" resolves directly. counted as liveness so
+	// classes with only construction-site consumers stop showing as
+	// dead-code. see #87.
+	'instantiates',
+	// structural property/field read. `result.edges[i].sourceQualifiedName`
+	// resolves the `.sourceQualifiedName` name to the interface's
+	// property symbol even when the enclosing variable has no type
+	// annotation. without this edge kind, interface renames look safe
+	// to atlas but break structural consumers at runtime. ts-only;
+	// only emitted when the checker resolves to an in-repo property or
+	// method symbol. skipped when the parent is a CallExpression's
+	// callee so `foo.bar()` doesn't double-count against both calls and
+	// field_access. see #85.
+	'field_access',
 ] as const
 export type EdgeKind = (typeof EDGE_KINDS)[number]
 

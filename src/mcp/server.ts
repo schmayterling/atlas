@@ -262,7 +262,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				.optional()
 				.describe('inbound=who calls this, outbound=what this calls (default inbound)'),
 			kind: z
-				.enum(['calls', 'contains', 'extends', 'type_ref', 'passed_as', 'dispatches_to'])
+				.enum(['calls', 'contains', 'extends', 'type_ref', 'passed_as', 'dispatches_to', 'instantiates', 'field_access'])
 				.optional()
 				.describe('filter by edge kind'),
 			limit: z.number().optional().describe('max entries returned (default 50)'),
@@ -333,7 +333,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// --- atlas_dead_code ---
 	server.tool(
 		'atlas_dead_code',
-		'find unreferenced symbols (potential dead code)',
+		'find unreferenced symbols (potential dead code). pass callersWithin to instead list symbols whose only callers live under a path prefix (refactor-candidate query, see #86)',
 		{
 			path: z.string().optional().describe('filter by file path'),
 			kind: z
@@ -350,10 +350,16 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				])
 				.optional()
 				.describe('filter by symbol kind'),
+			callersWithin: z
+				.string()
+				.optional()
+				.describe(
+					'switch to internal-only mode: return symbols with callers all within this prefix (refactor-candidate query)',
+				),
 		},
-		({ path, kind }) =>
+		({ path, kind, callersWithin }) =>
 			wrap(() => {
-				const result = engine.deadCode({ path, kind })
+				const result = engine.deadCode({ path, kind, callersWithin })
 				return { content: [{ type: 'text' as const, text: formatDeadCode(result) }] }
 			}),
 	)

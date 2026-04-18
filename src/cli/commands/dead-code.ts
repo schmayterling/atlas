@@ -7,9 +7,21 @@ import { badge, fileRef, heading, outputJson } from '../formatters/common.js'
 export function deadCodeCommand(
 	projectRoot: string,
 	json: boolean,
-	opts: { kind?: string; path?: string; includeTests?: boolean; allProjects?: boolean },
+	opts: {
+		kind?: string
+		path?: string
+		includeTests?: boolean
+		allProjects?: boolean
+		callersWithin?: string
+	},
 ) {
 	if (opts.allProjects) {
+		if (opts.callersWithin) {
+			console.error(
+				pc.red('--callers-within is not supported with --all-projects (federation semantics are per-project).'),
+			)
+			process.exit(1)
+		}
 		deadCodeAllProjects(json, opts)
 		return
 	}
@@ -21,6 +33,7 @@ export function deadCodeCommand(
 			kind: opts.kind as SymbolKind | undefined,
 			path: opts.path,
 			includeTests: opts.includeTests,
+			callersWithin: opts.callersWithin,
 		})
 
 		if (json) {
@@ -28,7 +41,10 @@ export function deadCodeCommand(
 			return
 		}
 
-		heading(`unreferenced symbols (${result.stats.total} found)`)
+		const headingText = opts.callersWithin
+			? `internal-only symbols within ${opts.callersWithin} (${result.stats.total} found)`
+			: `unreferenced symbols (${result.stats.total} found)`
+		heading(headingText)
 
 		if (result.stats.total === 0) {
 			console.log(pc.green('  no dead code found'))

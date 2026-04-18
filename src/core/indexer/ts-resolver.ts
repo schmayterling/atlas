@@ -272,6 +272,25 @@ function resolveReferences(
 			resolveArgumentReferences(node, sourceFile, checker, relPath, projectRoot, store, edges)
 		}
 
+		// resolve new expressions: `new Foo(...)` emits an instantiates
+		// edge to the resolved class symbol. arguments are still walked
+		// for passed_as so `new Router(handler)` credits the handler.
+		// see #87.
+		if (ts.isNewExpression(node)) {
+			resolveNewExpression(node, sourceFile, checker, relPath, projectRoot, store, edges)
+			if (node.arguments) {
+				resolveArgumentReferencesFromArgs(
+					node.arguments,
+					sourceFile,
+					checker,
+					relPath,
+					projectRoot,
+					store,
+					edges,
+				)
+			}
+		}
+
 		// resolve type references
 		if (ts.isTypeReferenceNode(node)) {
 			resolveTypeReference(node, sourceFile, checker, relPath, projectRoot, store, edges)
@@ -280,6 +299,16 @@ function resolveReferences(
 		// resolve heritage clauses (extends/implements)
 		if (ts.isHeritageClause(node)) {
 			resolveHeritageClause(node, sourceFile, checker, relPath, projectRoot, store, edges)
+		}
+
+		// resolve structural property access: `obj.field` emits a
+		// field_access edge when the checker resolves `.field` to an
+		// in-repo property/method symbol. skipped when this node is
+		// the callee of a call expression (handled by calls/passed_as)
+		// or the operand of a new expression (handled by instantiates).
+		// see #85.
+		if (ts.isPropertyAccessExpression(node)) {
+			resolveFieldAccess(node, sourceFile, checker, relPath, projectRoot, store, edges)
 		}
 
 		ts.forEachChild(node, visit)
@@ -301,7 +330,30 @@ function resolveArgumentReferences(
 	store: AtlasStore,
 	edges: ResolvedEdge[],
 ) {
-	for (const arg of call.arguments) {
+	resolveArgumentReferencesFromArgs(
+		call.arguments,
+		sourceFile,
+		checker,
+		relPath,
+		projectRoot,
+		store,
+		edges,
+	)
+}
+
+// shared argument-walker reused by call expressions and new
+// expressions. kept private so callers don't accidentally pass
+// non-argument nodes. see #87.
+function resolveArgumentReferencesFromArgs(
+	args: ts.NodeArray<ts.Expression>,
+	sourceFile: ts.SourceFile,
+	checker: ts.TypeChecker,
+	relPath: string,
+	projectRoot: string,
+	store: AtlasStore,
+	edges: ResolvedEdge[],
+) {
+	for (const arg of args) {
 		if (!ts.isIdentifier(arg) && !ts.isPropertyAccessExpression(arg)) continue
 		try {
 			const sym = checker.getSymbolAtLocation(arg)
@@ -406,6 +458,154 @@ function resolveCallExpression(
 		})
 	} catch (e) {
 		log.debug(`skipped call resolution at ${relPath}: ${e}`)
+	}
+}
+
+// emit an instantiates edge from the enclosing function/method to
+// the resolved class symbol of a `new Foo(...)` expression. mirrors
+// resolveCallExpression but:
+// - skips when the resolved target isn't a class declaration
+//   (e.g. `new Error()`'s Error resolves to a lib declaration that is
+//   not indexed; we never emit dangling edges)
+// - targets the class itself, not a synthesized constructor symbol
+//   (matches the #87 acceptance criterion)
+// see #87.
+function resolveNewExpression(
+	node: ts.NewExpression,
+	sourceFile: ts.SourceFile,
+	checker: ts.TypeChecker,
+	relPath: string,
+	projectRoot: string,
+	store: AtlasStore,
+	edges: ResolvedEdge[],
+) {
+	try {
+		const sym = checker.getSymbolAtLocation(node.expression)
+		if (!sym) return
+
+		const resolved = resolveOriginalSymbol(sym, checker)
+		if (!resolved) return
+
+		// only emit when the resolved target is actually a class. `new`
+		// can apply to any constructable value (function constructors,
+		// imported JSX elements, etc.) but the issue asks for class
+		// instantiation specifically. everything else stays as a
+		// type_ref edge via the existing resolveTypeReference path.
+		if (!ts.isClassDeclaration(resolved.decl)) return
+
+		const declFile = resolved.decl.getSourceFile()
+		const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
+
+		if (declRelPath.includes('node_modules')) return
+
+		const containingFn = findContainingFunction(node, sourceFile, relPath)
+		if (!containingFn) return
+
+		const targetName = resolved.symbol.getName()
+		const existing = store.findSymbolInFile(declRelPath, targetName, 'class')
+		const targetId = existing
+			? existing.stableId
+			: stableSymbolId(declRelPath, 'class', buildQualifiedName(declRelPath, resolved.decl, targetName))
+
+		const sourceId = stableSymbolId(relPath, containingFn.kind, containingFn.qname)
+
+		const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart())
+
+		edges.push({
+			sourceStableId: sourceId,
+			targetStableId: targetId,
+			kind: 'instantiates',
+			line: pos.line + 1,
+			col: pos.character,
+			confidence: 'resolved',
+		})
+	} catch (e) {
+		log.debug(`skipped new resolution at ${relPath}: ${e}`)
+	}
+}
+
+// emit a field_access edge from the enclosing function/method to
+// the resolved property or method symbol of `obj.name`. this closes
+// the structural-consumer blind spot where interface field reads
+// (destructured or inferred, without a type annotation on the
+// variable) produced no graph edge. see #85.
+//
+// noise controls:
+// - skip when the parent is a CallExpression AND this node is that
+//   call's expression (the callee): the calls edge already covers it
+// - skip when the parent is a NewExpression's expression (instantiates
+//   already covers the class)
+// - only emit when the resolved target is a property or method symbol
+//   (not a class/function/variable at the property position)
+// - skip node_modules sources
+function resolveFieldAccess(
+	node: ts.PropertyAccessExpression,
+	sourceFile: ts.SourceFile,
+	checker: ts.TypeChecker,
+	relPath: string,
+	projectRoot: string,
+	store: AtlasStore,
+	edges: ResolvedEdge[],
+) {
+	// don't double-count: if this property access is a callee, the
+	// calls/passed_as edge handles it. likewise for instantiates.
+	const parent = node.parent
+	if (ts.isCallExpression(parent) && parent.expression === node) return
+	if (ts.isNewExpression(parent) && parent.expression === node) return
+
+	try {
+		const sym = checker.getSymbolAtLocation(node.name)
+		if (!sym) return
+
+		const resolved = resolveOriginalSymbol(sym, checker)
+		if (!resolved) return
+
+		// only emit for property / method-like declarations. class
+		// declarations, interface declarations, variable declarations
+		// at the property position are not what this edge models.
+		const decl = resolved.decl
+		const isProperty =
+			ts.isPropertyDeclaration(decl) ||
+			ts.isPropertySignature(decl) ||
+			ts.isPropertyAssignment(decl) ||
+			ts.isMethodDeclaration(decl) ||
+			ts.isMethodSignature(decl) ||
+			ts.isGetAccessorDeclaration(decl) ||
+			ts.isSetAccessorDeclaration(decl) ||
+			ts.isEnumMember(decl)
+		if (!isProperty) return
+
+		const declFile = decl.getSourceFile()
+		const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
+		if (declRelPath.includes('node_modules')) return
+
+		const containingFn = findContainingFunction(node, sourceFile, relPath)
+		if (!containingFn) return
+
+		const targetName = resolved.symbol.getName()
+		const targetKind: SymbolKind = ts.isEnumMember(decl)
+			? 'enum'
+			: ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)
+				? 'method'
+				: 'property'
+		const existing = store.findSymbolInFile(declRelPath, targetName, targetKind)
+		const targetId = existing
+			? existing.stableId
+			: stableSymbolId(declRelPath, targetKind, buildQualifiedName(declRelPath, decl, targetName))
+
+		const sourceId = stableSymbolId(relPath, containingFn.kind, containingFn.qname)
+		const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart())
+
+		edges.push({
+			sourceStableId: sourceId,
+			targetStableId: targetId,
+			kind: 'field_access',
+			line: pos.line + 1,
+			col: pos.character,
+			confidence: 'resolved',
+		})
+	} catch (e) {
+		log.debug(`skipped field_access resolution at ${relPath}: ${e}`)
 	}
 }
 

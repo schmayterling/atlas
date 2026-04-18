@@ -188,6 +188,10 @@ program
 	.option('--path <path>', 'filter by file path')
 	.option('--include-tests', 'include symbols from test files')
 	.option('--all-projects', 'union dead-code across every registered project')
+	.option(
+		'--callers-within <prefix>',
+		'switch to internal-only mode: return symbols whose callers all live under the prefix',
+	)
 	.action((cmdOpts) => {
 		const opts = program.opts()
 		deadCodeCommand(opts.project, opts.json, {
@@ -195,6 +199,7 @@ program
 			path: cmdOpts.path,
 			includeTests: cmdOpts.includeTests,
 			allProjects: cmdOpts.allProjects,
+			callersWithin: cmdOpts.callersWithin,
 		})
 	})
 

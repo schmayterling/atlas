@@ -357,7 +357,14 @@ export class AtlasEngine {
 
 	// --- dead code ---
 
-	deadCode(opts?: { path?: string; kind?: SymbolKind; includeTests?: boolean }): DeadCodeResult {
+	deadCode(opts?: {
+		path?: string
+		kind?: SymbolKind
+		includeTests?: boolean
+		// see #86: switches dead-code query to internal-only mode.
+		// returns symbols whose callers all live under this prefix.
+		callersWithin?: string
+	}): DeadCodeResult {
 		const store = this.getStore()
 		return findDeadCode(store, { ...opts, excludeFileIds: this.getGeneratedFileIds() })
 	}

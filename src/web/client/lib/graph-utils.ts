@@ -33,6 +33,8 @@ const EDGE_COLORS: Record<string, string> = {
 	type_ref: '--color-warning',
 	passed_as: '--color-accent',
 	dispatches_to: '--color-success',
+	instantiates: '--color-accent',
+	field_access: '--color-warning',
 }
 
 const EDGE_STYLES: Record<string, string> = {
@@ -43,6 +45,8 @@ const EDGE_STYLES: Record<string, string> = {
 	type_ref: 'dashed',
 	passed_as: 'dashed',
 	dispatches_to: 'dashed',
+	instantiates: 'solid',
+	field_access: 'dotted',
 }
 
 function nodeId(qualifiedName: string): string {
