@@ -75,6 +75,35 @@ function parseChannelMetadata(raw: string | null): Record<string, unknown> | nul
 	}
 }
 
+// bucket the last 12 months of file commits into { month: 'yyyy-mm', count }.
+// pulls full history (up to 240 commits) when caller didn't already fetch it.
+function bucketCommitsByMonth(
+	pre: { authoredAt: number }[] | null,
+	engine: AtlasEngine,
+	path: string,
+): { month: string; count: number }[] {
+	let commits = pre
+	if (!commits) {
+		try { commits = engine.fileHistory(path).slice(0, 240).map((h) => ({ authoredAt: h.authoredAt })) }
+		catch { return [] }
+	}
+	const now = new Date()
+	const buckets = new Map<string, number>()
+	for (let i = 11; i >= 0; i--) {
+		const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+		const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+		buckets.set(key, 0)
+	}
+	const cutoff = new Date(now.getFullYear(), now.getMonth() - 11, 1).getTime()
+	for (const c of commits) {
+		if (c.authoredAt < cutoff) continue
+		const d = new Date(c.authoredAt)
+		const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+		if (buckets.has(key)) buckets.set(key, buckets.get(key)! + 1)
+	}
+	return [...buckets.entries()].map(([month, count]) => ({ month, count }))
+}
+
 function languageForFile(path: string): string {
 	if (path.endsWith('.tsx')) return 'tsx'
 	if (path.endsWith('.ts')) return 'typescript'
@@ -426,6 +455,62 @@ export class AtlasEngine {
 	// home-page "entry points" panel.
 	topExported(limit = 8): SymbolResult[] {
 		return this.getStore().topExported(limit)
+	}
+
+	// file article bundle: file metadata, summary, symbols, imports,
+	// importers, contributors, recent commits, monthly churn, top
+	// co-changed files. one round-trip for /f/<path>.
+	fileArticle(path: string): import('../shared/types.js').FileArticleResult | null {
+		const store = this.getStore()
+		const file = store.queryRawWithParams<{ id: number; language: string; sizeBytes: number; isTest: number }>(
+			'SELECT id, language, size_bytes as sizeBytes, is_test as isTest FROM files WHERE path = ?', path,
+		)
+		if (file.length === 0) return null
+		const meta = file[0]
+
+		const symbols = store.getSymbolsByFilePath(path)
+		const imports = store.getFileImports(path)
+		const importers = store.getFileImporters(path)
+
+		let summary: string | null = null
+		try { summary = this.getFileSummary(path) } catch { /* no summaries table */ }
+
+		let lastChanged: { hash: string; authorName: string; subject: string; authoredAt: number } | null = null
+		let history: { hash: string; authorName: string; subject: string; authoredAt: number }[] = []
+		let contributors: { authorName: string; commits: number }[] = []
+		let coChanged: { otherPath: string; count: number }[] = []
+		try {
+			const lc = this.lastChanged(path)
+			if (lc) lastChanged = { hash: lc.hash, authorName: lc.authorName, subject: lc.subject, authoredAt: lc.authoredAt }
+			history = this.fileHistory(path).slice(0, 12).map((h) => ({
+				hash: h.hash, authorName: h.authorName, subject: h.subject, authoredAt: h.authoredAt,
+			}))
+			contributors = this.contributors(path).slice(0, 8).map((c) => ({ authorName: c.authorName, commits: c.commits }))
+			coChanged = this.coChange({ filePath: path, limit: 8, minCount: 2 }).map((c) => ({
+				otherPath: c.fileA === path ? c.fileB : c.fileA,
+				count: c.count,
+			}))
+		} catch { /* no git history */ }
+
+		// monthly bucketed commits, last 12 months. lets the client draw a
+		// simple churn timeline without re-aggregating.
+		const monthly = bucketCommitsByMonth(history.length > 0 ? history : null, this, path)
+
+		return {
+			path,
+			language: meta.language,
+			sizeBytes: meta.sizeBytes,
+			isTest: meta.isTest === 1,
+			symbols,
+			imports,
+			importers,
+			summary,
+			lastChanged,
+			contributors,
+			recentCommits: history,
+			monthlyChurn: monthly,
+			coChanged,
+		}
 	}
 
 	// ranks exported functions/methods by fanin × churn × (1 - coverage).

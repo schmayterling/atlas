@@ -454,6 +454,38 @@ export class AtlasStore {
 			.all(...params)
 	}
 
+	// resolved imports from a file: which other indexed files this file
+	// imports, with the import path string and line. excludes external
+	// modules (target_file_id is NULL for those).
+	getFileImports(filePath: string): { targetPath: string; importPath: string; line: number; isTypeOnly: boolean }[] {
+		return this.db
+			.query<{ targetPath: string; importPath: string; line: number; isTypeOnly: number }, [string]>(
+				`SELECT tf.path as targetPath, i.import_path as importPath, i.line as line, i.is_type_only as isTypeOnly
+				 FROM imports i
+				 JOIN files sf ON sf.id = i.source_file_id
+				 JOIN files tf ON tf.id = i.target_file_id
+				 WHERE sf.path = ?
+				 ORDER BY i.line`,
+			)
+			.all(filePath)
+			.map((r) => ({ ...r, isTypeOnly: r.isTypeOnly === 1 }))
+	}
+
+	// resolved importers of a file: which other indexed files import
+	// from this file. used in the file article "imported by" section.
+	getFileImporters(filePath: string): { sourcePath: string; importPath: string; line: number }[] {
+		return this.db
+			.query<{ sourcePath: string; importPath: string; line: number }, [string]>(
+				`SELECT sf.path as sourcePath, i.import_path as importPath, i.line as line
+				 FROM imports i
+				 JOIN files sf ON sf.id = i.source_file_id
+				 JOIN files tf ON tf.id = i.target_file_id
+				 WHERE tf.path = ?
+				 ORDER BY sf.path`,
+			)
+			.all(filePath)
+	}
+
 	// top exported, non-test symbols ranked by inbound edge count.
 	// powers the home page "entry points" section. excludes properties
 	// and modules which are noise for "what's the public api here".

@@ -354,6 +354,24 @@ export interface HotFragileEntry {
 	fragilityScore: number
 }
 
+// file article: bundle that powers /f/<path>. mirrors SymbolArticleResult
+// in shape: facts + sections worth of data in one round-trip.
+export interface FileArticleResult {
+	path: string
+	language: string
+	sizeBytes: number
+	isTest: boolean
+	symbols: SymbolResult[]
+	imports: { targetPath: string; importPath: string; line: number; isTypeOnly: boolean }[]
+	importers: { sourcePath: string; importPath: string; line: number }[]
+	summary: string | null
+	lastChanged: { hash: string; authorName: string; subject: string; authoredAt: number } | null
+	contributors: { authorName: string; commits: number }[]
+	recentCommits: { hash: string; authorName: string; subject: string; authoredAt: number }[]
+	monthlyChurn: { month: string; count: number }[]
+	coChanged: { otherPath: string; count: number }[]
+}
+
 // symbol article: bundle that powers the web /s/<qn> page in one
 // round-trip. richer than SymbolDetail (which the cli/mcp also use):
 // pre-rendered shiki html, test coverage, subsystem, and last-changed.

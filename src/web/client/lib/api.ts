@@ -4,6 +4,7 @@ import type {
 	DependencyResult,
 	DetectedFlow,
 	DuplicatePair,
+	FileArticleResult,
 	FileInfo,
 	FlowTraceResult,
 	HotFragileEntry,
@@ -107,6 +108,7 @@ export const api = {
 	entryPoints: (limit = 8) => get<SymbolResult[]>('/entry-points', { limit: String(limit) }),
 	hotFragile: (limit = 30) => get<HotFragileEntry[]>('/hot-fragile', { limit: String(limit) }),
 	symbolArticle: (q: string) => get<SymbolArticleResult>('/article/symbol', { q }),
+	fileArticle: (path: string) => get<FileArticleResult>('/article/file', { path }),
 }
 
 export interface ChurnEntry {
