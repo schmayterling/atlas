@@ -363,6 +363,21 @@ export interface SymbolDetail {
 	sourceCode?: string
 }
 
+// per-call-site row for atlas_call_sites. one entry per edge row, so
+// the same source symbol appears multiple times when it calls a target
+// from multiple lines. atlas_deps collapses these by source; this surface
+// preserves call-site multiplicity for agents that want grep-level
+// granularity without leaving atlas.
+export interface CallSite {
+	sourceStableId: string
+	sourceName: string
+	sourceKind: SymbolKind
+	sourceFilePath: string
+	sourceLineStart: number
+	callSiteLine: number | null
+	edgeKind: EdgeKind
+}
+
 // one-shot overview bundle for agents that would otherwise chain
 // resolve + deps(up) + deps(down) + blast + testCoverage + subsystem.
 // caps are applied before return so an LLM agent gets a bounded payload.

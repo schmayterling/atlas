@@ -6,6 +6,7 @@ import { getOrCreateEngine } from '../core/engine-pool.js'
 import { log } from '../shared/logger.js'
 import {
 	formatBlast,
+	formatCallSites,
 	formatDeadCode,
 	formatDeps,
 	formatOverview,
@@ -242,6 +243,43 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						isError: true,
 					}
 				return { content: [{ type: 'text' as const, text: formatDeps(result) }] }
+			}),
+	)
+
+	// --- atlas_call_sites ---
+	// per-call-site listing: one entry per edge row, so the same source
+	// symbol appears multiple times when it calls the target from
+	// multiple lines. pairs with atlas_deps, which collapses by source.
+	// use this when you need grep-granularity (e.g. "list every line
+	// that calls X, with file:line") rather than "which symbols call X".
+	server.tool(
+		'atlas_call_sites',
+		'list every call-site (one entry per edge row, preserving multiplicity). pairs with atlas_deps which collapses by source symbol',
+		{
+			symbol: z.string().describe('symbol name or file:name reference'),
+			direction: z
+				.enum(['inbound', 'outbound'])
+				.optional()
+				.describe('inbound=who calls this, outbound=what this calls (default inbound)'),
+			kind: z
+				.enum(['calls', 'contains', 'extends', 'type_ref', 'passed_as', 'dispatches_to'])
+				.optional()
+				.describe('filter by edge kind'),
+			limit: z.number().optional().describe('max entries returned (default 50)'),
+		},
+		({ symbol, direction, kind, limit }) =>
+			wrap(() => {
+				const dir = direction ?? 'inbound'
+				const result = engine.callSites(symbol, { direction: dir, kind, limit })
+				if (!result) {
+					return {
+						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
+						isError: true,
+					}
+				}
+				return {
+					content: [{ type: 'text' as const, text: formatCallSites(symbol, dir, result) }],
+				}
 			}),
 	)
 

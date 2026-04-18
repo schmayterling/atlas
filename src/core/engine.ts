@@ -16,6 +16,7 @@ import type {
 	StatusResult,
 	SubsystemDetail,
 	SubsystemSummary,
+	CallSite,
 	DependencyNode,
 	SymbolDetail,
 	SymbolKind,
@@ -325,6 +326,32 @@ export class AtlasEngine {
 
 	testCoverage(query: string): TestCoverage | null {
 		return getTestCoverage(this.getStore(), query)
+	}
+
+	// per-call-site listing for a symbol. unlike deps(), which returns
+	// one entry per unique caller symbol, this returns one entry per
+	// edge row, preserving call-site multiplicity. two calls from the
+	// same function to the same target produce two entries here.
+	// matches the granularity of `grep -n` against a function name.
+	callSites(
+		query: string,
+		opts?: { direction?: 'inbound' | 'outbound'; kind?: EdgeKind; limit?: number },
+	): CallSite[] | null {
+		const store = this.getStore()
+		const sym = store.resolveSymbol(query)
+		if (!sym) return null
+		const direction = opts?.direction ?? 'inbound'
+		const limit = opts?.limit ?? 50
+		const rows = store.getCallSites(sym.stableId, direction, opts?.kind)
+		return rows.slice(0, limit).map((r) => ({
+			sourceStableId: r.sourceStableId,
+			sourceName: r.sourceName,
+			sourceKind: r.sourceKind as SymbolKind,
+			sourceFilePath: r.sourceFilePath,
+			sourceLineStart: r.sourceLineStart,
+			callSiteLine: r.callSiteLine,
+			edgeKind: r.edgeKind as EdgeKind,
+		}))
 	}
 
 	// one-shot overview bundle: identity + upstream callers + downstream

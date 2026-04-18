@@ -22,6 +22,7 @@ describe('mcp server tool registration', () => {
 		expect(names).toContain('atlas_search')
 		expect(names).toContain('atlas_overview')
 		expect(names).toContain('atlas_deps')
+		expect(names).toContain('atlas_call_sites')
 		expect(names).toContain('atlas_blast_radius')
 		expect(names).toContain('atlas_trace')
 		expect(names).toContain('atlas_dead_code')
@@ -163,6 +164,32 @@ describe('mcp server tool dispatch', () => {
 		expect(text).toContain('downstream callees')
 		expect(text).toContain('blast radius:')
 		expect(text).toContain('test coverage:')
+	})
+
+	// atlas_call_sites is the grep-granularity complement to atlas_deps.
+	// deps collapses by source symbol; this preserves call-site
+	// multiplicity so two calls from the same function show as two
+	// entries. the fixture doesn't exercise duplicate call lines, so
+	// this mostly asserts tool wiring + response shape.
+	test('atlas_call_sites returns per-edge entries with file:line', async () => {
+		const result = await client.callTool({
+			name: 'atlas_call_sites',
+			arguments: { symbol: 'AuthService', direction: 'inbound', limit: 5 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		const text = content[0].text
+		expect(text).toMatch(/(no callers of|call site)/)
+	})
+
+	test('atlas_call_sites returns symbol-not-found for an unknown symbol', async () => {
+		const result = await client.callTool({
+			name: 'atlas_call_sites',
+			arguments: { symbol: 'definitely_not_a_symbol_xyz_callsites' },
+		})
+		expect(result.isError).toBeTruthy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('symbol not found')
 	})
 
 	test('atlas_overview returns symbol-not-found for an unknown symbol', async () => {

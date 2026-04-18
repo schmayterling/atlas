@@ -1,5 +1,6 @@
 import type {
 	BlastRadiusResult,
+	CallSite,
 	DeadCodeResult,
 	DependencyResult,
 	FlowTraceResult,
@@ -146,5 +147,32 @@ export function formatOverview(r: SymbolOverview): string {
 		}
 	}
 
+	return lines.join('\n')
+}
+
+// per-call-site list. one line per edge row so the output maps 1:1
+// to `grep -n`. source symbol is included with file:line of its
+// definition so the agent can jump to either the call site or the
+// containing function. grouped by source file to keep related calls
+// adjacent without sacrificing the stable sort.
+export function formatCallSites(
+	target: string,
+	direction: 'inbound' | 'outbound',
+	sites: CallSite[],
+): string {
+	if (sites.length === 0) {
+		const verb = direction === 'inbound' ? 'callers of' : 'callees of'
+		return `no ${verb} ${target}`
+	}
+	const header = direction === 'inbound'
+		? `${sites.length} call site${sites.length === 1 ? '' : 's'} calling ${target}:`
+		: `${sites.length} call site${sites.length === 1 ? '' : 's'} called from ${target}:`
+	const lines = [header]
+	for (const s of sites) {
+		const line = s.callSiteLine ?? s.sourceLineStart
+		lines.push(
+			`  ${s.sourceFilePath}:${line}  ${s.sourceKind.padEnd(9)} ${s.sourceName}  [${s.edgeKind}]`,
+		)
+	}
 	return lines.join('\n')
 }

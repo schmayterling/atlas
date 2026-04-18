@@ -470,6 +470,65 @@ export class AtlasStore {
 		return (this.stmtEdgesTo as any).all(stableId) as EdgeRecord[]
 	}
 
+	// per-call-site listing for atlas_call_sites. one row per edge,
+	// joined with source symbol + file so callers don't need to look
+	// those up separately. `direction` decides whether we list callers
+	// (inbound) or callees (outbound) of `stableId`. optional `kind`
+	// filter matches the EdgeKind column. rows are ordered by source
+	// file then call line so output is stable across runs.
+	getCallSites(
+		stableId: string,
+		direction: 'inbound' | 'outbound',
+		kind?: EdgeKind,
+	): Array<{
+		sourceStableId: string
+		sourceName: string
+		sourceKind: string
+		sourceFilePath: string
+		sourceLineStart: number
+		callSiteLine: number | null
+		edgeKind: string
+	}> {
+		if (direction !== 'inbound' && direction !== 'outbound') {
+			throw new Error(`getCallSites: invalid direction ${String(direction)}`)
+		}
+		const filter = direction === 'inbound' ? 'e.target_id = ?' : 'e.source_id = ?'
+		const joinSide = direction === 'inbound' ? 'e.source_id' : 'e.target_id'
+		const params: string[] = [stableId]
+		let kindClause = ''
+		if (kind) {
+			kindClause = ' AND e.kind = ?'
+			params.push(kind)
+		}
+		return this.db
+			.query<
+				{
+					sourceStableId: string
+					sourceName: string
+					sourceKind: string
+					sourceFilePath: string
+					sourceLineStart: number
+					callSiteLine: number | null
+					edgeKind: string
+				},
+				string[]
+			>(
+				`SELECT s.stable_id AS sourceStableId,
+					s.name AS sourceName,
+					s.kind AS sourceKind,
+					f.path AS sourceFilePath,
+					s.line_start AS sourceLineStart,
+					e.line AS callSiteLine,
+					e.kind AS edgeKind
+				 FROM edges e
+				 JOIN symbols s ON s.stable_id = ${joinSide}
+				 JOIN files f ON f.id = s.file_id
+				 WHERE ${filter}${kindClause}
+				 ORDER BY f.path, e.line, s.line_start`,
+			)
+			.all(...params)
+	}
+
 	// --- language stats ---
 
 	getLanguageStats(): Record<string, number> {
