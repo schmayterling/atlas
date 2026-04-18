@@ -3,19 +3,16 @@ import { createRoot } from 'react-dom/client'
 import { Route, Switch } from 'wouter'
 import { initTheme } from './lib/theme.js'
 import { Layout } from './components/layout.js'
+import { HomePage } from './pages/home.js'
+import { BrowsePage } from './pages/browse.js'
+import { SymbolArticle } from './pages/symbol-article.js'
+import { FileArticle } from './pages/file-article.js'
+import { SubsystemArticle } from './pages/subsystem-article.js'
+import { InsightsPage } from './pages/insights.js'
+import { GraphPage } from './pages/graph.js'
+import { EmptyState } from './ui/index.js'
 
 initTheme()
-import { DashboardPage } from './pages/dashboard.js'
-import { SearchPage } from './pages/search.js'
-import { GraphPage } from './pages/graph.js'
-import { TracePage } from './pages/trace.js'
-import { DeadCodePage } from './pages/dead-code.js'
-import { WikiPage } from './pages/wiki.js'
-import { ProjectsPage } from './pages/projects.js'
-import { FlowsPage } from './pages/flows.js'
-import { DuplicatesPage } from './pages/duplicates.js'
-import { HistoryPage } from './pages/history.js'
-import { SubsystemsPage } from './pages/subsystems.js'
 
 class ErrorBoundary extends React.Component<
 	{ children: React.ReactNode },
@@ -27,7 +24,11 @@ class ErrorBoundary extends React.Component<
 	}
 	render() {
 		if (this.state.error) {
-			return <div className="p-6 text-error text-sm">render error: {this.state.error.message}</div>
+			return (
+				<div className="py-8">
+					<EmptyState title="render error" description={this.state.error.message} />
+				</div>
+			)
 		}
 		return this.props.children
 	}
@@ -38,21 +39,16 @@ function App() {
 		<Layout>
 			<ErrorBoundary>
 				<Switch>
-					<Route path="/" component={DashboardPage} />
-					<Route path="/search" component={SearchPage} />
+					<Route path="/" component={HomePage} />
+					<Route path="/browse" component={BrowsePage} />
+					<Route path="/insights" component={InsightsPage} />
 					<Route path="/graph" component={GraphPage} />
-					<Route path="/trace" component={TracePage} />
-					<Route path="/dead-code" component={DeadCodePage} />
-					<Route path="/wiki" component={WikiPage} />
-					<Route path="/flows" component={FlowsPage} />
-					<Route path="/duplicates" component={DuplicatesPage} />
-					<Route path="/history" component={HistoryPage} />
-					<Route path="/subsystems" component={SubsystemsPage} />
-					<Route path="/projects" component={ProjectsPage} />
+					<Route path="/sub" component={SubsystemArticle} />
+					<Route path="/sub/:id" component={SubsystemArticle} />
+					<Route path="/s/:rest*" component={SymbolArticle} />
+					<Route path="/f/:rest*" component={FileArticle} />
 					<Route>
-						<div className="text-text-muted text-sm">
-							<h1 className="text-lg font-bold text-text mb-2">not found</h1>
-						</div>
+						<EmptyState title="not found" description={`no page at ${window.location.pathname}`} />
 					</Route>
 				</Switch>
 			</ErrorBoundary>
