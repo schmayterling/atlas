@@ -97,13 +97,46 @@ the symbol via its qualified name. text-search ties on the other 3
 capabilities. atlas-only capability tasks (call-tracing,
 graph-querying) score 1.00 across both corpora — see `CAPABILITIES.md`.
 
+## engine perf (phase B)
+
+measured by `bun run bench-headline` on M-series macOS, github
+ingest disabled, summaries / embeddings off.
+
+| corpus  | files | symbols | edges  | cold index | peak rss | db size | unresolved edges |
+|---------|------:|--------:|-------:|-----------:|---------:|--------:|-----------------:|
+| ripgrep |    98 |   3,476 | 11,093 |    ~970 ms |   270 MB |  4.4 MB |             0.0% |
+| zod     |   339 |   5,217 | 21,126 |   ~17.4 s  |   285 MB | 42.7 MB |             0.0% |
+
+zod's cold time is dominated by ts-compiler cross-file resolution
+(~13 s of 17 s on a re-indexed run). this is the work that lets the
+benchmark's call-tracing tasks resolve aliased imports — see
+`CAPABILITIES.md` for what that buys.
+
+incremental indexing latency intentionally not published yet — atlas
+re-runs flow / duplicate / subsystem detection on every `index()`
+call even when no source files changed, which makes a naive timing
+overstate the real cost. proper measurement needs an indexer-level
+diff API. tracked as a follow-up.
+
+### query latency (ms/call, 50 runs each)
+
+| corpus  | search | files | deps  | blast |
+|---------|-------:|------:|------:|------:|
+| ripgrep |   0.47 |  0.21 |  0.61 |  0.56 |
+| zod     |   0.59 |  0.64 | 42.61 | 19.29 |
+
+zod's deps/blast are slower because the v3+v4+mini packages share
+many cross-imports — a ZodObject `deps` walk fans out to hundreds
+of nodes. ripgrep's rust workspace has shorter chains.
+
 ## what's next
 
-- 4-corpus complete set (django + next.js + 1 awkward) before
-  publishing aggregate-across-corpora numbers
-- phase B engine perf table (cold + incremental indexing latency, peak
-  RSS, db size per kloc, unresolved-edge rate, query latency)
-- phase C LLM appendix (claude haiku via OpenRouter, opt-in)
+- 4-corpus complete set (django + next.js + 1 awkward) — django and
+  next.js each take 5-10 min to clone + index, so they ship in a
+  separate commit
+- phase C LLM appendix is wired (`bun run bench-llm`) but the
+  reproduction numbers below are pending real LLM runs with an
+  `OPENROUTER_API_KEY`
 
 ## what we explicitly are NOT claiming
 

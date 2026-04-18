@@ -1,0 +1,47 @@
+[
+  {
+    "corpus": "ripgrep",
+    "languages": [
+      "rust"
+    ],
+    "files": 98,
+    "symbols": 3476,
+    "edges": 11093,
+    "coldIndexMs": 970,
+    "incrementalIndexMs": 0,
+    "peakRssMb": 270,
+    "dbSizeBytes": 4616192,
+    "dbBytesPerKloc": 33200,
+    "dbBytesPerSymbol": 1328,
+    "unresolvedEdgeRate": 0,
+    "queryLatencyMs": {
+      "search": 0.467,
+      "deps": 0.606,
+      "blast": 0.557,
+      "files": 0.207
+    }
+  },
+  {
+    "corpus": "zod",
+    "languages": [
+      "javascript",
+      "typescript"
+    ],
+    "files": 339,
+    "symbols": 5217,
+    "edges": 21126,
+    "coldIndexMs": 17449,
+    "incrementalIndexMs": 0,
+    "peakRssMb": 285,
+    "dbSizeBytes": 44732416,
+    "dbBytesPerKloc": 214359,
+    "dbBytesPerSymbol": 8574,
+    "unresolvedEdgeRate": 0,
+    "queryLatencyMs": {
+      "search": 0.594,
+      "deps": 42.613,
+      "blast": 19.293,
+      "files": 0.637
+    }
+  }
+]

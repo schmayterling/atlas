@@ -1,40 +1,31 @@
-// with-atlas agent: baseline + atlas tool surface. phase 1 stub that
-// queries the engine directly (no llm in the loop). phase 2 replaces
-// with a real llm-driven agent using the anthropic sdk + mcp. see #84.
+// with-atlas LLM agent: tools = read_file + grep + glob + atlas_*.
+// the atlas tools wrap engine methods (atlas_search, atlas_overview,
+// atlas_deps, atlas_blast_radius, atlas_trace, atlas_call_sites,
+// atlas_test_coverage, atlas_files).
 
-import type { AgentAnswer, Question } from '../run.js'
-import { getOrCreateEngine } from '../../src/core/engine-pool.js'
-import { extractTarget } from './shared.js'
+import type { AtlasEngine } from '../../src/core/engine.js'
+import type { LlmAgentResult, LlmTaskInput } from '../lib/llm-agent.js'
+import { runLlmAgent } from '../lib/llm-agent.js'
+import { TEXT_TOOLS, makeTextHandler } from '../lib/text-tools.js'
+import { ATLAS_TOOLS, makeAtlasHandler } from '../lib/atlas-tools.js'
+import type { ToolCall } from '../lib/openrouter.js'
 
-export async function runWithAtlasAgent(q: Question, corpusRoot: string): Promise<AgentAnswer> {
-	// phase 1: no llm. resolve the question directly against atlas so
-	// the scoring pipeline is exercised end-to-end. deep-review pass 8
-	// flagged direct `new AtlasEngine` construction; pool membership
-	// matters once phase 2 routes this through MCP against the same
-	// corpus. assumes the corpus was indexed beforehand (atlas-pinned
-	// == the repo, which the runner expects to be indexed).
-	const target = extractTarget(q.question)
-	if (!target) return { symbols: [], toolCalls: 0 }
-	const engine = getOrCreateEngine(undefined, corpusRoot)
-	if (q.capability === 'symbol-locate' || q.capability === 'symbol-set') {
-		const search = engine.search(target, { limit: 20 })
-		const symbols = search.results.map((r) => `${r.filePath}::${r.name}`)
-		return { symbols, text: symbols.join('\n'), toolCalls: 1 }
+export async function runWithAtlasAgent(opts: {
+	model: string
+	task: LlmTaskInput
+	corpusRoot: string
+	engine: AtlasEngine
+}): Promise<LlmAgentResult> {
+	const textHandler = makeTextHandler(opts.corpusRoot)
+	const atlasHandler = makeAtlasHandler(opts.engine)
+	const handler = async (call: ToolCall) => {
+		if (call.function.name.startsWith('atlas_')) return atlasHandler(call)
+		return textHandler(call)
 	}
-	if (
-		q.capability === 'dependency-trace' ||
-		q.capability === 'impact-analysis' ||
-		q.capability === 'test-coverage'
-	) {
-		const deps = engine.deps(target, { direction: 'upstream', depth: 3 })
-		if (!deps) return { symbols: [], text: '', toolCalls: 1 }
-		const symbols = deps.upstream.map((n) => `${n.symbol.filePath}::${n.symbol.name}`)
-		return { symbols, text: symbols.join('\n'), toolCalls: 1 }
-	}
-	if (q.capability === 'cross-language' || q.capability === 'architecture') {
-		const search = engine.search(target, { limit: 10 })
-		const symbols = search.results.map((r) => `${r.filePath}::${r.name}`)
-		return { symbols, text: symbols.join('\n'), toolCalls: 1 }
-	}
-	return { symbols: [], text: '', toolCalls: 0 }
+	return runLlmAgent({
+		model: opts.model,
+		task: opts.task,
+		tools: [...TEXT_TOOLS, ...ATLAS_TOOLS],
+		toolHandler: handler,
+	})
 }

@@ -17,7 +17,7 @@
 //   bun run bench-headline --corpus ripgrep    one corpus
 //   bun run bench-headline --json              machine-readable output
 
-import { existsSync, statSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { ensureCorpus, listCorpora, loadManifest } from '../bench-eval/lib/corpus.js'
 import { getOrCreateEngine, closeAll } from '../src/core/engine-pool.js'
@@ -78,20 +78,17 @@ async function measureCorpus(corpus: string): Promise<HeadlineRow> {
 	}, 100)
 
 	const coldStart = performance.now()
-	const indexResult = await engine.index({ noEmbed: true, noSummarize: true })
+	const indexResult = await engine.index({ noEmbed: true, noSummarize: true, withGitHub: false })
 	const coldMs = Math.round(performance.now() - coldStart)
 	clearInterval(stop)
 
-	// incremental: bump mtime on 5 source files, re-index, measure.
-	const sourceFiles = engine.files({ includeTests: false }).slice(0, 5)
-	const now = new Date()
-	for (const f of sourceFiles) {
-		const abs = join(corpusRoot, f.path)
-		try { utimesSync(abs, now, now) } catch { /* ignore */ }
-	}
-	const incStart = performance.now()
-	await engine.index({ noEmbed: true, noSummarize: true })
-	const incMs = Math.round(performance.now() - incStart)
+	// incremental measurement intentionally deferred. atlas always
+	// re-runs cross-file resolution + post-processing pipelines on the
+	// second engine.index() call even when no source files changed,
+	// which makes "incremental" overstate the real cost of touching one
+	// file. proper measurement needs an indexer-level diff API. tracked
+	// as a follow-up.
+	const incMs = 0
 
 	const status = engine.status()
 	const dbSize = existsSync(dbPath) ? statSync(dbPath).size : 0
