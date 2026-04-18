@@ -284,6 +284,14 @@ export interface SubsystemDetail {
 	generatedAt: number
 	files: { id: number; path: string; language: string | null }[]
 	topSymbols: { name: string; kind: string; filePath: string }[]
+	// richer entry points (exported symbols ranked by inbound edges)
+	// for the web article. cli/mcp consumers can ignore. optional to
+	// preserve compatibility with older serialized payloads.
+	topExports?: { name: string; qualifiedName: string; kind: string; filePath: string; dependentCount: number }[]
+	// per-other-subsystem rollup of file→file imports crossing the
+	// boundary outward from this subsystem. powers the cross-edges
+	// section of the article.
+	crossEdges?: { otherSubsystemId: string; otherSubsystemName: string; edgeCount: number; fileCount: number }[]
 }
 
 // file info for web UI

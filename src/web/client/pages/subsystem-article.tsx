@@ -1,8 +1,10 @@
 import { useLocation, Link } from 'wouter'
+import { useMemo } from 'react'
+import { GitMerge, Sparkles } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { useQuery } from '../lib/query.js'
 import { ArticleShell, ArticleHeader, FactList } from '../components/article-shell.js'
-import { Section, Badge, FileLink, KindBadge, Spinner, EmptyState } from '../ui/index.js'
+import { Section, Badge, FileLink, KindBadge, SymbolLink, Spinner, EmptyState } from '../ui/index.js'
 
 export function SubsystemArticle() {
 	const [location] = useLocation()
@@ -37,34 +39,90 @@ export function SubsystemArticle() {
 					items={[
 						{ label: 'files', value: s.files.length },
 						{ label: 'conductance', value: s.conductance.toFixed(3) },
-						{ label: 'top symbols', value: s.topSymbols.length },
+						{ label: 'entry points', value: s.topExports?.length ?? '—' },
+						{ label: 'cross-edges', value: s.crossEdges?.length ?? '—' },
 					]}
 				/>
 			}
 		>
-			<Section id="files" title="files" right={`${s.files.length}`}>
-				<ul className="space-y-1">
-					{s.files.map((f) => (
-						<li key={f.id} className="py-1">
-							<FileLink path={f.path} />
-						</li>
-					))}
-				</ul>
+			{s.topExports && s.topExports.length > 0 && (
+				<Section id="entry-points" title="entry points" right={<span className="flex items-center gap-1"><Sparkles size={11} /> top exports</span>}>
+					<ul className="space-y-1">
+						{s.topExports.map((sym) => (
+							<li key={sym.qualifiedName} className="flex items-center gap-3 py-1.5">
+								<SymbolLink name={sym.name} qualifiedName={sym.qualifiedName} kind={sym.kind} />
+								<FileLink path={sym.filePath} muted basename />
+								<span className="ml-auto text-xs text-text-muted tabular-nums">{sym.dependentCount} dep</span>
+							</li>
+						))}
+					</ul>
+				</Section>
+			)}
+
+			{s.crossEdges && s.crossEdges.length > 0 && (
+				<Section id="cross-edges" title="connects to" right={`${s.crossEdges.length} subsystems`}>
+					<ul className="space-y-1">
+						{s.crossEdges.map((c) => (
+							<li key={c.otherSubsystemId} className="flex items-center gap-3 py-1.5">
+								<GitMerge size={12} className="text-text-faint" />
+								<Link href={`/sub/${encodeURIComponent(c.otherSubsystemId)}`} className="text-text hover:text-accent text-sm">
+									{c.otherSubsystemName}
+								</Link>
+								<span className="ml-auto text-xs text-text-muted tabular-nums">{c.edgeCount} imports across {c.fileCount} files</span>
+							</li>
+						))}
+					</ul>
+				</Section>
+			)}
+
+			<Section id="files" title="files" right={`${s.files.length}`} defaultOpen={!(s.topExports && s.topExports.length > 0)}>
+				<FilesByDir files={s.files} />
 			</Section>
 
 			{s.topSymbols.length > 0 && (
-				<Section id="top-symbols" title="top symbols" right={`${s.topSymbols.length}`}>
+				<Section id="all-exports" title="all exports" right={`${s.topSymbols.length}`} defaultOpen={false}>
 					<ul className="space-y-1">
 						{s.topSymbols.map((sym, i) => (
 							<li key={i} className="flex items-center gap-2 py-1">
 								<KindBadge kind={sym.kind} />
 								<span className="text-sm font-mono">{sym.name}</span>
+								<FileLink path={sym.filePath} muted basename />
 							</li>
 						))}
 					</ul>
 				</Section>
 			)}
 		</ArticleShell>
+	)
+}
+
+function FilesByDir({ files }: { files: { id: number; path: string }[] }) {
+	const grouped = useMemo(() => {
+		const m = new Map<string, { path: string }[]>()
+		for (const f of files) {
+			const parts = f.path.split('/')
+			const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '.'
+			if (!m.has(dir)) m.set(dir, [])
+			m.get(dir)!.push(f)
+		}
+		return new Map([...m.entries()].sort(([a], [b]) => a.localeCompare(b)))
+	}, [files])
+
+	return (
+		<div className="space-y-4">
+			{[...grouped.entries()].map(([dir, ff]) => (
+				<div key={dir}>
+					<div className="text-[11px] uppercase tracking-wider text-text-faint mb-1.5">{dir}/</div>
+					<ul className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+						{ff.sort((a, b) => a.path.localeCompare(b.path)).map((f) => (
+							<li key={f.path} className="py-1">
+								<FileLink path={f.path} basename />
+							</li>
+						))}
+					</ul>
+				</div>
+			))}
+		</div>
 	)
 }
 
