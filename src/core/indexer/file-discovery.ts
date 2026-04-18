@@ -3,6 +3,7 @@ import { extname, join, relative } from 'node:path'
 import type { AtlasConfig } from '../../shared/config.js'
 import { log } from '../../shared/logger.js'
 import { toForwardSlash } from '../../shared/paths.js'
+import { readGitignore } from './gitignore.js'
 
 export interface DiscoveredFile {
 	path: string
@@ -28,7 +29,13 @@ const SKIP_DIRS = new Set([
 
 export function discoverFiles(projectRoot: string, config: AtlasConfig): DiscoveredFile[] {
 	const extensionToLanguage = buildExtensionMap(config)
-	const excludePatterns = config.exclude
+	// merge in patterns from .gitignore at project root. only the root
+	// gitignore is honored — nested .gitignore files in monorepo
+	// subdirs are not (yet). users with subdirs that need exclusion
+	// should put them in atlas.config.json's exclude array.
+	const gitignore = readGitignore(projectRoot)
+	const excludePatterns = [...config.exclude, ...gitignore.excludePatterns]
+	const skipDirs = new Set([...SKIP_DIRS, ...gitignore.skipDirs])
 	const testPatterns = config.testPatterns
 	const files: DiscoveredFile[] = []
 
@@ -44,7 +51,7 @@ export function discoverFiles(projectRoot: string, config: AtlasConfig): Discove
 		rootReal = projectRoot
 	}
 
-	walk(projectRoot, projectRoot, rootReal, extensionToLanguage, excludePatterns, testPatterns, files)
+	walk(projectRoot, projectRoot, rootReal, extensionToLanguage, excludePatterns, testPatterns, skipDirs, files)
 
 	files.sort((a, b) => a.path.localeCompare(b.path))
 	return files
@@ -57,6 +64,7 @@ function walk(
 	extensionToLanguage: Map<string, string>,
 	excludePatterns: string[],
 	testPatterns: string[],
+	skipDirs: Set<string>,
 	results: DiscoveredFile[],
 ) {
 	let names: string[]
@@ -80,9 +88,9 @@ function walk(
 		}
 
 		if (stat.isDirectory()) {
-			if (SKIP_DIRS.has(name)) continue
+			if (skipDirs.has(name)) continue
 			if (matchesAnyPattern(relPath, excludePatterns)) continue
-			walk(fullPath, projectRoot, rootReal, extensionToLanguage, excludePatterns, testPatterns, results)
+			walk(fullPath, projectRoot, rootReal, extensionToLanguage, excludePatterns, testPatterns, skipDirs, results)
 		} else if (stat.isFile()) {
 			if (matchesAnyPattern(relPath, excludePatterns)) continue
 
