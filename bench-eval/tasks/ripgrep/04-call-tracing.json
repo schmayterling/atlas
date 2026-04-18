@@ -1,0 +1,16 @@
+{
+	"id": "ripgrep-04-call-tracing",
+	"capability": "call-tracing",
+	"intent": "who calls `search_parallel`? (inbound call sites)",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "crates/core/main.rs::search_parallel",
+		"direction": "inbound"
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": ["crates/core/main.rs::run"]
+	},
+	"comparable_to_text_search": false,
+	"notes": "text-search cannot reasonably answer this without parsing rust call expressions"
+}

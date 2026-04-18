@@ -1,0 +1,21 @@
+{
+	"id": "ripgrep-05-graph-querying",
+	"capability": "graph-querying",
+	"intent": "trace at least one path from `main` to `search_parallel`",
+	"atlas_method": "trace",
+	"atlas_args": {
+		"from": "crates/core/main.rs::main",
+		"to": "crates/core/main.rs::search_parallel",
+		"maxPaths": 5,
+		"maxDepth": 5
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{ "kind": "min-results", "n": 2 },
+			{ "kind": "has-symbol", "qualifiedName": "crates/core/main.rs::run" }
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "text-search cannot follow call edges across functions"
+}

@@ -1,0 +1,18 @@
+{
+	"id": "ripgrep-02-discovery",
+	"capability": "discovery",
+	"intent": "find the function `search_parallel` defined in the core binary",
+	"atlas_method": "search",
+	"atlas_args": { "q": "search_parallel", "kind": "function", "limit": 10 },
+	"expected": {
+		"type": "symbol-set",
+		"symbols": ["crates/core/main.rs::search_parallel"]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^fn (search_parallel)\\b",
+		"glob": "*.rs",
+		"capture": 1
+	}
+}

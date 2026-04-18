@@ -1,0 +1,10 @@
+{
+	"id": "ripgrep-01-indexing",
+	"capability": "indexing",
+	"intent": "how many rust source files does the indexer enumerate?",
+	"atlas_method": "files",
+	"atlas_args": { "includeTests": true },
+	"expected": { "type": "count", "value": 98, "tolerance": 5 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "glob", "pattern": "**/*.rs" }
+}

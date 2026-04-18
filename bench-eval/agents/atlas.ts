@@ -48,7 +48,10 @@ export async function runAtlasAgent(task: Task, engine: AtlasEngine): Promise<Ag
 			}
 			case 'files': {
 				const r = engine.files({ includeTests: args.includeTests })
-				return { files: r.map((f) => f.path), count: r.length, raw: r }
+				const filtered = args.pathPrefix
+					? r.filter((f) => f.path.startsWith(args.pathPrefix))
+					: r
+				return { files: filtered.map((f) => f.path), count: filtered.length, raw: filtered }
 			}
 			case 'deps': {
 				const r = engine.deps(args.symbol, { direction: args.direction, depth: args.depth })

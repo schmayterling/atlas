@@ -1,0 +1,21 @@
+{
+	"id": "ripgrep-06-file-navigation",
+	"capability": "file-navigation",
+	"intent": "list rust source files under crates/searcher/src/searcher/",
+	"atlas_method": "files",
+	"atlas_args": { "pathPrefix": "crates/searcher/src/searcher/" },
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"crates/searcher/src/searcher/core.rs",
+			"crates/searcher/src/searcher/glue.rs",
+			"crates/searcher/src/searcher/mmap.rs",
+			"crates/searcher/src/searcher/mod.rs"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "crates/searcher/src/searcher/*.rs"
+	}
+}

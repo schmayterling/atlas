@@ -89,7 +89,7 @@ function globOnly(cwd: string, pattern: string): AgentAnswer {
 	const glob = new Bun.Glob(pattern)
 	const files: string[] = []
 	for (const f of glob.scanSync({ cwd })) files.push(f)
-	return { files }
+	return { files, count: files.length }
 }
 
 function dedupe<T>(xs: T[]): T[] {

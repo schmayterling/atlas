@@ -1,0 +1,66 @@
+{
+  "commit": "2ab77f3",
+  "timestamp": 1776487245693,
+  "results": [
+    {
+      "taskId": "ripgrep-01-indexing",
+      "corpus": "ripgrep",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.66,
+      "textSearchMs": 1.76
+    },
+    {
+      "taskId": "ripgrep-02-discovery",
+      "corpus": "ripgrep",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.93,
+      "textSearchMs": 17.13
+    },
+    {
+      "taskId": "ripgrep-03-code-access",
+      "corpus": "ripgrep",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 10.61,
+      "textSearchMs": 7.53
+    },
+    {
+      "taskId": "ripgrep-04-call-tracing",
+      "corpus": "ripgrep",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 0.52,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "ripgrep-05-graph-querying",
+      "corpus": "ripgrep",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 2.98,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "ripgrep-06-file-navigation",
+      "corpus": "ripgrep",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.23,
+      "textSearchMs": 0.13
+    }
+  ]
+}

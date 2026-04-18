@@ -168,6 +168,13 @@ async function main() {
 		const ensured = ensureCorpus(manifest, { freshClone: false })
 		console.log(`  corpus root: ${ensured.rootPath}${ensured.cached ? ' (cached)' : ''}`)
 
+		// ensure the corpus is indexed. cheap if already up-to-date.
+		const engine = getOrCreateEngine(undefined, ensured.rootPath)
+		const indexStart = performance.now()
+		const indexResult = await engine.index({ noEmbed: true, noSummarize: true })
+		const indexMs = Math.round(performance.now() - indexStart)
+		console.log(`  index: ${indexResult.filesTotal} files (${indexResult.symbols} symbols, ${indexResult.edges} edges) in ${indexMs}ms`)
+
 		for (const task of filtered) {
 			const r = await runOne(task, corpus, ensured.rootPath)
 			results.push(r)

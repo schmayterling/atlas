@@ -1,0 +1,7 @@
+{
+	"name": "ripgrep",
+	"git_url": "https://github.com/BurntSushi/ripgrep.git",
+	"ref": "4649aa9700619f94cf9c66876e9549d83420e16c",
+	"expected_languages": ["rust"],
+	"notes": "ripgrep 14.1.1 commit. small rust workspace, ~30k LOC. sanity check for the rust extractor. exercises crate-internal symbol resolution but not cross-crate (everything lives under src/ + crates/)."
+}
