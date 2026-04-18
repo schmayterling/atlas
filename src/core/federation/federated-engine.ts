@@ -46,7 +46,18 @@ export function fanOutDownstream<T>(
 	direction: 'outbound' | 'inbound' | 'both',
 	fn: (remoteEngine: AtlasEngine, remoteStableId: string) => T,
 ): Array<{ project: string; result: T }> {
-	const xEdges = anchorEngine.getCrossProjectEdgesByStableId(anchorProjectId, anchorStableId)
+	// direction-specific fetches skip the unused sql round-trip. the old
+	// getCrossProjectEdgesByStableId always ran both direction queries
+	// and the caller threw one set away. see #76.
+	let outbound: Array<{ targetProject: string; targetStableId: string; kind: string }> = []
+	let inbound: Array<{ sourceProject: string; sourceStableId: string; kind: string }> = []
+	if (direction === 'outbound' || direction === 'both') {
+		outbound = anchorEngine.getCrossProjectEdgesOutbound(anchorProjectId, anchorStableId)
+	}
+	if (direction === 'inbound' || direction === 'both') {
+		inbound = anchorEngine.getCrossProjectEdgesInbound(anchorProjectId, anchorStableId)
+	}
+
 	const seen = new Set<string>()
 	const out: Array<{ project: string; result: T }> = []
 
@@ -79,12 +90,8 @@ export function fanOutDownstream<T>(
 		}
 	}
 
-	if (direction === 'outbound' || direction === 'both') {
-		walk(xEdges.outbound, 'target')
-	}
-	if (direction === 'inbound' || direction === 'both') {
-		walk(xEdges.inbound, 'source')
-	}
+	walk(outbound, 'target')
+	walk(inbound, 'source')
 
 	return out
 }

@@ -73,7 +73,33 @@ export function parseSource(source: string, language: string): Parser.Tree {
 	if (!languageMap.has(language)) {
 		throw new Error(`unsupported language: ${language}`)
 	}
-	return getParser(language).parse(source)
+	const prepared = needsTypeScriptPreprocessing(language) ? stripInlineImportTypes(source) : source
+	return getParser(language).parse(prepared)
+}
+
+function needsTypeScriptPreprocessing(language: string): boolean {
+	return (
+		language === 'typescript' ||
+		language === 'tsx' ||
+		language === 'javascript' ||
+		language === 'jsx'
+	)
+}
+
+// tree-sitter-typescript cannot recover from inline `import('./path.js').X`
+// types in class-member return positions. the first occurrence inside a
+// class body silently drops every subsequent method/property declaration
+// as ERROR nodes, so callers of those methods end up with source_ids that
+// match no symbol row and deps/blast-radius/trace all show `<unknown>`.
+// see #81. we replace `import('...').Name` with `Name` plus trailing
+// spaces so byte offsets stay intact for downstream line/column data.
+const INLINE_IMPORT_TYPE_RE = /import\(\s*['"][^'"]+['"]\s*\)\s*\.([A-Za-z_$][A-Za-z0-9_$]*)/g
+
+export function stripInlineImportTypes(source: string): string {
+	return source.replace(INLINE_IMPORT_TYPE_RE, (match, name: string) => {
+		const pad = match.length - name.length
+		return pad > 0 ? name + ' '.repeat(pad) : name
+	})
 }
 
 // initialize on import

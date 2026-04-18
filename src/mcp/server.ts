@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { AtlasEngine } from '../core/engine.js'
 import { getOrCreateEngine } from '../core/engine-pool.js'
+import { getCurrentCommit } from '../core/indexer/change-detector.js'
 import { log } from '../shared/logger.js'
 import {
 	formatBlast,
@@ -15,9 +16,47 @@ import {
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
 
-async function safe(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> {
+// detect whether the index's recorded git commit matches the project's
+// current HEAD. returns a machine-readable prefix that agents can parse
+// (or ignore) when mismatched, and null otherwise. atlas_status is
+// exempt because it already exposes the raw lastCommit field and a
+// duplicate prefix would just be noise. see #82.
+function stalenessPrefix(engine: AtlasEngine): string | null {
 	try {
-		return await fn()
+		const indexed = engine.status().lastCommit
+		if (!indexed) return null
+		const current = getCurrentCommit(engine.projectRoot)
+		if (!current) return null
+		if (indexed === current) return null
+		return `[atlas-index-stale: indexed at ${indexed.slice(0, 7)}, HEAD at ${current.slice(0, 7)}. results may be out of date; run \`atlas index\` to refresh.]\n`
+	} catch (e) {
+		log.debug(`stalenessPrefix: ${e}`)
+		return null
+	}
+}
+
+function withStaleness(engine: AtlasEngine, result: ToolResult): ToolResult {
+	const prefix = stalenessPrefix(engine)
+	if (!prefix) return result
+	// prepend to the first text block so JSON consumers still get a
+	// single combined payload. subsequent blocks are left untouched.
+	if (result.content.length === 0) {
+		return { ...result, content: [{ type: 'text' as const, text: prefix }] }
+	}
+	const [first, ...rest] = result.content
+	return {
+		...result,
+		content: [{ type: 'text' as const, text: prefix + first.text }, ...rest],
+	}
+}
+
+async function safe(
+	fn: () => ToolResult | Promise<ToolResult>,
+	engine?: AtlasEngine,
+): Promise<ToolResult> {
+	try {
+		const result = await fn()
+		return engine ? withStaleness(engine, result) : result
 	} catch (e) {
 		log.error(`mcp tool: ${e instanceof Error ? e.stack : e}`)
 		return { content: [{ type: 'text' as const, text: `error: ${e}` }], isError: true }
@@ -33,7 +72,14 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		},
 	)
 
+	// wrap passes the engine so withStaleness can prepend a warning
+	// when the index's recorded commit drifts from current HEAD. see #82.
+	const wrap = (fn: () => ToolResult | Promise<ToolResult>) => safe(fn, engine)
+
 	// --- atlas_status ---
+	// status intentionally skips the staleness prefix: lastCommit is
+	// already part of the formatted body, and a duplicate prefix would
+	// just clutter the tool whose job is to surface freshness.
 	server.tool('atlas_status', 'check index health, freshness, and statistics', {}, () =>
 		safe(() => ({ content: [{ type: 'text' as const, text: formatStatus(engine.status()) }] })),
 	)
@@ -61,7 +107,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			limit: z.number().optional().describe('max results (default 20)'),
 		},
 		({ query, kind, limit }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.search(query, { kind, limit })
 				return { content: [{ type: 'text' as const, text: formatSearch(result) }] }
 			}),
@@ -76,7 +122,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			limit: z.number().optional().describe('max results (default 10)'),
 		},
 		({ query, limit }) =>
-			safe(async () => {
+			wrap(async () => {
 				const result = await engine.semanticSearch(query, { limit })
 				if (!result.embeddingsAvailable) {
 					return {
@@ -107,7 +153,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			symbol: z.string().describe('symbol name or file:name reference'),
 		},
 		({ symbol }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.resolveSymbol(symbol)
 				if (!result)
 					return {
@@ -132,7 +178,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			depth: z.number().optional().describe('max traversal depth (default 3)'),
 		},
 		({ symbol, direction, depth }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.deps(symbol, { direction, depth })
 				if (!result)
 					return {
@@ -152,7 +198,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			depth: z.number().optional().describe('max propagation depth (default 5)'),
 		},
 		({ target, depth }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.blast(target, { depth })
 				if (!result)
 					return {
@@ -174,7 +220,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			maxDepth: z.number().optional().describe('max path depth (default 10)'),
 		},
 		({ from, to, maxPaths, maxDepth }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.trace(from, to, { maxPaths, maxDepth })
 				if (!result)
 					return {
@@ -212,7 +258,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				.describe('filter by symbol kind'),
 		},
 		({ path, kind }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.deadCode({ path, kind })
 				return { content: [{ type: 'text' as const, text: formatDeadCode(result) }] }
 			}),
@@ -227,7 +273,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			limit: z.number().optional().describe('max commits to return (default 20)'),
 		},
 		({ file, limit }) =>
-			safe(() => {
+			wrap(() => {
 				const rows = engine.fileHistory(file).slice(0, limit ?? 20)
 				if (rows.length === 0) {
 					return { content: [{ type: 'text' as const, text: `no history for ${file}` }] }
@@ -246,7 +292,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		'list detected subsystems (high-level modules from graph clustering)',
 		{},
 		() =>
-			safe(() => {
+			wrap(() => {
 				const rows = engine.subsystems()
 				if (rows.length === 0) {
 					return { content: [{ type: 'text' as const, text: 'no subsystems detected' }] }
@@ -267,7 +313,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			id: z.string().describe('subsystem id (16-hex content hash)'),
 		},
 		({ id }) =>
-			safe(() => {
+			wrap(() => {
 				const detail = engine.subsystem(id)
 				if (!detail) {
 					return {
@@ -302,7 +348,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				.describe('only count commits from the last N days'),
 		},
 		({ path, limit, sinceDays }) =>
-			safe(() => {
+			wrap(() => {
 				const since = sinceDays ? Date.now() - sinceDays * 86400_000 : undefined
 				const rows = engine.churn({ pathPrefix: path, limit: limit ?? 20, since })
 				if (rows.length === 0) {
@@ -324,7 +370,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			symbol: z.string().describe('symbol name or qualifiedName'),
 		},
 		({ symbol }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.testCoverage(symbol)
 				if (!result) {
 					return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
@@ -357,7 +403,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			limit: z.number().optional().describe('max files to return (default 20)'),
 		},
 		({ limit }) =>
-			safe(() => {
+			wrap(() => {
 				const rows = engine.hotFragile({ limit: limit ?? 20 })
 				if (rows.length === 0) {
 					return { content: [{ type: 'text' as const, text: 'no hot-fragile files (need git history + test_links)' }] }
@@ -384,7 +430,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			kind: z.string().optional().describe('channel kind to list (default sql_table)'),
 		},
 		({ kind }) =>
-			safe(() => {
+			wrap(() => {
 				const actualKind = kind ?? 'sql_table'
 				const groups = engine.listChannels(actualKind)
 				if (groups.length === 0) {
@@ -412,7 +458,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			value: z.string().describe('channel value (e.g. users for a sql_table query)'),
 		},
 		({ kind, value }) =>
-			safe(() => {
+			wrap(() => {
 				const result = engine.showChannel(kind, value)
 				if (result.symbols.length === 0) {
 					return {

@@ -74,7 +74,7 @@ function parseChannelMetadata(raw: string | null): Record<string, unknown> | nul
 export class AtlasEngine {
 	private store: AtlasStore | null = null
 	private config: AtlasConfig
-	private projectRoot: string
+	readonly projectRoot: string
 	private dbPath: string
 	// cached set of generated/mock/fake/codegen file ids. computed
 	// lazily via findGeneratedFileIds the first time any query that
@@ -475,6 +475,16 @@ export class AtlasEngine {
 		return this.getStore().getCrossProjectEdgesFrom(projectId, stableId)
 	}
 
+	// inbound-only companion to getCrossProjectEdgesOutbound. fanOut
+	// callers that only walk one direction use this to skip the round
+	// trip they would otherwise discard. see #76.
+	getCrossProjectEdgesInbound(
+		projectId: string,
+		stableId: string,
+	): { sourceProject: string; sourceStableId: string; kind: string }[] {
+		return this.getStore().getCrossProjectEdgesTo(projectId, stableId)
+	}
+
 	// stable-id-keyed variant of deps/blast/trace for federation hops.
 	// the cross_project_edges row gives us an exact remote stable_id.
 	// re-resolving that by name via resolveSymbol() would pick the
@@ -541,10 +551,18 @@ export class AtlasEngine {
 
 	// get the store for cross-project operations. intended for
 	// federation internals only; cli/mcp/web should prefer
-	// buildCrossProjectEdges or clearCrossProjectEdges below so the
-	// store handoff stays encapsulated inside engine.ts.
+	// buildCrossProjectEdges, clearCrossProjectEdges, or
+	// getCrossProjectEdgeCount below so the store handoff stays
+	// encapsulated inside engine.ts.
 	getStoreForCrossProject(): AtlasStore {
 		return this.getStore()
+	}
+
+	// count rows in cross_project_edges for the index-cmd linked-project
+	// hint. kept on the engine so the cli never reaches into the store
+	// directly for a raw sql count. see #78.
+	getCrossProjectEdgeCount(): number {
+		return this.getStore().getCrossProjectEdgeCount()
 	}
 
 	// build cross_project_edges between this engine and another

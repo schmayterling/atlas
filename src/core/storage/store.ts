@@ -318,6 +318,36 @@ export class AtlasStore {
 			.all(name)
 	}
 
+	// batched lookup of non-test symbols whose name matches any of
+	// `names` and whose kind is in `kinds`. used by the graphql linker
+	// to find ts/go twins for schema type names in one query instead of
+	// an ad hoc queryRawWithParams. variable-length IN lists rule out a
+	// long-lived prepared statement, but keeping the sql typed and
+	// centralized here matches the project convention that queries
+	// never go through queryRaw in new code. see #77.
+	getSymbolsByNamesAndKinds(
+		names: string[],
+		kinds: SymbolKind[],
+	): Array<{ stableId: string; name: string; fileId: number; lineStart: number }> {
+		if (names.length === 0 || kinds.length === 0) return []
+		const namePlaceholders = names.map(() => '?').join(',')
+		const kindPlaceholders = kinds.map(() => '?').join(',')
+		return this.db
+			.query<
+				{ stableId: string; name: string; fileId: number; lineStart: number },
+				string[]
+			>(
+				`SELECT s.stable_id AS stableId, s.name AS name, s.file_id AS fileId,
+					s.line_start AS lineStart
+				 FROM symbols s
+				 JOIN files fi ON fi.id = s.file_id
+				 WHERE s.name IN (${namePlaceholders})
+				   AND s.kind IN (${kindPlaceholders})
+				   AND fi.is_test = 0`,
+			)
+			.all(...names, ...kinds)
+	}
+
 	findSymbolInFile(filePath: string, name: string, kind?: SymbolKind): SymbolRecord | null {
 		if (kind) {
 			return (this.stmtFindSymbolInFileKind as any).get(filePath, name, kind) as SymbolRecord | null
@@ -982,6 +1012,17 @@ export class AtlasStore {
 
 	deleteCrossProjectEdgesForProject(project: string) {
 		this.db.run('DELETE FROM cross_project_edges WHERE source_project = ? OR target_project = ?', [project, project])
+	}
+
+	// total rows in cross_project_edges. used by the index-cmd
+	// linked-project hint and by any other consumer that needs a
+	// single-number health check without pulling the store out of the
+	// engine. see #78.
+	getCrossProjectEdgeCount(): number {
+		const row = this.db
+			.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM cross_project_edges')
+			.get()
+		return row?.n ?? 0
 	}
 
 	// drop every cross_project_edges row in this db. used by

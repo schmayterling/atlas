@@ -89,6 +89,23 @@ function traceCrossProject(
 		toProject?: string
 	},
 ) {
+	// validate `--hops` explicitly instead of silently clamping. the
+	// previous `Math.max(1, Math.min(...))` swallowed 0, negatives,
+	// NaN, and non-integers which all indicate a user mistake. runs
+	// before the --from-project / --to-project checks so the error
+	// surfaces the real problem regardless of how the rest of the
+	// command is shaped. see #80.
+	const requestedHops = opts.hops ?? 3
+	if (
+		!Number.isFinite(requestedHops) ||
+		!Number.isInteger(requestedHops) ||
+		requestedHops < 1 ||
+		requestedHops > 5
+	) {
+		console.error(pc.red(`error: --hops must be an integer in 1..5 (got ${opts.hops})`))
+		process.exit(1)
+	}
+
 	if (!opts.fromProject || !opts.toProject) {
 		console.error(
 			pc.red(
@@ -140,7 +157,7 @@ function traceCrossProject(
 	// reach their destination in 1-2 hops. `--hops` controls the
 	// cross-project boundary count, separate from `--depth` which
 	// bounds the per-leg intra-project path length. see #72.
-	const maxHops = Math.max(1, Math.min(opts.hops ?? 3, 5))
+	const maxHops = requestedHops
 	const matchingHops = findCrossProjectBoundaries(
 		fromEngine,
 		fromProject.id,

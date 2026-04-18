@@ -1,0 +1,13 @@
+{
+	"id": "atlas-004",
+	"corpus": "atlas-pinned",
+	"ref": "17a8bb5",
+	"capability": "impact-analysis",
+	"question": "If the signature of `stableSymbolId` in src/shared/identity.ts changes to accept a fourth argument, which files call it and would need to be updated? List call-site files only.",
+	"expected": {
+		"type": "open-ended",
+		"mustInclude": ["indexer.ts", "ts-resolver.ts"]
+	},
+	"rubric_notes": "atlas_blast_radius is the obvious tool. baseline can do this via grep for the function name. atlas should at least tie by returning files sorted by call count. accept partial credit when the agent surfaces the two hottest call sites.",
+	"budget": { "toolCalls": 15, "tokens": 12000 }
+}

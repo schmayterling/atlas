@@ -70,10 +70,8 @@ export async function indexCommand(
 						(l) => l.from === matching.id || l.to === matching.id,
 					)
 					if (links.length > 0) {
-						const xRows = engine.getStoreForCrossProject().queryRaw<{ n: number }>(
-							'SELECT COUNT(*) AS n FROM cross_project_edges',
-						)
-						const xCount = xRows[0]?.n ?? 0
+						// engine wrapper keeps the cli off the raw store. see #78.
+						const xCount = engine.getCrossProjectEdgeCount()
 						if (xCount === 0) {
 							console.log()
 							console.log(

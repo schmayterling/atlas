@@ -1,0 +1,22 @@
+{
+	"boundariesHops1": [],
+	"boundariesHops3": [
+		{
+			"chain": [
+				{
+					"kind": "name_match",
+					"source": "a",
+					"target": "b"
+				},
+				{
+					"kind": "name_match",
+					"source": "b",
+					"target": "c"
+				}
+			],
+			"landingStableIdType": "string"
+		}
+	],
+	"boundaryCountHops1": 0,
+	"boundaryCountHops3": 1
+}

@@ -1,0 +1,13 @@
+{
+	"id": "atlas-003",
+	"corpus": "atlas-pinned",
+	"ref": "17a8bb5",
+	"capability": "symbol-set",
+	"question": "List every exported function in src/core/queries/ whose name starts with `get` and returns a single row (not an array). Ignore methods.",
+	"expected": {
+		"type": "open-ended",
+		"mustInclude": ["getSymbolContainingByte"]
+	},
+	"rubric_notes": "grep can return candidates but has no idea which return arrays vs singles. atlas_resolve_symbol exposes the signature; with-atlas should score higher here. leaving open-ended in phase 1 because the ground-truth list depends on current code.",
+	"budget": { "toolCalls": 15, "tokens": 12000 }
+}

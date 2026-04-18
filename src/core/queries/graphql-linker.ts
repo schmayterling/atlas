@@ -32,6 +32,11 @@ import {
 
 const GRAPHQL_DEF_RE = /^\s*(?:extend\s+)?(type|input|enum|interface|union|scalar)\s+([A-Z][\w]*)/gm
 const TEMPLATE_TAG_RE = /\bgql\s*`([^`]+)`/g
+// maximum ts/go twins mirrored per schema type. listChannels dedupes
+// on distinct symbol but raw row writes still grow with M*N; cap keeps
+// pathological schema-type name collisions (User, Error, Request)
+// bounded on a large polyglot monorepo. see #79.
+const MIRROR_HIT_CAP = 25
 
 export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits: number } {
 	store.deleteChannelHitsByKind('graphql_type')
@@ -147,21 +152,7 @@ function extractFromStandaloneSchema(
 	if (definitions.length === 0) return
 
 	const uniqueNames = Array.from(new Set(definitions.map((d) => d.name)))
-	const namePlaceholders = uniqueNames.map(() => '?').join(',')
-	const symRows = store.queryRawWithParams<{
-		stableId: string
-		name: string
-		fileId: number
-		lineStart: number
-	}>(
-		`SELECT s.stable_id as stableId, s.name as name, s.file_id as fileId, s.line_start as lineStart
-		 FROM symbols s
-		 JOIN files fi ON fi.id = s.file_id
-		 WHERE s.name IN (${namePlaceholders})
-		   AND s.kind IN ('interface', 'type', 'class')
-		   AND fi.is_test = 0`,
-		...uniqueNames,
-	)
+	const symRows = store.getSymbolsByNamesAndKinds(uniqueNames, ['interface', 'type', 'class'])
 	const symsByName = new Map<string, Array<{ stableId: string; fileId: number; lineStart: number }>>()
 	for (const row of symRows) {
 		const list = symsByName.get(row.name) ?? []
@@ -189,9 +180,20 @@ function extractFromStandaloneSchema(
 		// (its `fileId` points at the ts/go file, not the schema), so
 		// downstream consumers that display file:line get a coherent
 		// location. the schema path is preserved in metadata.
+		//
+		// cap per definition so a common schema type name (User, Error)
+		// can't inflate channel_hits on a large polyglot monorepo.
+		// listChannels already dedupes by distinct symbol, but raw row
+		// growth still matters for write time + storage. see #79.
 		const matches = symsByName.get(def.name)
 		if (!matches) continue
-		for (const sym of matches) {
+		const capped = matches.length > MIRROR_HIT_CAP ? matches.slice(0, MIRROR_HIT_CAP) : matches
+		if (matches.length > MIRROR_HIT_CAP) {
+			log.warn(
+				`graphql-linker: ${f.path}::${def.name} matched ${matches.length} ts/go symbols, capping to ${MIRROR_HIT_CAP} mirror hits`,
+			)
+		}
+		for (const sym of capped) {
 			hits.push({
 				symbolStableId: sym.stableId,
 				fileId: sym.fileId,
