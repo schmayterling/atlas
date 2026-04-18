@@ -29,16 +29,21 @@ import { TEXT_TOOLS, makeTextHandler } from '../lib/text-tools.js'
 import { openMcpAgent } from '../lib/mcp-client.js'
 import type { McpAgentHandle } from '../lib/mcp-client.js'
 import type { ToolCall } from '../lib/openrouter.js'
+import { getCbmHandle } from '../lib/preconfigure.js'
 
 const CBM_BIN = process.env.CODEBASE_MEMORY_MCP_BIN
 	|| process.env.CBM_BIN
 	|| 'codebase-memory-mcp'
 
 // cached handles per corpus root so the bench doesn't respawn cbm
-// (and re-index!) for every trial.
+// (and re-index!) for every trial. preconfigure populates these
+// before any LLM jobs run; this fallback path covers running an
+// agent without preconfigure (e.g. one-off --task call).
 const handles = new Map<string, Promise<McpAgentHandle>>()
 
 async function getHandle(corpusRoot: string): Promise<McpAgentHandle> {
+	const pre = getCbmHandle(corpusRoot)
+	if (pre) return pre
 	let p = handles.get(corpusRoot)
 	if (!p) {
 		p = openMcpAgent({
@@ -46,9 +51,8 @@ async function getHandle(corpusRoot: string): Promise<McpAgentHandle> {
 			command: CBM_BIN,
 			args: [],
 			init: async (callTool, root) => {
-				// indexing is required before search/trace/etc. work.
-				// errors here surface to the runner as agent error.
-				await callTool('index_repository', { path: root })
+				// cbm's tool param is `repo_path`, not `path`.
+				await callTool('index_repository', { repo_path: root })
 			},
 		}, corpusRoot)
 		handles.set(corpusRoot, p)

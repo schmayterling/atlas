@@ -31,6 +31,7 @@ import { TEXT_TOOLS, makeTextHandler } from '../lib/text-tools.js'
 import { openMcpAgent } from '../lib/mcp-client.js'
 import type { McpAgentHandle } from '../lib/mcp-client.js'
 import type { ToolCall } from '../lib/openrouter.js'
+import { getChunkhoundHandle } from '../lib/preconfigure.js'
 
 const REPO_ROOT = resolve(import.meta.dir, '..', '..')
 const CHUNKHOUND_BIN = process.env.CHUNKHOUND_BIN || 'chunkhound'
@@ -40,6 +41,8 @@ const CHUNKHOUND_CONFIG = process.env.CHUNKHOUND_CONFIG_FILE
 const handles = new Map<string, Promise<McpAgentHandle>>()
 
 async function getHandle(corpusRoot: string): Promise<McpAgentHandle> {
+	const pre = getChunkhoundHandle(corpusRoot)
+	if (pre) return pre
 	let p = handles.get(corpusRoot)
 	if (!p) {
 		p = openMcpAgent({

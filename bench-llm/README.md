@@ -28,7 +28,30 @@ bun run bench-llm --task ripgrep-04-call-tracing                 # one task
 bun run bench-llm --full --trials 3                              # 3 trials per task
 bun run bench-llm --full --concurrency 8                         # 8 jobs in flight
 bun run bench-llm --full --agents baseline,atlas,cbm,chunkhound  # head-to-head with competitors
+bun run bench-llm --full --judge-with-llm                        # cross-check deterministic judge
+bun run bench-llm --full --judge-model openai/gpt-5.4-nano       # cheaper judge model
+bun run bench-llm --full --skip-preconfig                        # skip the preindex step (debug)
 ```
+
+**preconfigure runs automatically.** before any LLM jobs, the runner
+indexes each non-baseline agent against each corpus once:
+- atlas: `engine.index({ force: true, noEmbed: true, noSummarize: true, withGitHub: false })`
+- cbm: `index_repository(corpus_root)`
+- chunkhound: a no-op semantic_search to trigger embedding
+
+this moves indexing cost out of the per-task wall time so the
+benchmark numbers reflect query speed, not first-task setup. pass
+`--skip-preconfig` to debug or to opt out (subsequent jobs then
+absorb the indexing cost on their first call).
+
+**LLM-as-judge** (`--judge-with-llm`, default off): runs a separate
+model over each agent answer and asks it to score 0..1 with a
+one-sentence rationale. useful as a cross-check against the
+deterministic bench-eval judge — when the two disagree, either the
+task expected is too narrow or the deterministic predicates are
+wrong. defaults to `openai/gpt-5.4-nano` for cost; override with
+`--judge-model`. judge cost is tracked separately in the results
+JSON (`llmJudgeTokens`, `llmJudgeCost`).
 
 defaults: `anthropic/claude-haiku-4.5`, 1 trial per task,
 concurrency 5, `--agents baseline,atlas`. raise `--trials` for

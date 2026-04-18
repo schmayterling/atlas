@@ -55,6 +55,11 @@ export async function openMcpAgent(spec: McpAgentSpec, corpusRoot: string): Prom
 		args: spec.args,
 		env: spec.env,
 		cwd: spec.cwd,
+		// silence spawned mcp servers' stderr (cbm prints
+		// 'level=info msg=mem.init...' on startup which clutters the
+		// benchmark's per-task output). flip to 'inherit' temporarily
+		// when debugging a failing spawn.
+		stderr: 'ignore',
 	})
 	const client = new Client({ name: 'bench-llm', version: '0.0.1' })
 	await client.connect(transport)
@@ -86,7 +91,14 @@ export async function openMcpAgent(spec: McpAgentSpec, corpusRoot: string): Prom
 		try {
 			const result = await callTool(call.function.name, args)
 			const text = serialize(result)
-			return text.length > RESPONSE_LIMIT ? `${text.slice(0, RESPONSE_LIMIT)}\n[truncated at ${RESPONSE_LIMIT} chars]` : text
+			// surface tool-level errors (e.g. cbm sets isError:true on
+			// the result envelope when a required arg is missing). the
+			// LLM agent benefits from a clear "error: ..." prefix; the
+			// preconfigure phase detects that prefix and marks the step
+			// failed instead of cheerfully ✓.
+			const isError = result && typeof result === 'object' && (result as { isError?: boolean }).isError === true
+			const prefixed = isError ? `error: ${text}` : text
+			return prefixed.length > RESPONSE_LIMIT ? `${prefixed.slice(0, RESPONSE_LIMIT)}\n[truncated at ${RESPONSE_LIMIT} chars]` : prefixed
 		} catch (e) {
 			return `error: ${e instanceof Error ? e.message : String(e)}`
 		}
