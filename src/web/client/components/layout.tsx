@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Home, Library, Boxes, Sparkles, GitBranch, Search } from 'lucide-react'
 import { api, getCurrentProject, setCurrentProject } from '../lib/api.js'
 import { ThemeToggle, Kbd } from '../ui/index.js'
+import { CommandPalette, useCommandPalette } from './command-palette.js'
 
 const NAV = [
 	{ path: '/', label: 'home', icon: Home, exact: true },
@@ -22,6 +23,7 @@ export function Layout({ children }: { children: ReactNode }) {
 	const [location] = useLocation()
 	const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
 	const [activeProject, setActiveProject] = useState(getCurrentProject())
+	const palette = useCommandPalette()
 
 	useEffect(() => {
 		api.projects().then((r) => {
@@ -73,8 +75,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
 					<button
 						className="flex items-center gap-2 h-8 px-2.5 rounded-[var(--radius-default)] border border-border text-text-muted hover:text-text hover:bg-surface-hover text-sm cursor-pointer"
-						title="search (cmd-k coming in phase 8)"
-						onClick={() => { window.location.href = '/browse' }}
+						title="search (⌘K)"
+						onClick={() => palette.setOpen(true)}
 					>
 						<Search size={13} strokeWidth={2} />
 						<span>search</span>
@@ -100,6 +102,8 @@ export function Layout({ children }: { children: ReactNode }) {
 			<main className="flex-1 max-w-[1400px] w-full mx-auto px-6 py-8">
 				{children}
 			</main>
+
+			<CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
 		</div>
 	)
 }
