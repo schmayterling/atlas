@@ -134,11 +134,10 @@ zod's deps/blast are slower because the v3+v4+mini packages share
 many cross-imports — a ZodObject `deps` walk fans out to hundreds
 of nodes. ripgrep's rust workspace has shorter chains.
 
-## phase C appendix: LLM head-to-head (3 models, 3 trials each)
+## phase C appendix: LLM head-to-head (4 models, 3 trials each)
 
-runs on **2026-04-18**, commit `7e88b4c`, via OpenRouter, **3 trials
-per task** (36 paired observations per model). raw JSON in
-`bench-llm/results/7e88b4c-*.json`.
+runs on **2026-04-18**, via OpenRouter, **3 trials per task** (36
+paired observations per model). raw JSON in `bench-llm/results/`.
 
 both agents got `read_file`, `grep`, `glob`. with-atlas additionally
 got `atlas_search`, `atlas_overview`, `atlas_deps`,
@@ -146,37 +145,54 @@ got `atlas_search`, `atlas_overview`, `atlas_deps`,
 `atlas_test_coverage`, `atlas_files`. same 12 tasks (6 ripgrep +
 6 zod) used by the deterministic eval above.
 
-### three-model summary
+### four-model summary
 
-| model                             | baseline | atlas | Δ score | tokens / task | Δ tokens | cost  | Δ cost  |
-|-----------------------------------|---------:|------:|--------:|--------------:|---------:|------:|--------:|
-| **claude-haiku-4.5**              |    0.694 | 0.861 | **+0.167** |   18,898 (a) | **−39%** | $0.795 (a) | **−35%** |
-| openai/gpt-5.4-nano               |    0.630 | 0.750 |  +0.120 |    7,355 (a) |   −39%   | $0.067 (a) |    −3%   |
-| google/gemini-3.1-flash-lite      |    0.139 | 0.528 |  +0.389 |   61,270 (a) |  **+99%** | $0.263 (a) | **+39%** |
+| model                             | baseline | atlas | Δ score | tokens / task | Δ tokens | cost / 12 tasks (atlas) | Δ cost  |
+|-----------------------------------|---------:|------:|--------:|--------------:|---------:|------------------------:|--------:|
+| **claude-haiku-4.5**              |    0.694 | 0.861 | **+0.167** |       19,018 |  **−39%** |               $0.795     | **−35%** |
+| openai/gpt-5.4-nano               |    0.630 | 0.750 |  +0.120 |        7,355 |    −39%   |               $0.067     |    −3%   |
+| xiaomi/mimo-v2-omni               |    0.486 | 0.667 |  +0.181 |       46,790 |    −19%   |               $0.478     |   **+9%** |
+| google/gemini-3.1-flash-lite      |    0.139 | 0.528 |  +0.389 |       61,270 |  **+99%** |               $0.263     |  **+39%** |
 
-(per-task token average shown for atlas. Δ is atlas vs baseline.)
+(per-task tokens shown for atlas. Δ columns are atlas vs baseline.
+gpt-5.4-nano: 36 baseline obs / 36 atlas. xiaomi: 35 baseline / 36
+atlas — one baseline trial errored. wall time on `--concurrency 8-10`
+ranged 70-95s for the three small/cheap models, 290s for xiaomi.)
 
-three readings:
+four readings:
 
-1. **haiku 4.5 is the only config that wins on every axis at once.**
+1. **haiku 4.5 is still the only config that wins on every axis.**
    +17 points on score, −39% tokens, −35% cost, 1.6 vs 3.8 tool
-   calls. that's the publishable headline:
+   calls. publishable headline:
    *"on claude haiku 4.5, atlas raises pass rate by 17pp while cutting
    inference cost by 35%."*
 
-2. **the score delta shrinks as model strength grows** (+0.39 on
-   gemini lite → +0.17 on haiku → would shrink further on
-   sonnet/gpt-5). that's expected: smart models compensate for
-   missing tools by being smarter. the value at the haiku tier is
-   "make a smart model better and cheaper" rather than "rescue a
-   weak model from failing." both are real value props for different
-   buyers.
+2. **the cost story splits into three regimes by model class.**
+   - **claude-tier** (haiku): atlas cuts cost meaningfully (−35%)
+     because output tokens dominate billing and atlas reduces output
+     by giving the model facts up front.
+   - **openai-nano-tier**: atlas cost-neutral (~−3%). nano's input/output
+     pricing is almost flat, so token-savings translate to cost-savings
+     at a near-1:1 ratio but nano was already cheap.
+   - **everyone-else-tier** (xiaomi, gemini): atlas can RAISE cost
+     even when tokens drop. xiaomi: −19% tokens but +9% cost — atlas's
+     tool responses bias toward output-heavy reasoning that bills
+     more per token. gemini: weak model loops on atlas tools, +99%
+     tokens and +39% cost.
 
-3. **gemini lite is a cautionary tale for atlas + weak models.**
-   atlas doubled gemini's pass rate (0.14 → 0.53) but gemini wasn't
-   smart enough to use atlas tools efficiently — token use went
-   *up* 99%, cost up 39%. don't pair atlas with sub-haiku-tier
-   models if cost matters more than accuracy.
+3. **score delta is roughly inversely proportional to baseline competence.**
+   gemini (baseline 0.14) → +0.39. xiaomi (0.49) → +0.18. nano (0.63)
+   → +0.12. haiku (0.69) → +0.17. atlas helps weak models more, but
+   the haiku case is special: the delta plateaus at +0.17 because
+   haiku is smart enough to USE atlas tools well rather than just
+   needing them.
+
+4. **xiaomi/mimo is interesting: middle of the score range, middle of
+   the cost story.** atlas doubled its win rate on graph-querying
+   and call-tracing tasks (where structural facts are required) but
+   it actually LOST on `zod-03-code-access` (0.67→0.33), suggesting
+   the model gets confused when atlas hands back too much context.
+   prompt tuning likely matters more on this tier than on haiku.
 
 ### per-task breakdown — haiku 4.5 (the headline run)
 
