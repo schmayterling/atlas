@@ -74,7 +74,8 @@ export function Layout({ children }: { children: ReactNode }) {
 					<div className="flex-1" />
 
 					<button
-						className="flex items-center gap-2 h-8 px-2.5 rounded-[var(--radius-default)] border border-border text-text-muted hover:text-text hover:bg-surface-hover text-sm cursor-pointer"
+						className="flex items-center gap-2 h-8 px-2.5 rounded-[var(--radius-default)] border border-border text-text-muted hover:text-text hover:bg-surface-hover text-sm cursor-pointer focus-ring"
+						aria-label="open command palette"
 						title="search (⌘K)"
 						onClick={() => palette.setOpen(true)}
 					>

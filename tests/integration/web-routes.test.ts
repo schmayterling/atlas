@@ -165,4 +165,46 @@ describe('GET /api/hot-fragile, /api/hotspots, /api/test-coverage', () => {
 		const { status } = await getJson('/api/test-coverage')
 		expect(status).toBe(400)
 	})
+
+	test('GET /api/entry-points returns top exported symbols', async () => {
+		const { status, body } = await getJson('/api/entry-points?limit=5')
+		expect(status).toBe(200)
+		expect(Array.isArray(body)).toBe(true)
+		// every row must have qualifiedName + dependentCount; isExported
+		// comes through as 1 from the raw query (matches existing surfaces)
+		for (const row of body as Array<{ qualifiedName: string; dependentCount: number; isExported: number | boolean }>) {
+			expect(typeof row.qualifiedName).toBe('string')
+			expect(Boolean(row.isExported)).toBe(true)
+		}
+	})
+
+	test('GET /api/article/symbol bundles detail + subsystem + history fields', async () => {
+		const { status, body } = await getJson('/api/article/symbol?q=AuthService')
+		expect(status).toBe(200)
+		const a = body as { symbol: { name: string }; upstream: unknown[]; downstream: unknown[]; language: string; sourceCode: string | null }
+		expect(a.symbol.name).toBe('AuthService')
+		expect(Array.isArray(a.upstream)).toBe(true)
+		expect(Array.isArray(a.downstream)).toBe(true)
+		expect(a.language).toBe('typescript')
+	})
+
+	test('GET /api/article/symbol 404s when symbol missing', async () => {
+		const { status } = await getJson('/api/article/symbol?q=NoSuchSymbol__xyz')
+		expect(status).toBe(404)
+	})
+
+	test('GET /api/article/file bundles symbols + imports + importers', async () => {
+		const { status, body } = await getJson('/api/article/file?path=auth.ts')
+		expect(status).toBe(200)
+		const f = body as { path: string; symbols: unknown[]; imports: unknown[]; importers: unknown[]; language: string }
+		expect(f.path).toBe('auth.ts')
+		expect(Array.isArray(f.symbols)).toBe(true)
+		expect(Array.isArray(f.imports)).toBe(true)
+		expect(Array.isArray(f.importers)).toBe(true)
+	})
+
+	test('GET /api/article/file 404s for unknown path', async () => {
+		const { status } = await getJson('/api/article/file?path=does/not/exist.ts')
+		expect(status).toBe(404)
+	})
 })

@@ -1,0 +1,5 @@
+[test]
+# happy-dom is registered for web-client tests. setup is idempotent
+# (no-op when document is already defined), so it costs nothing for the
+# unit/integration tests that don't touch the DOM.
+preload = ["./tests/web-client/setup.ts"]
