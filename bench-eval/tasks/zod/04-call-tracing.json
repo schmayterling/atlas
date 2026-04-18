@@ -1,0 +1,17 @@
+{
+	"id": "zod-04-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find at least 20 call sites of the v4 classic `string()` schema constructor",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "packages/zod/src/v4/classic/schemas.ts::string",
+		"direction": "inbound",
+		"limit": 200
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-array", "n": 20 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "text-search would over-match on the literal token 'string('. atlas resolves through the ts compiler so only true callers count."
+}

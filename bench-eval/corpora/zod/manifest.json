@@ -1,0 +1,7 @@
+{
+	"name": "zod",
+	"git_url": "https://github.com/colinhacks/zod.git",
+	"ref": "7baee4e17f86f4017e09e12b0acdee36a5b1c087",
+	"expected_languages": ["typescript"],
+	"notes": "zod 3.25.76. ts monorepo (packages/zod/src/...). exercises atlas's typescript extractor + cross-file resolution via the ts compiler. ~265 source ts files excluding locale data."
+}

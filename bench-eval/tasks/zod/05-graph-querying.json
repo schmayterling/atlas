@@ -1,0 +1,16 @@
+{
+	"id": "zod-05-graph-querying",
+	"capability": "graph-querying",
+	"intent": "blast radius of the v3 `ZodObject` class — what depends on it transitively?",
+	"atlas_method": "blast",
+	"atlas_args": {
+		"target": "packages/zod/src/v3/types.ts::ZodObject",
+		"depth": 3
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 5 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "text-search cannot traverse type/extends/import edges to compute transitive impact"
+}

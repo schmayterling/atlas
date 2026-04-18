@@ -1,0 +1,17 @@
+{
+	"id": "zod-03-code-access",
+	"capability": "code-access",
+	"intent": "which file contains the v4 classic `string()` schema constructor?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": { "q": "packages/zod/src/v4/classic/schemas.ts::string" },
+	"expected": {
+		"type": "symbol-set",
+		"symbols": ["packages/zod/src/v4/classic/schemas.ts::string"]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "^export function string\\(params\\?: string \\| core\\.\\$ZodStringParams\\): ZodString \\{",
+		"glob": "*.ts"
+	}
+}

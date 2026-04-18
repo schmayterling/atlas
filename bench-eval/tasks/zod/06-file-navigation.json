@@ -1,0 +1,16 @@
+{
+	"id": "zod-06-file-navigation",
+	"capability": "file-navigation",
+	"intent": "list all locale ts files under packages/zod/src/v4/locales/",
+	"atlas_method": "files",
+	"atlas_args": {
+		"includeTests": true,
+		"pathPrefix": "packages/zod/src/v4/locales/"
+	},
+	"expected": { "type": "count", "value": 40, "tolerance": 5 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "packages/zod/src/v4/locales/**/*.ts"
+	}
+}

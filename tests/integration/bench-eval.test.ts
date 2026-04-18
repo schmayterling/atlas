@@ -39,10 +39,18 @@ describe('bench-eval/lib/judge', () => {
 		expect(judge(exp, { files: ['a.rs'] })).toBeCloseTo(2 / 3, 2)
 	})
 
-	test('structural predicates all-or-nothing', () => {
+	test('structural min-results counts qualifiedName occurrences', () => {
 		const exp: Expected = { type: 'structural', predicates: [{ kind: 'min-results', n: 2 }] }
 		expect(judge(exp, { raw: { results: [{ qualifiedName: 'a' }, { qualifiedName: 'b' }] } })).toBe(1)
 		expect(judge(exp, { raw: { results: [{ qualifiedName: 'a' }] } })).toBe(0)
+	})
+
+	test('structural min-array uses raw array length', () => {
+		const exp: Expected = { type: 'structural', predicates: [{ kind: 'min-array', n: 3 }] }
+		expect(judge(exp, { raw: [1, 2, 3, 4] })).toBe(1)
+		expect(judge(exp, { raw: [1, 2] })).toBe(0)
+		// also verifies it doesn't false-pass on non-arrays
+		expect(judge(exp, { raw: { results: [1, 2, 3] } })).toBe(0)
 	})
 
 	test('skipped answer always scores 0', () => {

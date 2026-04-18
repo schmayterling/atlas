@@ -1,0 +1,18 @@
+{
+	"id": "zod-02-discovery",
+	"capability": "discovery",
+	"intent": "find the `ZodObject` class definition",
+	"atlas_method": "search",
+	"atlas_args": { "q": "ZodObject", "kind": "class", "limit": 5 },
+	"expected": {
+		"type": "symbol-set",
+		"symbols": ["packages/zod/src/v3/types.ts::ZodObject"]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^export class (ZodObject)\\b",
+		"glob": "*.ts",
+		"capture": 1
+	}
+}

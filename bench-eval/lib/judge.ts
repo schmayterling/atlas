@@ -15,6 +15,7 @@ export type StructuralPredicate =
 	| { kind: 'has-symbol'; qualifiedName: string }
 	| { kind: 'min-depth'; n: number }
 	| { kind: 'min-results'; n: number }
+	| { kind: 'min-array'; n: number }
 	| { kind: 'contains-file'; path: string }
 
 export interface AgentAnswer {
@@ -87,6 +88,7 @@ function evalPredicate(p: StructuralPredicate, raw: unknown): boolean {
 			return max >= p.n
 		}
 		case 'min-results':   return countOccurrences(text, '"qualifiedName"') >= p.n
+		case 'min-array':     return Array.isArray(raw) && raw.length >= p.n
 	}
 }
 

@@ -168,12 +168,26 @@ async function main() {
 		const ensured = ensureCorpus(manifest, { freshClone: false })
 		console.log(`  corpus root: ${ensured.rootPath}${ensured.cached ? ' (cached)' : ''}`)
 
-		// ensure the corpus is indexed. cheap if already up-to-date.
+		// ensure the corpus is indexed. skip when status already matches
+		// the manifest's pinned commit — atlas's indexer otherwise re-runs
+		// the post-processing pipelines (flow / duplicate / subsystem
+		// detection) on every invocation, which is many minutes on a
+		// 5k-symbol corpus and contributes nothing to scoring.
 		const engine = getOrCreateEngine(undefined, ensured.rootPath)
-		const indexStart = performance.now()
-		const indexResult = await engine.index({ noEmbed: true, noSummarize: true })
-		const indexMs = Math.round(performance.now() - indexStart)
-		console.log(`  index: ${indexResult.filesTotal} files (${indexResult.symbols} symbols, ${indexResult.edges} edges) in ${indexMs}ms`)
+		const status = (() => { try { return engine.status() } catch { return null } })()
+		const fresh = status?.lastCommit?.startsWith(manifest.ref.slice(0, 8)) && status.stats.symbols > 0
+		if (fresh) {
+			console.log(`  index: cached at ${status?.lastCommit?.slice(0, 8)} (${status?.stats.files} files, ${status?.stats.symbols} symbols)`)
+		} else {
+			const indexStart = performance.now()
+			const indexResult = await engine.index({
+				noEmbed: true,
+				noSummarize: true,
+				withGitHub: false,
+			})
+			const indexMs = Math.round(performance.now() - indexStart)
+			console.log(`  index: ${indexResult.filesTotal} files (${indexResult.symbols} symbols, ${indexResult.edges} edges) in ${indexMs}ms`)
+		}
 
 		for (const task of filtered) {
 			const r = await runOne(task, corpus, ensured.rootPath)
