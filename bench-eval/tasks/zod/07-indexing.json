@@ -1,0 +1,10 @@
+{
+	"id": "zod-07-indexing",
+	"capability": "indexing",
+	"intent": "how many ts source files are under packages/zod/src/v4/core/ (excluding tests)?",
+	"atlas_method": "files",
+	"atlas_args": { "includeTests": false, "pathPrefix": "packages/zod/src/v4/core/" },
+	"expected": { "type": "count", "value": 18, "tolerance": 3 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "glob", "pattern": "packages/zod/src/v4/core/*.ts" }
+}

@@ -1,0 +1,18 @@
+{
+	"id": "zod-11-graph-querying",
+	"capability": "graph-querying",
+	"intent": "trace at least one path from v4 classic `string()` to v4 core `_parse`",
+	"atlas_method": "trace",
+	"atlas_args": {
+		"from": "packages/zod/src/v4/classic/schemas.ts::string",
+		"to": "packages/zod/src/v4/core/parse.ts::_parse",
+		"maxPaths": 5,
+		"maxDepth": 6
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 2 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "trace requires walking call edges across files; text-search has no graph"
+}

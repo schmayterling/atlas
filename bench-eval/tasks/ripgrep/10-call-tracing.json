@@ -1,0 +1,17 @@
+{
+	"id": "ripgrep-10-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find the inbound callers of `print_stats` (should include both search and search_parallel)",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "crates/core/main.rs::print_stats",
+		"direction": "inbound",
+		"limit": 10
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-array", "n": 2 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "text-search would over-match on the literal token 'print_stats'. atlas resolves through edges so only true callers count."
+}

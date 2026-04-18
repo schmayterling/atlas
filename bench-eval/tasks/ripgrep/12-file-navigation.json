@@ -1,0 +1,16 @@
+{
+	"id": "ripgrep-12-file-navigation",
+	"capability": "file-navigation",
+	"intent": "list rust source files under crates/printer/src/",
+	"atlas_method": "files",
+	"atlas_args": {
+		"includeTests": true,
+		"pathPrefix": "crates/printer/src/"
+	},
+	"expected": { "type": "count", "value": 13, "tolerance": 2 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "crates/printer/src/**/*.rs"
+	}
+}

@@ -1,0 +1,11 @@
+{
+	"id": "zod-13-text-content",
+	"capability": "text-content",
+	"intent": "how many ts files mention `safeParse` anywhere in their content (including tests, type signatures, comments)?",
+	"atlas_method": "search",
+	"atlas_args": { "q": "safeParse", "limit": 100 },
+	"expected": { "type": "count", "value": 87, "tolerance": 8 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "rg-files-with-matches", "pattern": "safeParse", "glob": "*.ts" },
+	"notes": "NEGATIVE for atlas: atlas.search() returns symbols whose NAME matches 'safeParse' — tests + comment mentions get missed. text-search wins. expected = grep ground truth."
+}

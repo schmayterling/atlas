@@ -1,0 +1,10 @@
+{
+	"id": "ripgrep-07-indexing",
+	"capability": "indexing",
+	"intent": "how many rust files are inside the searcher crate?",
+	"atlas_method": "files",
+	"atlas_args": { "includeTests": true, "pathPrefix": "crates/searcher/" },
+	"expected": { "type": "count", "value": 11, "tolerance": 2 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "glob", "pattern": "crates/searcher/**/*.rs" }
+}

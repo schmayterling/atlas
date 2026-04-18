@@ -1,0 +1,11 @@
+{
+	"id": "ripgrep-13-text-content",
+	"capability": "text-content",
+	"intent": "how many .rs files mention `pcre2` anywhere in their contents (code, comments, imports)?",
+	"atlas_method": "search",
+	"atlas_args": { "q": "pcre2", "limit": 50 },
+	"expected": { "type": "count", "value": 14, "tolerance": 2 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "rg-files-with-matches", "pattern": "pcre2", "glob": "*.rs" },
+	"notes": "NEGATIVE for atlas: atlas.search() matches symbol NAMES, not file contents. expected count is the grep ground truth (text search file count). atlas is expected to undercount substantially because most pcre2 mentions live inside comments / imports / other rust expressions, not symbol names."
+}

@@ -1,0 +1,11 @@
+{
+	"id": "ripgrep-14-comments",
+	"capability": "text-content",
+	"intent": "how many .rs files contain a TODO comment?",
+	"atlas_method": "search",
+	"atlas_args": { "q": "TODO", "limit": 50 },
+	"expected": { "type": "count", "value": 6, "tolerance": 1 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "rg-files-with-matches", "pattern": "TODO", "glob": "*.rs" },
+	"notes": "NEGATIVE for atlas: atlas indexes symbols, not free comments. atlas.search('TODO') will find ~0 symbols matching that name. text-search wins this category outright. exposes a real atlas limitation: in-comment search is out of scope for the structural index."
+}

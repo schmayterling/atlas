@@ -1,0 +1,17 @@
+{
+	"id": "zod-10-call-tracing",
+	"capability": "call-tracing",
+	"intent": "what does v4 core `_safeParse` call directly (its outbound dependencies)?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "packages/zod/src/v4/core/parse.ts::_safeParse",
+		"direction": "downstream",
+		"depth": 1
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 5 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "atlas's deps walks outbound call edges. text-search would scan the function body but couldn't disambiguate calls from comments / type references."
+}

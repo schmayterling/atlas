@@ -1,0 +1,18 @@
+{
+	"id": "ripgrep-08-discovery",
+	"capability": "discovery",
+	"intent": "find the `SearcherBuilder` class — the public builder for ripgrep's core Searcher",
+	"atlas_method": "search",
+	"atlas_args": { "q": "SearcherBuilder", "kind": "class", "limit": 5 },
+	"expected": {
+		"type": "symbol-set",
+		"symbols": ["crates/searcher/src/searcher/mod.rs::SearcherBuilder"]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^pub struct (SearcherBuilder)\\b",
+		"glob": "*.rs",
+		"capture": 1
+	}
+}

@@ -1,0 +1,17 @@
+{
+	"id": "ripgrep-11-graph-querying",
+	"capability": "graph-querying",
+	"intent": "what does `run` call (downstream callees) at depth 2?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "crates/core/main.rs::run",
+		"direction": "downstream",
+		"depth": 2
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 5 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "text-search cannot walk call edges. atlas's deps with downstream direction returns the transitive callee set."
+}

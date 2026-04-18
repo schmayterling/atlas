@@ -1,0 +1,16 @@
+{
+	"id": "zod-12-file-navigation",
+	"capability": "file-navigation",
+	"intent": "list ts source files under packages/zod/src/v4/mini/",
+	"atlas_method": "files",
+	"atlas_args": {
+		"includeTests": true,
+		"pathPrefix": "packages/zod/src/v4/mini/"
+	},
+	"expected": { "type": "count", "value": 19, "tolerance": 3 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "packages/zod/src/v4/mini/**/*.ts"
+	}
+}
