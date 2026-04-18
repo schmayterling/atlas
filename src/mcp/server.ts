@@ -98,7 +98,18 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		{ name: 'atlas', version: '0.1.0' },
 		{
 			instructions:
-				'atlas indexes codebases and answers structural questions about code. call atlas_status first to check if the index is fresh. use atlas_overview for a single-call "tell me about this symbol" bundle (identity + callers + callees + blast + tests + subsystem). drop to atlas_search for symbol lookup, atlas_semantic_search for natural language queries, atlas_deps for full dependency graphs, atlas_blast_radius for change impact analysis, atlas_trace for execution path tracing, atlas_dead_code for finding unreferenced symbols, atlas_test_coverage to see which test files exercise a symbol, and atlas_hot_fragile to rank files by churn × untested-symbol count.',
+				'atlas indexes codebases and answers structural questions. routing rules:\n' +
+				'  - "tell me about symbol X" → atlas_overview (one call returns identity + callers + callees + blast + tests + subsystem)\n' +
+				'  - "find symbol by name" → atlas_search (exact/fuzzy name match; NOT content search)\n' +
+				'  - "where does the parser handle errors" (intent, no exact name) → atlas_semantic_search (needs Ollama)\n' +
+				'  - "how many files mention pcre2 / TODO / some string" → atlas_content_search (literal text, fixed-string)\n' +
+				'  - "show me the source of X" → atlas_symbol_detail (metadata + direct deps + source body)\n' +
+				'  - "what depends on X / what does X call" → atlas_deps, atlas_call_sites, atlas_trace\n' +
+				'  - "impact of changing X" → atlas_blast_radius\n' +
+				'  - "which tests exercise X" → atlas_test_coverage\n' +
+				'  - "is this symbol used" → atlas_dead_code\n' +
+				'  - "which files are risky" → atlas_hot_fragile (churn × untested-symbol count)\n' +
+				'always call atlas_status first to check if the index is fresh.',
 		},
 	)
 
@@ -115,11 +126,16 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_search ---
+	// name-based symbol lookup. this tool ONLY matches symbol identifiers
+	// (function/class/type/variable names). it does NOT search file contents,
+	// comments, string literals, or arbitrary substrings; use atlas_content_search
+	// for those. prefer atlas_overview when you want rich context on a single
+	// known symbol rather than a list of candidates.
 	server.tool(
 		'atlas_search',
-		'search for symbols (functions, classes, types) by name or pattern',
+		'Find symbols (functions, classes, types, variables) by exact or fuzzy name match. Only matches identifiers; for content/comment/substring search use atlas_content_search. For rich context on one known symbol use atlas_overview.',
 		{
-			query: z.string().describe('symbol name or pattern to search for'),
+			query: z.string().describe('symbol identifier (e.g. "safeParse", "ZodObject"). NOT a file-content substring'),
 			kind: z
 				.enum([
 					'function',
@@ -144,11 +160,15 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_semantic_search ---
+	// embedding-similarity search on symbol metadata + source body. use ONLY
+	// when you don't know the exact symbol name and want to find by intent
+	// (e.g. "where is the parser handling errors?"). does NOT search comments
+	// or arbitrary substrings; for content search use atlas_content_search.
 	server.tool(
 		'atlas_semantic_search',
-		'search code by meaning using natural language (requires Ollama embeddings)',
+		'Find symbols by meaning when you don\'t know an exact name. Uses embedding similarity. Does NOT search comments or substrings; use atlas_content_search for that. Requires Ollama with nomic-embed-text.',
 		{
-			query: z.string().describe('natural language description of what to find'),
+			query: z.string().describe('natural-language intent (e.g. "parser error handling")'),
 			limit: z.number().optional().describe('max results (default 10)'),
 		},
 		({ query, limit }) =>
@@ -172,6 +192,69 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						},
 					],
 				}
+			}),
+	)
+
+	// --- atlas_content_search ---
+	// literal text search across indexed source files. this is the tool for
+	// "how many files mention X as a substring" or "find TODOs / comments /
+	// magic strings". backed by ripgrep; always fixed-string (no regex).
+	server.tool(
+		'atlas_content_search',
+		'Search indexed source files for a literal text substring (TODOs, comments, magic strings, any text that isn\'t a symbol name). Fixed-string only. Returns matching file paths + line numbers + text snippets and aggregate counts. For symbol-name lookup use atlas_search.',
+		{
+			query: z.string().describe('literal substring (no regex)'),
+			pathPrefix: z.string().optional().describe('restrict search to files under this path prefix'),
+			language: z.string().optional().describe('restrict to files of this language (e.g. "typescript", "rust")'),
+			maxMatches: z.number().optional().describe('cap total matches (default 200)'),
+		},
+		({ query, pathPrefix, language, maxMatches }) =>
+			wrap(() => {
+				const result = engine.searchContent(query, { pathPrefix, language, maxMatches })
+				const lines: string[] = []
+				lines.push(`query: ${result.query}`)
+				lines.push(`files matched: ${result.fileCount} | total matches: ${result.matchCount}`)
+				if (result.warning) lines.push(`warning: ${result.warning}`)
+				for (const m of result.matches.slice(0, 80)) {
+					lines.push(`  ${m.file}:${m.line}  ${m.text}`)
+				}
+				if (result.matches.length > 80) lines.push(`  ... (+${result.matches.length - 80} more)`)
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
+	// --- atlas_symbol_detail ---
+	// code-bearing lookup: returns symbol metadata, direct deps, cached LLM
+	// summary (if any), AND the actual source body. use when you need to
+	// "read" a symbol's code in one call rather than atlas_search + read_file.
+	server.tool(
+		'atlas_symbol_detail',
+		'Read a symbol\'s full source body + metadata + direct deps + LLM summary (if indexed with summaries). Use when you need to see the actual code, not just find where a symbol is.',
+		{
+			symbol: z.string().describe('symbol name or file::name reference'),
+		},
+		({ symbol }) =>
+			wrap(async () => {
+				const result = await engine.symbolDetail(symbol)
+				if (!result) {
+					return {
+						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
+						isError: true,
+					}
+				}
+				const s = result.symbol
+				const lines = [
+					`${s.kind} ${s.name}  (${s.qualifiedName})`,
+					`  ${s.filePath}:${s.lineStart}-${s.lineEnd}`,
+					s.signature ? `  signature: ${s.signature}` : '',
+					s.docComment ? `  doc: ${s.docComment.slice(0, 200)}` : '',
+					result.summary ? `  summary: ${result.summary}` : '',
+					`  upstream=${result.upstream.length} downstream=${result.downstream.length}`,
+					'',
+					'--- source ---',
+					result.sourceCode ?? '(source unavailable)',
+				].filter(Boolean)
+				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
 			}),
 	)
 

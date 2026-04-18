@@ -53,6 +53,7 @@ import {
 	listSubsystems,
 } from './queries/subsystems.js'
 import { semanticSearch } from './queries/semantic-search.js'
+import { searchContent, type ContentSearchResult } from './queries/search-content.js'
 import { AtlasStore } from './storage/store.js'
 
 // parse channel_hits.metadata safely. linkers write structured JSON
@@ -595,10 +596,16 @@ export class AtlasEngine {
 
 	// --- file browsing ---
 
+	// returns the full indexed file inventory. defaults to includeTests: true
+	// because tests are part of the project's file count in every intuitive
+	// sense (an LLM asked "how many files under X/" gets the wrong answer if
+	// we silently drop tests). callers that need only production code pass
+	// includeTests: false explicitly. see deep-review findings, 2026-04-19.
 	files(opts?: { includeTests?: boolean }): FileInfo[] {
 		const store = this.getStore()
 		const allFiles = store.getAllFiles()
-		const visible = opts?.includeTests ? allFiles : allFiles.filter((f) => !f.isTest)
+		const includeTests = opts?.includeTests ?? true
+		const visible = includeTests ? allFiles : allFiles.filter((f) => !f.isTest)
 		const counts = store.getSymbolCountByFile()
 		return visible.map((f) => ({
 			path: f.path,
@@ -607,6 +614,18 @@ export class AtlasEngine {
 			sizeBytes: f.sizeBytes,
 			indexedAt: f.indexedAt,
 		}))
+	}
+
+	// content search — fills the capability gap atlas's graph index leaves open
+	// ("which files contain this literal string?"). backed by ripgrep scoped to
+	// the indexed file set. always fixed-string; agents may pass regex-reserved
+	// characters without escaping.
+	searchContent(
+		query: string,
+		opts?: { pathPrefix?: string; language?: string; maxMatches?: number },
+	): ContentSearchResult {
+		const store = this.getStore()
+		return searchContent(store, this.projectRoot, query, opts)
 	}
 
 	fileSymbols(path: string): import('../shared/types.js').SymbolResult[] {

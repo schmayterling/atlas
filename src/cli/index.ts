@@ -8,6 +8,8 @@ import { initCommand } from './commands/init.js'
 import { mcpCommand } from './commands/mcp.js'
 import { serveCommand } from './commands/serve.js'
 import { searchCommand } from './commands/search.js'
+import { searchContentCommand } from './commands/search-content.js'
+import { symbolDetailCommand } from './commands/symbol-detail.js'
 import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
 import { watchCommand } from './commands/watch.js'
@@ -118,6 +120,34 @@ program
 			allProjects: cmdOpts.allProjects,
 			linked: cmdOpts.linked,
 		})
+	})
+
+// literal text search across indexed source files. complements `search` which
+// only matches symbol identifiers — use this when you need to find TODOs,
+// string literals, comments, or any substring that isn't a symbol name.
+program
+	.command('search-content <query>')
+	.description('search file contents for a literal substring (symbols only? use `search` instead)')
+	.option('--path <prefix>', 'restrict search to files under this path prefix')
+	.option('--language <lang>', 'restrict to files of this language (typescript, python, rust, go)')
+	.option('-n, --limit <n>', 'max total matches', (v) => Number.parseInt(v, 10), 200)
+	.action(async (query, cmdOpts) => {
+		const opts = program.opts()
+		await searchContentCommand(opts.project, query, opts.json, {
+			pathPrefix: cmdOpts.path,
+			language: cmdOpts.language,
+			maxMatches: cmdOpts.limit,
+		})
+	})
+
+// code-bearing symbol lookup. returns metadata + direct deps + LLM summary
+// (if available) + source body. the CLI equivalent of atlas_symbol_detail.
+program
+	.command('symbol <name>')
+	.description('show a symbol\'s full source + direct deps + cached LLM summary')
+	.action(async (name) => {
+		const opts = program.opts()
+		await symbolDetailCommand(opts.project, name, opts.json)
 	})
 
 program
