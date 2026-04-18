@@ -12,6 +12,7 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.test.json",
     "dogfood": "bun run scripts/dogfood.ts",
     "bench": "bun run bench/run.ts",
+    "bench-eval": "bun run bench-eval/run.ts",
     "bench-llm": "bun run bench-llm/run.ts",
     "lint": "bunx @biomejs/biome check .",
     "format": "bunx @biomejs/biome format --write ."
