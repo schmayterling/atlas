@@ -36,6 +36,7 @@
     "picocolors": "^1.1.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "shiki": "^4.0.2",
     "sqlite-vec": "^0.1.9",
     "tree-sitter": "^0.22.4",
     "tree-sitter-go": "0.23.2",
