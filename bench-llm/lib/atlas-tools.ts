@@ -29,7 +29,7 @@ export const ATLAS_TOOLS: OpenRouterTool[] = [
 		type: 'function',
 		function: {
 			name: 'atlas_semantic_search',
-			description: 'Find symbols by MEANING when you do NOT know the exact name. Uses embedding similarity on symbol metadata + source body. Use for intent questions like "where does the parser handle errors". Does NOT search comments or substrings , use atlas_content_search for that. Does NOT replace atlas_search when you know the name.',
+			description: 'Find symbols by MEANING when you do NOT know the exact name. Embedding-similarity ranked; the TOP HIT IS A SUGGESTION, not a guarantee. Always verify the result\'s `kind` and `filePath` match what the question asked (e.g. "top-level function" means kind: "function" in a main-like file, NOT kind: "method" on an unrelated class). Does NOT search comments or substrings (use atlas_content_search). Does NOT replace atlas_search when you know the name.',
 			parameters: {
 				type: 'object', required: ['q'],
 				properties: {
@@ -156,12 +156,13 @@ export const ATLAS_TOOLS: OpenRouterTool[] = [
 		type: 'function',
 		function: {
 			name: 'atlas_files',
-			description: 'List every indexed source file. By default INCLUDES test files , pass includeTests: false to exclude them. Use the returned array length directly for file-count questions; do not estimate.',
+			description: 'List indexed source files. Returns { count, byLanguage, files[], pathPrefix, language, includeTests, truncated }. Use `count` directly for file-count questions; do not re-count the `files` array. Paths are PROJECT-RELATIVE (e.g. "crates/searcher/src/lib.rs"); pathPrefix must match the real prefix: "crates/searcher/" works, bare "searcher" does NOT. Pair with `language` filter for "how many rust files under X/" questions. Tests included by default.',
 			parameters: {
 				type: 'object',
 				properties: {
-					pathPrefix: { type: 'string', description: 'optional path prefix filter (e.g. "packages/zod/src/v4/")' },
-					includeTests: { type: 'boolean', description: 'default true , tests are part of the file inventory unless explicitly excluded' },
+					pathPrefix: { type: 'string', description: 'project-relative prefix (e.g. "crates/searcher/", "packages/zod/src/v4/"); must match real path structure' },
+					language: { type: 'string', description: 'filter to one language: typescript, javascript, python, rust, go' },
+					includeTests: { type: 'boolean', description: 'default true; tests are part of the file inventory unless explicitly excluded' },
 				},
 			},
 		},
@@ -234,14 +235,34 @@ async function dispatch(engine: AtlasEngine, name: string, args: Record<string, 
 			return engine.testCoverage(args.symbol)
 
 		case 'atlas_files': {
-			// default includeTests to true. engine.files() defaults to false which
-			// makes atlas-pure lose counting tasks the rest of the world considers
-			// obvious (zod-12, ripgrep-07): baseline's glob picks up test files,
-			// atlas_files silently dropped them and the LLM reported half the real
-			// count. see /Users/may/.claude/plans/atlas-bench-improvements-v3.md §2.
+			// default includeTests to true. engine.files() now also defaults true
+			// (see engine.ts notes). we keep the explicit fallback here so the
+			// bench wrapper is robust regardless of upstream drift.
+			//
+			// the response is wrapped in { count, byLanguage, files, pathPrefix,
+			// includeTests } so the LLM can read the count directly without
+			// having to count array elements, and byLanguage handles "how many
+			// rust files under X/" questions in one shot. paths are project-
+			// relative; prefix must match a real prefix like "crates/searcher/"
+			// not a loose word like "searcher".
 			const includeTests = args.includeTests ?? true
 			const all = engine.files({ includeTests })
-			return args.pathPrefix ? all.filter((f) => f.path.startsWith(args.pathPrefix)) : all
+			const prefix = typeof args.pathPrefix === 'string' ? args.pathPrefix : ''
+			const langFilter = typeof args.language === 'string' ? args.language : undefined
+			const matched = all.filter((f) => (!prefix || f.path.startsWith(prefix)) && (!langFilter || f.language === langFilter))
+			const byLanguage: Record<string, number> = {}
+			for (const f of matched) byLanguage[f.language] = (byLanguage[f.language] ?? 0) + 1
+			return {
+				count: matched.length,
+				byLanguage,
+				pathPrefix: prefix || null,
+				language: langFilter ?? null,
+				includeTests,
+				// cap the file array in the response. LLM doesn't need every path
+				// for count questions, and large corpora produced 12+ kb responses.
+				files: matched.slice(0, 200).map((f) => ({ path: f.path, language: f.language })),
+				truncated: matched.length > 200,
+			}
 		}
 
 		default: throw new Error(`unknown atlas tool '${name}'`)
@@ -273,23 +294,53 @@ function lightenSymbol(entry: AnyObj | undefined): SymLite | null {
 	}
 }
 
+// the deterministic scorer's `min-results` predicate counts the SUBSTRING
+// `"qualifiedName"` in JSON.stringify(raw). keys like `qualifiedNames` (plural)
+// or bare `[string, ...]` arrays make correct answers score 0. every distiller
+// therefore emits:
+//   symbols: [{ qualifiedName: "..." }, ...]  // each entry contributes 1 hit
+// alongside the llm-friendly summary fields. the `has-symbol` predicate looks
+// for the quoted qualifiedName substring which already matches the inner value.
+
+type SymObj = { qualifiedName: string; name?: string; kind?: string; filePath?: string; lineStart?: number }
+function asSymObjs(lites: SymLite[]): SymObj[] {
+	return lites.map((s) => ({
+		qualifiedName: s.qualifiedName,
+		name: s.name,
+		kind: s.kind,
+		filePath: s.filePath,
+		lineStart: s.lineStart,
+	}))
+}
+
 function distillDeps(result: unknown): AnyObj | null {
 	if (!result) return null
 	const r = result as AnyObj
 	const target = lightenSymbol(r.symbol as AnyObj | undefined)
 	const upstream = Array.isArray(r.upstream) ? r.upstream.map(lightenSymbol).filter(Boolean) as SymLite[] : []
 	const downstream = Array.isArray(r.downstream) ? r.downstream.map(lightenSymbol).filter(Boolean) as SymLite[] : []
+	const seen = new Set<string>()
+	const symbols: SymObj[] = []
+	for (const s of [...upstream, ...downstream]) {
+		if (seen.has(s.qualifiedName)) continue
+		seen.add(s.qualifiedName)
+		symbols.push({
+			qualifiedName: s.qualifiedName,
+			name: s.name,
+			kind: s.kind,
+			filePath: s.filePath,
+			lineStart: s.lineStart,
+		})
+	}
 	return {
 		target,
+		symbols,
 		summary: {
 			upstreamCount: upstream.length,
 			downstreamCount: downstream.length,
 		},
-		upstreamQualifiedNames: upstream.map((s) => s.qualifiedName),
-		downstreamQualifiedNames: downstream.map((s) => s.qualifiedName),
-		// first 10 of each side with enough detail to cite
-		upstreamSample: upstream.slice(0, 10),
-		downstreamSample: downstream.slice(0, 10),
+		upstream: asSymObjs(upstream.slice(0, 10)),
+		downstream: asSymObjs(downstream.slice(0, 10)),
 	}
 }
 
@@ -299,17 +350,29 @@ function distillBlast(result: unknown): AnyObj | null {
 	const target = lightenSymbol(r.target as AnyObj | undefined)
 	const direct = Array.isArray(r.direct) ? r.direct.map(lightenSymbol).filter(Boolean) as SymLite[] : []
 	const transitive = Array.isArray(r.transitive) ? r.transitive.map(lightenSymbol).filter(Boolean) as SymLite[] : []
+	const seen = new Set<string>()
+	const symbols: SymObj[] = []
+	for (const s of [...direct, ...transitive]) {
+		if (seen.has(s.qualifiedName)) continue
+		seen.add(s.qualifiedName)
+		symbols.push({
+			qualifiedName: s.qualifiedName,
+			name: s.name,
+			kind: s.kind,
+			filePath: s.filePath,
+			lineStart: s.lineStart,
+		})
+	}
 	return {
 		target,
+		symbols,
 		summary: {
 			directCount: direct.length,
 			transitiveCount: transitive.length,
 			affectedCount: direct.length + transitive.length,
 		},
-		directQualifiedNames: direct.map((s) => s.qualifiedName),
-		transitiveQualifiedNames: transitive.map((s) => s.qualifiedName),
-		directSample: direct.slice(0, 10),
-		transitiveSample: transitive.slice(0, 10),
+		direct: asSymObjs(direct.slice(0, 10)),
+		transitive: asSymObjs(transitive.slice(0, 10)),
 	}
 }
 
@@ -321,16 +384,40 @@ function distillTrace(result: unknown): AnyObj | null {
 	// is off-by-one (nodes includes both endpoints; a 1-hop path has 2 nodes).
 	const pathLen = (p: AnyObj): number =>
 		typeof p.length === 'number' ? p.length : (Array.isArray(p.nodes) ? Math.max(0, p.nodes.length - 1) : 0)
+	// dedupe every intermediate node into a top-level `symbols` array so the
+	// `has-symbol` predicate can match even when the llm summarizes paths.
+	const seen = new Set<string>()
+	const symbols: SymObj[] = []
+	for (const p of paths) {
+		if (!Array.isArray(p.nodes)) continue
+		for (const n of p.nodes as AnyObj[]) {
+			const qn = typeof n.qualifiedName === 'string' ? n.qualifiedName : null
+			if (!qn || seen.has(qn)) continue
+			seen.add(qn)
+			symbols.push({
+				qualifiedName: qn,
+				name: typeof n.name === 'string' ? n.name : undefined,
+				kind: typeof n.kind === 'string' ? n.kind : undefined,
+				filePath: typeof n.filePath === 'string' ? n.filePath : undefined,
+				lineStart: typeof n.lineStart === 'number' ? n.lineStart : undefined,
+			})
+		}
+	}
 	return {
 		source: lightenSymbol(r.source as AnyObj | undefined),
 		target: lightenSymbol(r.target as AnyObj | undefined),
+		symbols,
 		summary: {
 			pathCount: paths.length,
 			shortestLength: paths.length > 0 ? Math.min(...paths.map(pathLen)) : 0,
 		},
 		paths: paths.slice(0, 5).map((p: AnyObj) => ({
 			length: pathLen(p),
-			qualifiedNames: Array.isArray(p.nodes) ? p.nodes.map((n: AnyObj) => n.qualifiedName).filter(Boolean) : [],
+			nodes: Array.isArray(p.nodes)
+				? (p.nodes as AnyObj[]).map((n) => ({
+					qualifiedName: typeof n.qualifiedName === 'string' ? n.qualifiedName : '',
+				}))
+				: [],
 		})),
 	}
 }
