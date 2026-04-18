@@ -9,4 +9,5 @@ CLAUDE.md
 .playwright-mcp/
 .opencode-plugin/
 .claude/
+.env
 .bench-cache/

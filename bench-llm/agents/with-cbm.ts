@@ -4,8 +4,11 @@
 // shared read_file/grep/glob.
 //
 // install (one-time, per machine):
-//   download from https://github.com/DeusData/codebase-memory-mcp/releases
-//   the `cbm-mcp` binary onto your PATH (or export CBM_BIN).
+//   binary is `codebase-memory-mcp` (the project's actual name).
+//   download from https://github.com/DeusData/codebase-memory-mcp
+//   onto your PATH (or `codebase-memory-mcp install` for guided
+//   setup). override path with CODEBASE_MEMORY_MCP_BIN env var.
+//   running the binary with no args starts an MCP server on stdio.
 //
 // behavior:
 //   - calls cbm.index_repository(path) once per (corpus, agent run)
@@ -13,8 +16,12 @@
 //     ensureCorpus + engine.index; cbm has its own indexer so we
 //     trigger it via the mcp tool.
 //   - all 14 cbm tools are exposed verbatim — same names the LLM
-//     would see in production. system prompt does NOT mention them
-//     by name; the LLM discovers via the tool list.
+//     would see in production (index_repository, search_graph,
+//     query_graph, trace_path, get_code_snippet, get_graph_schema,
+//     get_architecture, search_code, list_projects, delete_project,
+//     index_status, detect_changes, manage_adr, ingest_traces).
+//   - system prompt does NOT mention them by name; the LLM
+//     discovers via the tool list.
 
 import type { LlmAgentResult, LlmTaskInput } from '../lib/llm-agent.js'
 import { runLlmAgent } from '../lib/llm-agent.js'
@@ -23,7 +30,9 @@ import { openMcpAgent } from '../lib/mcp-client.js'
 import type { McpAgentHandle } from '../lib/mcp-client.js'
 import type { ToolCall } from '../lib/openrouter.js'
 
-const CBM_BIN = process.env.CBM_BIN || 'cbm-mcp'
+const CBM_BIN = process.env.CODEBASE_MEMORY_MCP_BIN
+	|| process.env.CBM_BIN
+	|| 'codebase-memory-mcp'
 
 // cached handles per corpus root so the bench doesn't respawn cbm
 // (and re-index!) for every trial.
@@ -35,7 +44,7 @@ async function getHandle(corpusRoot: string): Promise<McpAgentHandle> {
 		p = openMcpAgent({
 			name: 'cbm',
 			command: CBM_BIN,
-			args: ['serve', '--stdio'],
+			args: [],
 			init: async (callTool, root) => {
 				// indexing is required before search/trace/etc. work.
 				// errors here surface to the runner as agent error.

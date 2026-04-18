@@ -43,11 +43,15 @@ score them on the same task set. install the competitors first:
 
 **codebase-memory-mcp** (one-time):
 ```bash
-# download the cbm-mcp binary from
-# https://github.com/DeusData/codebase-memory-mcp/releases
-# put it on your PATH (or export CBM_BIN=/path/to/cbm-mcp)
-which cbm-mcp     # should resolve
+# binary is `codebase-memory-mcp` (project's actual name).
+# download from https://github.com/DeusData/codebase-memory-mcp
+# put it on your PATH (or export CODEBASE_MEMORY_MCP_BIN=/path/to/binary).
+which codebase-memory-mcp     # should resolve
+codebase-memory-mcp --version # confirms it runs
 ```
+
+invoking the binary with no args starts an MCP server on stdio —
+that's what bench-llm spawns.
 
 **chunkhound** (one-time):
 ```bash
