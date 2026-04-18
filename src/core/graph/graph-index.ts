@@ -168,12 +168,22 @@ export function reachableNodes(
 	rootId: string,
 	direction: 'outbound' | 'inbound',
 	maxDepth: number,
+	// #85: secondary seeds that should count as one hop from the
+	// primary root. used by blast-radius on interface/class targets
+	// where member symbols are seeded and structural consumers are
+	// reached via inbound walks from each member.
+	secondarySeeds?: string[],
 ): Map<string, number> {
 	const distances = new Map<string, number>()
 
 	if (!graph.hasNode(rootId)) return distances
 
 	const queue: { id: string; depth: number }[] = [{ id: rootId, depth: 0 }]
+	if (secondarySeeds) {
+		for (const id of secondarySeeds) {
+			if (graph.hasNode(id)) queue.push({ id, depth: 1 })
+		}
+	}
 	let head = 0
 	const visited = new Set<string>()
 

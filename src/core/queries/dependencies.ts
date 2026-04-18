@@ -48,10 +48,13 @@ export function getDependencies(
 	const maxDepth = opts?.depth ?? 3
 	// default set includes passed_as / dispatches_to so deps surfaces
 	// middleware / handler registration and go interface dispatch as
-	// first-class dependencies. see #49, #50.
+	// first-class dependencies. instantiates surfaces `new ClassName()`
+	// call sites as direct dependents of the class. field_access
+	// surfaces structural consumers of an interface or class property.
+	// see #49, #50, #85, #87.
 	const edgeKinds =
 		opts?.edgeKinds ??
-		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to'] as EdgeKind[])
+		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access'] as EdgeKind[])
 
 	const budget: SubgraphBudget = {
 		maxDepth,

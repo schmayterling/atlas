@@ -31,19 +31,43 @@ export function getBlastRadius(
 		maxEdges: 20000,
 		// passed_as / dispatches_to are reverse-walked so middleware
 		// registration sites and go interface satisfiers appear in the
-		// blast surface of a function. see #49, #50.
-		edgeKinds: ['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to'],
+		// blast surface of a function. instantiates surfaces every
+		// `new ClassName()` call site when the target is a class.
+		// field_access surfaces structural consumers of an interface
+		// or class property (`result.edges[i].sourceQualifiedName`).
+		// see #49, #50, #85, #87.
+		edgeKinds: ['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access'],
 		timeoutMs: 5000,
 	}
 
-	const { graph, truncated, reason } = loadSubgraph(
-		store,
-		[symbolStableId],
-		budget,
-		'inbound',
-	)
+	// #85: for class/interface/type targets, seed the subgraph with
+	// the target's member symbols too. structural field_access edges
+	// point at the member, not the parent; without member seeds the
+	// inbound walk can never reach consumers that read `result.edges[i].foo`
+	// off an interface typed container. getDirectEdgesFrom expands the
+	// `contains` edge kind which isn't part of the default traversal
+	// set (that would over-expand unrelated parents).
+	const seedIds: string[] = [symbolStableId]
+	if (symbol.kind === 'class' || symbol.kind === 'interface' || symbol.kind === 'type') {
+		const memberEdges = store.getDirectEdgesFrom(symbolStableId, 'contains')
+		for (const edge of memberEdges) seedIds.push(edge.targetId)
+	}
 
-	const distances = reachableNodes(graph, symbolStableId, 'inbound', maxDepth)
+	const { graph, truncated, reason } = loadSubgraph(store, seedIds, budget, 'inbound')
+
+	// the caller cares about distances from the primary target. for
+	// member-seeded graphs each member was visited at depth 0, which
+	// maps to depth 1 from the target (one `contains` hop away). pass
+	// the member set so reachableNodes attributes them correctly.
+	const memberIds = seedIds.slice(1)
+	const distances = reachableNodes(graph, symbolStableId, 'inbound', maxDepth, memberIds)
+
+	// member seeds are structural scaffolding — the consumer cares
+	// about "who depends on the class", not "the class contains these
+	// fields". drop the members themselves from the result set so they
+	// don't show up as direct dependents. see deep-review.
+	const memberIdSet = new Set(memberIds)
+	for (const id of memberIdSet) distances.delete(id)
 
 	// batch-fetch all symbols and convert to results in 2 bulk queries
 	const nodeIds = [...distances.keys()]

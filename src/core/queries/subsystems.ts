@@ -80,7 +80,7 @@ export function getSubsystem(store: AtlasStore, id: string): SubsystemDetail | n
 		dependentCount: number
 	}>(
 		`SELECT s.name, s.qualified_name as qualifiedName, s.kind, f.path as filePath,
-		        (SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
+		        (SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id AND e.kind != 'field_access') as dependentCount
 		 FROM symbols s JOIN files f ON f.id = s.file_id
 		 WHERE s.file_id IN (${placeholders}) AND s.is_exported = 1
 		   AND s.kind IN ('function', 'class', 'interface', 'type', 'enum')

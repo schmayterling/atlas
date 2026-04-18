@@ -66,6 +66,7 @@ export function buildFileGraph(
 			JOIN files f_src ON f_src.id = s_src.file_id
 			JOIN files f_tgt ON f_tgt.id = s_tgt.file_id
 			WHERE s_src.file_id != s_tgt.file_id
+			AND e.kind != 'field_access'
 			${edgeTestFilter}
 		)
 		GROUP BY a, b

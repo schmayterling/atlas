@@ -16,11 +16,14 @@ export function traceFlow(
 	const maxPaths = opts?.maxPaths ?? 5
 	const maxDepth = opts?.maxDepth ?? 10
 	// default set includes passed_as so trace surfaces middleware /
-	// handler registration chains, and dispatches_to so go interface
-	// dispatch is a reachable hop in a flow. see #49, #50.
+	// handler registration chains, dispatches_to so go interface
+	// dispatch is a reachable hop, instantiates so traces can path
+	// through `new ClassName()` boundaries, and field_access so
+	// structural property reads land as a reachable step. see #49,
+	// #50, #85, #87.
 	const edgeKinds =
 		opts?.edgeKinds ??
-		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to'] as EdgeKind[])
+		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access'] as EdgeKind[])
 
 	const sourceSym = store.getSymbolByStableId(sourceStableId)
 	const targetSym = store.getSymbolByStableId(targetStableId)
