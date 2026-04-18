@@ -1,84 +1,140 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://rsms.me/inter/inter.css');
 
+/* default theme: light. dark theme via [data-theme="dark"]. */
 @theme {
-	--color-surface: #0a0a0a;
-	--color-surface-raised: #111111;
-	--color-surface-hover: #191919;
-	--color-surface-active: #1f1f1f;
-	--color-border: #1e1e1e;
-	--color-border-light: #2a2a2a;
-	--color-text: #f5f5f5;
-	--color-text-secondary: #a1a1a1;
-	--color-text-muted: #636363;
-	--color-accent: #0a84ff;
-	--color-accent-hover: #409cff;
-	--color-success: #30d158;
-	--color-warning: #ffd60a;
-	--color-error: #ff453a;
+	/* typography scale: 12 / 13 / 15 / 17 / 22 / 28 */
 	--font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-	--font-mono: "GeistMono", "SF Mono", ui-monospace, monospace;
-	--radius-default: 8px;
+	--font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+	--text-xs: 12px;
+	--text-sm: 13px;
+	--text-base: 15px;
+	--text-md: 17px;
+	--text-lg: 22px;
+	--text-xl: 28px;
+
+	/* spacing scale (px-driven, multiples of 4) */
+	--radius-sm: 6px;
+	--radius-default: 10px;
+	--radius-lg: 14px;
+
+	/* light theme: warm paper, deep ink. inspired by mdn / notion. */
+	--color-surface: #ffffff;
+	--color-surface-raised: #fafaf9;
+	--color-surface-sunken: #f4f4f3;
+	--color-surface-hover: #efefee;
+	--color-surface-active: #e7e7e6;
+	--color-border: #e8e8e7;
+	--color-border-strong: #d4d4d2;
+	--color-text: #1a1a1a;
+	--color-text-secondary: #4a4a4a;
+	--color-text-muted: #767676;
+	--color-text-faint: #a8a8a8;
+	--color-accent: #2563eb;
+	--color-accent-hover: #1d4ed8;
+	--color-accent-soft: #eff5ff;
+	--color-success: #16a34a;
+	--color-warning: #ca8a04;
+	--color-error: #dc2626;
+
+	/* per-kind hues used by KindBadge */
+	--color-kind-function: #2563eb;
+	--color-kind-class: #16a34a;
+	--color-kind-method: #0891b2;
+	--color-kind-interface: #9333ea;
+	--color-kind-type: #ca8a04;
+	--color-kind-variable: #db2777;
+	--color-kind-module: #0284c7;
+	--color-kind-enum: #ea580c;
+	--color-kind-property: #525252;
+}
+
+/* dark theme overrides. activated by setting data-theme="dark" on <html>. */
+:root[data-theme="dark"] {
+	--color-surface: #0b0b0c;
+	--color-surface-raised: #131315;
+	--color-surface-sunken: #08080a;
+	--color-surface-hover: #1c1c1f;
+	--color-surface-active: #232327;
+	--color-border: #1f1f23;
+	--color-border-strong: #2e2e34;
+	--color-text: #f4f4f5;
+	--color-text-secondary: #b4b4b8;
+	--color-text-muted: #7a7a82;
+	--color-text-faint: #4d4d54;
+	--color-accent: #4f8cff;
+	--color-accent-hover: #6fa1ff;
+	--color-accent-soft: #131c2e;
+	--color-success: #4ade80;
+	--color-warning: #facc15;
+	--color-error: #f87171;
+	--color-kind-function: #4f8cff;
+	--color-kind-class: #4ade80;
+	--color-kind-method: #22d3ee;
+	--color-kind-interface: #c084fc;
+	--color-kind-type: #facc15;
+	--color-kind-variable: #f472b6;
+	--color-kind-module: #38bdf8;
+	--color-kind-enum: #fb923c;
+	--color-kind-property: #a3a3a3;
+}
+
+html, body {
+	background-color: var(--color-surface);
+	color: var(--color-text);
 }
 
 body {
-	background-color: var(--color-surface);
-	color: var(--color-text);
 	font-family: var(--font-sans);
+	font-size: var(--text-base);
+	line-height: 1.6;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
-	font-size: 13px;
-	line-height: 1.5;
+	font-feature-settings: "cv11", "ss01", "ss03";
 }
 
-/* smooth default transitions for interactive elements */
-a, button, input, select {
-	transition: color 150ms ease-out, background-color 150ms ease-out, border-color 150ms ease-out, opacity 150ms ease-out;
+a, button, input, select, textarea {
+	transition: color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out, opacity 120ms ease-out;
 }
 
-/* sidebar collapse: smooth ease-out */
-.sidebar-nav {
-	transition: width 250ms ease-out;
-	overflow: hidden;
-	white-space: nowrap;
-}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-faint); }
 
-.sidebar-label {
-	display: inline-block;
-	overflow: hidden;
-	transition: opacity 200ms ease-out, max-width 250ms ease-out;
-	max-width: 120px;
-	opacity: 1;
-}
-
-.sidebar-collapsed .sidebar-label {
-	max-width: 0;
-	opacity: 0;
-}
-
-::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
-}
-
-::-webkit-scrollbar-track {
-	background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-	background: var(--color-border-light);
-	border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-	background: var(--color-text-muted);
-}
-
-code, pre {
+code, pre, .font-mono {
 	font-family: var(--font-mono);
-	font-size: 12px;
+	font-feature-settings: "calt", "liga";
 }
 
 ::selection {
-	background: color-mix(in oklab, var(--color-accent) 30%, transparent);
+	background: color-mix(in oklab, var(--color-accent) 25%, transparent);
 }
+
+/* prose: long-form readable text used inside articles. */
+.prose {
+	font-size: var(--text-base);
+	line-height: 1.7;
+	color: var(--color-text-secondary);
+	max-width: 72ch;
+}
+.prose h1 { font-size: var(--text-xl); font-weight: 700; color: var(--color-text); margin-top: 0; margin-bottom: 0.6em; line-height: 1.2; letter-spacing: -0.02em; }
+.prose h2 { font-size: var(--text-md); font-weight: 600; color: var(--color-text); margin-top: 1.6em; margin-bottom: 0.4em; line-height: 1.3; letter-spacing: -0.01em; }
+.prose h3 { font-size: var(--text-base); font-weight: 600; color: var(--color-text); margin-top: 1.2em; margin-bottom: 0.3em; }
+.prose p { margin: 0.5em 0; }
+.prose code { font-size: 0.9em; background: var(--color-surface-sunken); padding: 1px 5px; border-radius: 4px; color: var(--color-text); }
+.prose pre { background: var(--color-surface-sunken); padding: 12px 14px; border-radius: var(--radius-default); border: 1px solid var(--color-border); overflow-x: auto; font-size: var(--text-sm); }
+.prose pre code { background: transparent; padding: 0; }
+.prose ul { margin: 0.5em 0; padding-left: 1.5em; list-style: disc; }
+.prose ol { margin: 0.5em 0; padding-left: 1.5em; list-style: decimal; }
+.prose li { margin: 0.25em 0; }
+.prose strong { color: var(--color-text); font-weight: 600; }
+.prose a { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.prose a:hover { color: var(--color-accent-hover); }
+
+/* shiki injects inline styles, but we want the bg to match our surface. */
+.shiki, .shiki span { background: transparent !important; }
+
+/* focus: subtle but visible. used by ui primitives. */
+.focus-ring:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: var(--radius-sm); }

@@ -1,7 +1,10 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { Route, Switch } from 'wouter'
+import { initTheme } from './lib/theme.js'
 import { Layout } from './components/layout.js'
+
+initTheme()
 import { DashboardPage } from './pages/dashboard.js'
 import { SearchPage } from './pages/search.js'
 import { GraphPage } from './pages/graph.js'
