@@ -232,21 +232,33 @@ function pad(s: string, n: number): string { return s.length >= n ? s : s + ' '.
 function padNum(n: number, w: number, dec = 2): string { return n.toFixed(dec).padStart(w, ' ') }
 
 function summarize(rows: TrialResult[]): void {
-	console.log('\n=== llm head-to-head ===')
-	console.log(`${pad('task', 38)}  ${pad('agent', 12)}  trial  score   tokens   cost    tools  ms`)
+	const hasLlm = rows.some((r) => r.llmScore !== undefined && r.llmScore !== null)
+
+	console.log(`\n${pc.bold(pc.cyan('=== llm head-to-head ==='))}`)
+	const headers = ['task', 'agent', 'trial', 'score']
+	if (hasLlm) headers.push('llm-score')
+	headers.push('tokens', 'cost', 'tools', 'ms')
+	console.log(
+		`  ${pad(headers[0], 32)}  ${pad(headers[1], 12)}  ${pad(headers[2], 5)}  ${pad(headers[3], 6)}  ${hasLlm ? `${pad('llm', 6)}  ` : ''}${pad('tokens', 8)}  ${pad('cost', 7)}  ${pad('tools', 5)}  ${pad('ms', 6)}`,
+	)
 	const sorted = [...rows].sort((a, b) => a.taskId.localeCompare(b.taskId) || a.agent.localeCompare(b.agent) || a.trial - b.trial)
 	for (const r of sorted) {
-		console.log(
-			pad(r.taskId, 38), '',
-			pad(r.agent, 12), '',
-			pad(String(r.trial + 1), 5), '',
-			padNum(r.score, 5), '',
-			pad(String(r.tokens), 8), '',
-			padNum(r.cost, 6, 4), '',
-			pad(String(r.toolCalls), 5), '',
-			pad(String(r.wallMs), 6),
-			r.error ? `(${r.error.slice(0, 60)})` : '',
-		)
+		const cols = [
+			pad(r.taskId, 32),
+			colorAgent(r.agent).padEnd(12 + (colorAgent(r.agent).length - r.agent.length)),
+			pad(String(r.trial + 1), 5),
+			scoreColor(r.score).padStart(6 + (scoreColor(r.score).length - r.score.toFixed(2).length)),
+		]
+		if (hasLlm) {
+			const llm = r.llmScore !== undefined && r.llmScore !== null ? scoreColor(r.llmScore) : pc.dim('  —  ')
+			cols.push(llm.padStart(6 + (llm.length - 4)))
+		}
+		cols.push(pad(String(r.tokens), 8))
+		cols.push(padNum(r.cost, 7, 4))
+		cols.push(pad(String(r.toolCalls), 5))
+		cols.push(pad(String(r.wallMs), 6))
+		const errSuffix = r.error ? pc.red(`  (${r.error.slice(0, 60)})`) : ''
+		console.log(`  ${cols.join('  ')}${errSuffix}`)
 	}
 
 	const byAgent = new Map<string, TrialResult[]>()
@@ -255,13 +267,18 @@ function summarize(rows: TrialResult[]): void {
 		byAgent.get(r.agent)!.push(r)
 	}
 
-	console.log('\naggregate per agent:')
+	console.log(`\n${pc.bold('aggregate per agent:')}`)
 	for (const [agent, trs] of byAgent) {
 		const avg = (xs: number[]) => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0
 		const sumTokens = trs.reduce((s, r) => s + r.tokens, 0)
 		const sumCost = trs.reduce((s, r) => s + r.cost, 0)
+		const meanScore = avg(trs.map((r) => r.score))
+		const llmScores = trs.map((r) => r.llmScore).filter((s): s is number => typeof s === 'number')
+		const llmCol = hasLlm ? `  llm-mean=${llmScores.length ? scoreColor(avg(llmScores)) : pc.dim('—')}` : ''
+		const judgeCost = trs.reduce((s, r) => s + (r.llmJudgeCost ?? 0), 0)
+		const judgeCostCol = hasLlm && judgeCost > 0 ? `  judge-cost=$${judgeCost.toFixed(4)}` : ''
 		console.log(
-			`  ${pad(agent, 12)}  mean-score=${avg(trs.map((r) => r.score)).toFixed(3)}  total-tokens=${sumTokens}  total-cost=$${sumCost.toFixed(4)}  mean-tool-calls=${avg(trs.map((r) => r.toolCalls)).toFixed(1)}`,
+			`  ${colorAgent(agent as AgentName).padEnd(12 + (colorAgent(agent as AgentName).length - agent.length))}  mean-score=${scoreColor(meanScore)}${llmCol}  total-tokens=${sumTokens}  total-cost=$${sumCost.toFixed(4)}${judgeCostCol}  mean-tool-calls=${avg(trs.map((r) => r.toolCalls)).toFixed(1)}`,
 		)
 	}
 
@@ -269,8 +286,10 @@ function summarize(rows: TrialResult[]): void {
 	if (baseline.length === 0) return
 	const meanB = baseline.reduce((s, r) => s + r.score, 0) / baseline.length
 	const tokB = baseline.reduce((s, r) => s + r.tokens, 0) / baseline.length
+	const llmB = baseline.map((r) => r.llmScore).filter((s): s is number => typeof s === 'number')
+	const llmMeanB = llmB.length ? llmB.reduce((s, x) => s + x, 0) / llmB.length : null
 
-	console.log(`\ndelta vs baseline:`)
+	console.log(`\n${pc.bold('delta vs baseline:')}`)
 	for (const [agent, trs] of byAgent) {
 		if (agent === 'baseline') continue
 		const meanA = trs.reduce((s, r) => s + r.score, 0) / trs.length
@@ -278,8 +297,13 @@ function summarize(rows: TrialResult[]): void {
 		const dScore = meanA - meanB
 		const dTok = tokA - tokB
 		const tokPct = tokB > 0 ? ((dTok / tokB) * 100).toFixed(0) : '—'
+		const llmA = trs.map((r) => r.llmScore).filter((s): s is number => typeof s === 'number')
+		const llmMeanA = llmA.length ? llmA.reduce((s, x) => s + x, 0) / llmA.length : null
+		const llmDelta = (llmMeanA !== null && llmMeanB !== null)
+			? `  llm-score=${(llmMeanA - llmMeanB) >= 0 ? '+' : ''}${(llmMeanA - llmMeanB).toFixed(3)}`
+			: ''
 		console.log(
-			`  ${pad(agent, 12)}  score=${dScore >= 0 ? '+' : ''}${dScore.toFixed(3)}  tokens=${dTok >= 0 ? '+' : ''}${Math.round(dTok)} per task (${dTok >= 0 ? '+' : ''}${tokPct}%)`,
+			`  ${colorAgent(agent as AgentName).padEnd(12 + (colorAgent(agent as AgentName).length - agent.length))}  score=${dScore >= 0 ? '+' : ''}${dScore.toFixed(3)}${llmDelta}  tokens=${dTok >= 0 ? '+' : ''}${Math.round(dTok)} per task (${dTok >= 0 ? '+' : ''}${tokPct}%)`,
 		)
 	}
 }

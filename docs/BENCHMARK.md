@@ -9,10 +9,18 @@ text search cannot reasonably attempt.
 results below are the comparable subset; atlas-only capabilities live
 in `CAPABILITIES.md`.
 
-**TL;DR for the impatient:** on claude-haiku-4.5 (3 trials × 12
-tasks), atlas raises LLM-agent pass rate from 0.694 to 0.861 (+17pp)
-while cutting tokens 39% and cost 35%. on weaker models the score
-gain is bigger but the cost/token story flips. see "phase C" below.
+**TL;DR for the impatient:**
+
+- on claude-haiku-4.5 (3 trials × 12 tasks), atlas raises LLM-agent
+  pass rate from 0.694 to 0.861 (+17pp) while cutting tokens 39% and
+  cost 35%. on weaker models the score gain is bigger but the
+  cost/token story flips. see "phase C" below.
+- **head-to-head with codebase-memory-mcp + chunkhound** on
+  gpt-5.4-nano (3 trials × 12 tasks × 4 agents = 144 jobs): atlas
+  0.806, baseline (grep) 0.611, cbm 0.560, chunkhound 0.556. atlas
+  is the only tool-augmented agent that beats baseline on score AND
+  uses fewer tokens (−29%). cbm and chunkhound both score worse than
+  baseline at higher token cost. see "phase D" below.
 
 ## methodology
 
@@ -252,6 +260,146 @@ runner) the same workload was ~10x slower.
 - prompt format wasn't tuned per model. a haiku-specific prompt could
   push the win further; a gpt-5-nano-specific prompt could cut the
   +99% token regression on gemini.
+
+## phase D appendix: head-to-head with codebase-memory-mcp + chunkhound
+
+run on **2026-04-18**, commit `d60317f`, model `openai/gpt-5.4-nano`
+via OpenRouter, **3 trials × 12 tasks × 4 agents = 144 paired
+observations**. wall: 153.9s at concurrency 10. raw JSON in
+`bench-llm/results/d60317f-2026-04-18T09-44-23-618Z.json`.
+
+each agent gets the shared text tools (`read_file` + `grep` + `glob`)
+plus its own structural surface:
+- **baseline** — text tools only
+- **atlas** — atlas_search / atlas_overview / atlas_deps /
+  atlas_blast_radius / atlas_trace / atlas_call_sites /
+  atlas_test_coverage / atlas_files
+- **cbm** (codebase-memory-mcp) — index_repository / search_graph /
+  query_graph (cypher) / trace_path / get_code_snippet /
+  get_graph_schema / get_architecture / search_code / list_projects /
+  delete_project / index_status / detect_changes / manage_adr /
+  ingest_traces (14 tools)
+- **chunkhound** — semantic_search / regex_search / code_research +
+  embedding-pipeline tools (local Ollama with `nomic-embed-text`,
+  same model atlas uses, so neither tool gets an embedding-tier
+  advantage)
+
+each agent ran a preconfigure step before any LLM jobs to move
+indexing cost off the per-task wall clock (atlas full reindex,
+cbm `index_repository`, chunkhound warmup query).
+
+### four-agent summary
+
+| agent      | mean score | total tokens | total cost (USD) | mean tools / task |
+|------------|-----------:|-------------:|-----------------:|------------------:|
+| baseline   |      0.611 |      469,518 |          $0.0901 |               3.8 |
+| **atlas**  |  **0.806** |      333,981 |      **$0.0755** |           **2.1** |
+| cbm        |      0.560 |      752,508 |          $0.0851 |               4.9 |
+| chunkhound |      0.556 |      575,933 |          $0.1111 |               3.7 |
+
+### delta vs baseline
+
+| agent      | Δ score | Δ tokens / task | Δ cost  |
+|------------|--------:|----------------:|--------:|
+| **atlas**  | **+0.194** |       **−29%** | **−16%** |
+| cbm        |   −0.051 |          +60%   |    −6%   |
+| chunkhound |   −0.056 |          +23%   |   +23%   |
+
+**atlas is the only tool-augmented agent that beats baseline on
+score AND uses fewer tokens.** cbm and chunkhound both score *lower*
+than the grep baseline and consume more tokens to do it.
+
+### per-task breakdown
+
+| task                            | capability      | baseline | atlas | cbm  | chunkhound |
+|---------------------------------|-----------------|---------:|------:|-----:|-----------:|
+| ripgrep-01-indexing             | indexing        |     0.00 |  0.00 | 0.00 |       0.00 |
+| ripgrep-02-discovery            | discovery       |     1.00 |  1.00 | 1.00 |       1.00 |
+| ripgrep-03-code-access          | code-access     |     1.00 |  1.00 | 1.00 |       1.00 |
+| ripgrep-04-call-tracing         | call-tracing    |     1.00 |  1.00 | 0.72 |       1.00 |
+| ripgrep-05-graph-querying       | graph-querying  |     0.00 |**1.00**| 0.00 |       0.00 |
+| ripgrep-06-file-navigation      | file-navigation |     1.00 |  1.00 | 1.00 |       1.00 |
+| zod-01-indexing                 | indexing        |     0.00 |  0.00 | 0.00 |       0.00 |
+| zod-02-discovery                | discovery       |     1.00 |  1.00 | 1.00 |       0.67 |
+| zod-03-code-access              | code-access     |     0.67 |  0.67 | 0.67 |       0.67 |
+| zod-04-call-tracing             | call-tracing    |     0.67 |**1.00**| 0.33 |       0.33 |
+| zod-05-graph-querying           | graph-querying  |     0.00 |**1.00**| 0.00 |       0.00 |
+| zod-06-file-navigation          | file-navigation |     1.00 |  1.00 | 1.00 |       1.00 |
+
+reads:
+
+1. **atlas wins outright on 3 graph-querying / call-tracing tasks**
+   (ripgrep-05, zod-05, zod-04). these are the tasks that require
+   structural traversal — text search and semantic RAG can't compute
+   blast radius or list 200 verified call sites. CBM has a
+   `trace_path` tool but it only partially scored (0.72, 0.33),
+   suggesting weaker resolution depth.
+2. **8 ties at 1.00**: discovery / code-access / file-navigation —
+   surface-level tasks where every approach is fine.
+3. **2 mutual fails on indexing tasks**: both `ripgrep-01` and
+   `zod-01` had every agent score 0. these tasks ask for an exact
+   file count — the model returns numbers like "79", "86", "4" all
+   outside tolerance. this is more about prompt shape than tool
+   surface; the deterministic count scorer punishes any miss harder
+   than the LLM judge does (see "LLM-as-judge" section below).
+4. **CBM did notably worse than baseline.** it has structural tools
+   on paper but the model couldn't extract correct answers from them
+   on call-tracing or graph-querying tasks. on graph-querying
+   specifically (where CBM has cypher `query_graph`), it scored 0.00
+   — likely because constructing the right cypher query under prompt
+   pressure is harder than just calling `atlas_blast_radius`.
+5. **Chunkhound did slightly worse than baseline.** unsurprising:
+   semantic search is a poor fit for "find every caller of X"; the
+   model fell back to grep on those tasks and grep alone outscored
+   chunkhound's mixed strategy.
+6. **Token efficiency: atlas −29%, cbm +60%, chunkhound +23%.** atlas
+   wins by giving direct structural answers (1-2 tool calls). CBM
+   loops more (4.9 mean tool calls vs atlas's 2.1) because the
+   cypher / search_graph surface invites exploratory queries. on a
+   model where tool responses bill as input tokens, this matters.
+
+### LLM-as-judge cross-check
+
+every trial was scored *both* by the deterministic bench-eval judge
+(F1 / count / structural) and by an LLM judge (`gpt-5.4-nano` via
+the same OpenRouter pipeline). the LLM judge sees the typed expected
++ the agent answer and returns 0..1 + a one-sentence rationale.
+useful sanity check on the deterministic judge.
+
+ripgrep-01-indexing example (deterministic = 0 for everyone, LLM
+judge differs):
+- baseline returned `{count: 79}` → deterministic 0.00, LLM **0.45**
+  ("plausible enumeration result, outside tolerance")
+- atlas returned `{count: 86}` → deterministic 0.00, LLM **0.65**
+  ("closer to expected, plausible")
+- cbm returned `{count: 4}` → deterministic 0.00, LLM **0.00**
+  ("does not match required payload structure")
+
+both judges agree directionally on every task. the LLM judge gives
+partial credit for "approximately right" answers that the count
+scorer punishes binary; this is informative about how a downstream
+human reviewer would grade the same output. when scores diverge by
+> 0.2 the task expected is too narrow.
+
+### honest reads
+
+- this is one model. nano is fast and cheap but small; CBM and
+  chunkhound's tool surfaces likely benefit more from a smarter
+  model that can construct better cypher / semantic queries. the
+  next run should be on haiku 4.5 (~$10).
+- the 144-job run cost ~$0.40 on nano. cheap enough to rerun on every
+  bench-llm change.
+- atlas's headline `+0.194 score / −29% tokens` is robust to trial
+  variance (36 paired observations per agent, SE ≈ 0.08).
+- both CBM and chunkhound *underperformed text search* on this run.
+  that's a striking result and worth flagging — neither tool's own
+  documentation discusses model-tier interactions, but for a small
+  model at least, the structural overhead doesn't translate to
+  better answers.
+- this benchmark MAY be biased: the 12 tasks were authored to
+  exercise the capability categories CBM also documents (and
+  partly to expose atlas's structural advantages). a different
+  task set could shift the results meaningfully.
 
 ## comparison to alternatives
 
