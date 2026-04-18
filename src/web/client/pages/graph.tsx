@@ -1,107 +1,129 @@
-import { useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation } from 'wouter'
 import * as Tabs from '@radix-ui/react-tabs'
 import type { ElementDefinition } from 'cytoscape'
-import type { SymbolResult } from '../../../shared/types.js'
+import { ExternalLink, X } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { depsToElements, blastToElements } from '../lib/graph-utils.js'
-import { SearchInput } from '../components/search-input.js'
-import { GraphView } from '../components/graph-view.js'
-import { SymbolCard } from '../components/symbol-card.js'
+import { GraphView, type GraphNodeData } from '../components/graph-view.js'
+import { Button, KindBadge, EmptyState, Kbd } from '../ui/index.js'
 
 type Mode = 'deps' | 'blast'
 type Direction = 'upstream' | 'downstream' | 'both'
 
+function readParams(): { focus: string; mode: Mode; direction: Direction; depth: number } {
+	const sp = new URLSearchParams(window.location.search)
+	const mode = sp.get('mode') === 'blast' ? 'blast' : 'deps'
+	const directionRaw = sp.get('direction')
+	const direction: Direction = directionRaw === 'upstream' || directionRaw === 'downstream' ? directionRaw : 'both'
+	const depth = Math.max(1, Math.min(5, Number(sp.get('depth')) || 3))
+	return { focus: sp.get('focus') ?? '', mode, direction, depth }
+}
+
 export function GraphPage() {
-	const [query, setQuery] = useState('')
-	const [mode, setMode] = useState<Mode>('deps')
-	const [direction, setDirection] = useState<Direction>('both')
-	const [depth, setDepth] = useState(3)
+	const [, setLocation] = useLocation()
+	const initial = useMemo(() => readParams(), [])
+	const [focus, setFocus] = useState(initial.focus)
+	const [draftFocus, setDraftFocus] = useState(initial.focus)
+	const [mode, setMode] = useState<Mode>(initial.mode)
+	const [direction, setDirection] = useState<Direction>(initial.direction)
+	const [depth, setDepth] = useState(initial.depth)
 	const [elements, setElements] = useState<ElementDefinition[]>([])
-	const [selected, setSelected] = useState<SymbolResult | null>(null)
 	const [info, setInfo] = useState('')
 	const [loading, setLoading] = useState(false)
+	const [selected, setSelected] = useState<GraphNodeData | null>(null)
+	const inputRef = useRef<HTMLInputElement>(null)
 
-	const loadGraph = useCallback(
-		async (q: string) => {
-			if (!q.trim()) return
-			setLoading(true)
-			setInfo('')
+	// reflect state to url so the view is shareable + browser back/forward works
+	useEffect(() => {
+		const sp = new URLSearchParams()
+		if (focus) sp.set('focus', focus)
+		if (mode !== 'deps') sp.set('mode', mode)
+		if (direction !== 'both') sp.set('direction', direction)
+		if (depth !== 3) sp.set('depth', String(depth))
+		const next = sp.toString() ? `/graph?${sp.toString()}` : '/graph'
+		if (next !== window.location.pathname + window.location.search) {
+			setLocation(next, { replace: true })
+		}
+	}, [focus, mode, direction, depth])
+
+	// load whenever a real focus + load-trigger inputs change
+	useEffect(() => {
+		if (!focus.trim()) { setElements([]); setInfo(''); return }
+		let cancelled = false
+		setLoading(true); setInfo('')
+		;(async () => {
 			try {
 				if (mode === 'deps') {
-					const result = await api.deps(q, { direction, depth })
-					const els = depsToElements(result)
-					setElements(els)
-					setInfo(
-						`${result.stats.totalNodes} nodes, ${result.stats.totalEdges} edges${result.truncated ? ' (truncated)' : ''}`,
-					)
+					const r = await api.deps(focus, { direction, depth })
+					if (cancelled) return
+					setElements(depsToElements(r))
+					setInfo(`${r.stats.totalNodes} nodes, ${r.stats.totalEdges} edges${r.truncated ? ' (truncated)' : ''}`)
 				} else {
-					const result = await api.blast(q, { depth })
-					const els = blastToElements(result)
-					setElements(els)
-					setInfo(
-						`${result.summary.totalSymbols} affected symbols across ${result.summary.totalFiles} files${result.truncated ? ' (truncated)' : ''}`,
-					)
+					const r = await api.blast(focus, { depth })
+					if (cancelled) return
+					setElements(blastToElements(r))
+					setInfo(`${r.summary.totalSymbols} affected across ${r.summary.totalFiles} files${r.truncated ? ' (truncated)' : ''}`)
 				}
 			} catch (e: any) {
-				setInfo(e.message || 'error loading graph')
+				if (cancelled) return
+				setInfo(e.message ?? 'error')
 				setElements([])
 			} finally {
-				setLoading(false)
+				if (!cancelled) setLoading(false)
 			}
-		},
-		[mode, direction, depth],
-	)
+		})()
+		return () => { cancelled = true }
+	}, [focus, mode, direction, depth])
 
-	const handleNodeClick = (data: any) => {
-		setSelected({
-			name: data.label,
-			qualifiedName: data.qualifiedName,
-			kind: data.kind,
-			signature: null,
-			filePath: data.filePath,
-			lineStart: data.lineStart,
-			lineEnd: data.lineStart,
-			isExported: data.isExported ?? false,
-			docComment: null,
-			usageCount: 0,
-			dependentCount: data.dependentCount ?? 0,
-		})
-	}
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+				e.preventDefault(); inputRef.current?.focus()
+			}
+			if (e.key === 'Escape') setSelected(null)
+		}
+		window.addEventListener('keydown', onKey)
+		return () => window.removeEventListener('keydown', onKey)
+	}, [])
 
-	const handleNodeDoubleClick = (data: any) => {
-		setQuery(data.qualifiedName)
-		loadGraph(data.qualifiedName)
+	const submit = (e?: { preventDefault: () => void }) => {
+		e?.preventDefault()
+		setFocus(draftFocus.trim())
 	}
 
 	return (
-		<div className="flex flex-col h-full">
-			<div className="flex items-center gap-3 mb-4">
-				<h1 className="text-lg font-bold">graph</h1>
+		<div className="flex flex-col h-[calc(100vh-9rem)]">
+			<div className="flex items-baseline gap-3 mb-4">
+				<h1 className="text-xl font-bold tracking-tight">graph</h1>
 				{info && <span className="text-xs text-text-muted">{info}</span>}
 			</div>
 
-			<div className="flex gap-3 mb-4 items-end flex-wrap">
-				<div className="flex-1 min-w-[200px]">
-					<label className="text-xs text-text-muted mb-1 block">symbol</label>
-					<SearchInput
-						value={query}
-						onChange={setQuery}
-						placeholder="enter symbol name..."
-						debounceMs={0}
+			<form onSubmit={submit} className="flex gap-3 mb-4 items-center flex-wrap">
+				<div className="relative flex-1 min-w-[260px]">
+					<input
+						ref={inputRef}
+						value={draftFocus}
+						onChange={(e) => setDraftFocus(e.target.value)}
+						placeholder="qualified symbol name…"
+						className="w-full h-9 pl-3 pr-12 rounded-[var(--radius-default)] border border-border bg-surface-raised text-sm font-mono focus-ring focus:border-accent"
 					/>
+					<div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-faint">
+						<Kbd>/</Kbd>
+					</div>
 				</div>
 
 				<Tabs.Root value={mode} onValueChange={(v) => setMode(v as Mode)}>
-					<Tabs.List className="flex border border-border rounded overflow-hidden">
+					<Tabs.List className="flex border border-border rounded-[var(--radius-default)] overflow-hidden">
 						<Tabs.Trigger
 							value="deps"
-							className="px-3 py-2 text-xs data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text transition-colors"
+							className="px-3 h-9 text-sm data-[state=active]:bg-accent-soft data-[state=active]:text-accent text-text-muted hover:text-text cursor-pointer"
 						>
 							dependencies
 						</Tabs.Trigger>
 						<Tabs.Trigger
 							value="blast"
-							className="px-3 py-2 text-xs data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text transition-colors border-l border-border"
+							className="px-3 h-9 text-sm data-[state=active]:bg-accent-soft data-[state=active]:text-accent text-text-muted hover:text-text border-l border-border cursor-pointer"
 						>
 							blast radius
 						</Tabs.Trigger>
@@ -109,13 +131,14 @@ export function GraphPage() {
 				</Tabs.Root>
 
 				{mode === 'deps' && (
-					<div className="flex border border-border rounded overflow-hidden">
+					<div className="flex border border-border rounded-[var(--radius-default)] overflow-hidden">
 						{(['upstream', 'downstream', 'both'] as Direction[]).map((d) => (
 							<button
 								key={d}
+								type="button"
 								onClick={() => setDirection(d)}
-								className={`px-3 py-2 text-xs transition-colors cursor-pointer ${
-									direction === d ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text'
+								className={`px-3 h-9 text-sm cursor-pointer ${
+									direction === d ? 'bg-accent-soft text-accent' : 'text-text-muted hover:text-text'
 								} ${d !== 'upstream' ? 'border-l border-border' : ''}`}
 							>
 								{d}
@@ -132,41 +155,64 @@ export function GraphPage() {
 						max={5}
 						value={depth}
 						onChange={(e) => setDepth(Number(e.target.value))}
-						className="w-20"
+						className="w-24"
 					/>
-					<span className="text-xs text-text-muted w-4">{depth}</span>
+					<span className="text-xs text-text-muted w-3 tabular-nums">{depth}</span>
 				</div>
 
-				<button
-					onClick={() => loadGraph(query)}
-					disabled={loading || !query.trim()}
-					className="px-4 py-2 text-xs bg-accent text-white rounded hover:bg-accent-hover transition-colors disabled:opacity-30 cursor-pointer"
-				>
-					{loading ? 'loading...' : 'visualize'}
-				</button>
-			</div>
+				<Button type="submit" variant="primary" size="md" disabled={loading || !draftFocus.trim()}>
+					{loading ? 'loading…' : 'visualize'}
+				</Button>
+			</form>
 
-			<div className="flex flex-1 min-h-0 gap-4">
+			<div className="relative flex-1 min-h-0 flex gap-4">
+				{!focus && (
+					<div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+						<EmptyState
+							title="visualize a symbol"
+							description="enter a qualified symbol name (e.g. src/web/server.ts::createApp) to see its neighborhood."
+						/>
+					</div>
+				)}
 				<GraphView
 					elements={elements}
-					layout={mode === 'blast' ? 'concentric' : 'breadthfirst'}
-					onNodeClick={handleNodeClick}
-					onNodeDoubleClick={handleNodeDoubleClick}
-					className="flex-1 border border-border rounded bg-surface-raised"
+					layout={mode === 'blast' ? 'concentric' : 'cose'}
+					onNodeClick={setSelected}
+					onNodeDoubleClick={(d) => { setDraftFocus(d.qualifiedName); setFocus(d.qualifiedName) }}
+					className="flex-1 border border-border rounded-[var(--radius-default)] bg-surface-raised"
 				/>
+
 				{selected && (
-					<div className="w-64 shrink-0 overflow-auto">
-						<div className="flex items-center justify-between mb-2">
-							<span className="text-xs text-text-muted">selected</span>
+					<aside className="w-72 shrink-0 border border-border rounded-[var(--radius-default)] bg-surface-raised p-4 overflow-auto">
+						<div className="flex items-center justify-between mb-3">
+							<KindBadge kind={selected.kind} />
 							<button
-								className="text-xs text-text-muted hover:text-text cursor-pointer"
 								onClick={() => setSelected(null)}
+								className="text-text-faint hover:text-text cursor-pointer"
+								aria-label="close"
 							>
-								close
+								<X size={14} />
 							</button>
 						</div>
-						<SymbolCard symbol={selected} />
-					</div>
+						<div className="font-mono text-base font-semibold mb-1 break-all">{selected.label}</div>
+						<div className="text-xs text-text-muted font-mono mb-4 break-all">
+							{selected.filePath}:{selected.lineStart}
+						</div>
+						<div className="flex flex-col gap-2">
+							<Link
+								href={`/s/${encodeURIComponent(selected.qualifiedName)}`}
+								className="inline-flex items-center justify-between gap-2 h-9 px-3 rounded-[var(--radius-default)] border border-border text-sm text-text hover:bg-surface-hover hover:border-border-strong"
+							>
+								open article <ExternalLink size={12} />
+							</Link>
+							<button
+								onClick={() => { setDraftFocus(selected.qualifiedName); setFocus(selected.qualifiedName) }}
+								className="h-9 px-3 rounded-[var(--radius-default)] border border-border text-sm text-text-secondary hover:text-text hover:bg-surface-hover cursor-pointer text-left"
+							>
+								re-center on this node
+							</button>
+						</div>
+					</aside>
 				)}
 			</div>
 		</div>
