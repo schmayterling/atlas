@@ -27,13 +27,47 @@ bun run bench-llm --ci --model openai/gpt-4o-mini                # cheaper-tier 
 bun run bench-llm --task ripgrep-04-call-tracing                 # one task
 bun run bench-llm --full --trials 3                              # 3 trials per task
 bun run bench-llm --full --concurrency 8                         # 8 jobs in flight
+bun run bench-llm --full --agents baseline,atlas,cbm,chunkhound  # head-to-head with competitors
 ```
 
 defaults: `anthropic/claude-haiku-4.5`, 1 trial per task,
-concurrency 5. raise `--trials` for variance estimation; raise
-`--concurrency` to shorten wall time. openrouter handles upstream
-rate limits, but bumping past ~10 on a free-tier key tends to
-produce 429s that show up as error rows.
+concurrency 5, `--agents baseline,atlas`. raise `--trials` for
+variance estimation; raise `--concurrency` to shorten wall time.
+openrouter handles upstream rate limits, but bumping past ~10 on a
+free-tier key tends to produce 429s that show up as error rows.
+
+## comparing against codebase-memory-mcp + chunkhound
+
+bench-llm can spawn external MCP servers as additional agents and
+score them on the same task set. install the competitors first:
+
+**codebase-memory-mcp** (one-time):
+```bash
+# download the cbm-mcp binary from
+# https://github.com/DeusData/codebase-memory-mcp/releases
+# put it on your PATH (or export CBM_BIN=/path/to/cbm-mcp)
+which cbm-mcp     # should resolve
+```
+
+**chunkhound** (one-time):
+```bash
+pip install chunkhound
+export VOYAGE_API_KEY=...   # or OPENAI_API_KEY for embeddings
+which chunkhound  # should resolve
+```
+
+then:
+
+```bash
+bun run bench-llm --full --agents baseline,atlas,cbm,chunkhound \
+  --model anthropic/claude-haiku-4.5 --trials 3 --concurrency 8
+```
+
+cost estimate: 12 tasks × 4 agents × 3 trials = 144 LLM rounds × $X
+per round depending on model. ~$10 on haiku, ~$1 on nano/gemini-lite.
+this is the apples-to-apples head-to-head BENCHMARK.md keeps
+referring to as "tracked as a follow-up." once you run it, drop the
+results json in `bench-llm/results/` and update `BENCHMARK.md`.
 
 ## what's measured
 
@@ -57,12 +91,16 @@ bench-llm/
 │   ├── openrouter.ts      # minimal openai-shape client + tool-use loop
 │   ├── text-tools.ts      # read_file / grep / glob (every agent)
 │   ├── atlas-tools.ts     # atlas_* tools (with-atlas only)
-│   └── llm-agent.ts       # shared driver — prompt, JSON parse, scoring
+│   ├── mcp-client.ts      # spawn external mcp server, bridge to OpenAI tool format
+│   ├── llm-agent.ts       # shared driver — prompt, JSON parse, scoring
+│   └── pool.ts            # concurrency pool
 ├── agents/
 │   ├── baseline.ts        # text tools only
-│   └── with-atlas.ts      # text tools + atlas tools
+│   ├── with-atlas.ts      # text tools + atlas tools (in-process)
+│   ├── with-cbm.ts        # text tools + codebase-memory-mcp tools (spawned)
+│   └── with-chunkhound.ts # text tools + chunkhound tools (spawned)
 ├── results/               # gitkept, runs land here
-├── run.ts                 # entrypoint with --ci / --full / --task / --model
+├── run.ts                 # entrypoint
 └── README.md
 ```
 

@@ -31,6 +31,8 @@ import type { Task } from '../bench-eval/agents/text-search.js'
 import { getOrCreateEngine } from '../src/core/engine-pool.js'
 import { runBaselineAgent } from './agents/baseline.js'
 import { runWithAtlasAgent } from './agents/with-atlas.js'
+import { runWithCbmAgent, closeCbmAgents } from './agents/with-cbm.js'
+import { runWithChunkhoundAgent, closeChunkhoundAgents } from './agents/with-chunkhound.js'
 import type { LlmAgentResult } from './lib/llm-agent.js'
 import { runPool } from './lib/pool.js'
 
@@ -49,6 +51,10 @@ const CI_TASK_IDS = new Set([
 	'zod-04-call-tracing',
 ])
 
+type AgentName = 'baseline' | 'atlas' | 'cbm' | 'chunkhound'
+const ALL_AGENTS: AgentName[] = ['baseline', 'atlas', 'cbm', 'chunkhound']
+const DEFAULT_AGENTS: AgentName[] = ['baseline', 'atlas']
+
 interface CliOptions {
 	mode: 'ci' | 'full' | 'task'
 	taskFilter: string | null
@@ -56,12 +62,13 @@ interface CliOptions {
 	trials: number
 	corpora: string[] | null
 	concurrency: number
+	agents: AgentName[]
 }
 
 function parseCli(argv: string[]): CliOptions {
 	const opts: CliOptions = {
 		mode: 'ci', taskFilter: null, model: DEFAULT_MODEL, trials: 1,
-		corpora: null, concurrency: DEFAULT_CONCURRENCY,
+		corpora: null, concurrency: DEFAULT_CONCURRENCY, agents: [...DEFAULT_AGENTS],
 	}
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
@@ -72,6 +79,13 @@ function parseCli(argv: string[]): CliOptions {
 		else if (a === '--trials') opts.trials = Math.max(1, Number(argv[++i]))
 		else if (a === '--corpus') (opts.corpora ??= []).push(argv[++i])
 		else if (a === '--concurrency') opts.concurrency = Math.max(1, Number(argv[++i]))
+		else if (a === '--agents') {
+			const list = argv[++i].split(',').map((x) => x.trim()) as AgentName[]
+			for (const a of list) {
+				if (!ALL_AGENTS.includes(a)) throw new Error(`unknown agent '${a}'. valid: ${ALL_AGENTS.join(',')}`)
+			}
+			opts.agents = list
+		}
 	}
 	return opts
 }
@@ -106,7 +120,7 @@ interface TrialResult {
 	taskId: string
 	corpus: string
 	capability: string
-	agent: 'baseline' | 'with-atlas'
+	agent: AgentName
 	trial: number
 	score: number
 	tokens: number
@@ -123,7 +137,7 @@ interface Job {
 	corpusRoot: string
 	task: Task
 	trial: number
-	agent: 'baseline' | 'with-atlas'
+	agent: AgentName
 	model: string
 }
 
@@ -152,11 +166,21 @@ async function runJob(job: Job): Promise<TrialResult> {
 		expectedShape: expectedShape(job.task),
 	}
 	let r: LlmAgentResult
-	if (job.agent === 'baseline') {
-		r = await runBaselineAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot })
-	} else {
-		const engine = getOrCreateEngine(undefined, job.corpusRoot)
-		r = await runWithAtlasAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot, engine })
+	switch (job.agent) {
+		case 'baseline':
+			r = await runBaselineAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot })
+			break
+		case 'atlas': {
+			const engine = getOrCreateEngine(undefined, job.corpusRoot)
+			r = await runWithAtlasAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot, engine })
+			break
+		}
+		case 'cbm':
+			r = await runWithCbmAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot })
+			break
+		case 'chunkhound':
+			r = await runWithChunkhoundAgent({ model: job.model, task: taskInput, corpusRoot: job.corpusRoot })
+			break
 	}
 	const score = judge(job.task.expected as Expected, r.answer)
 	return toTrial(job, r, score)
@@ -200,15 +224,21 @@ function summarize(rows: TrialResult[]): void {
 	}
 
 	const baseline = byAgent.get('baseline') ?? []
-	const atlas = byAgent.get('with-atlas') ?? []
-	if (baseline.length && atlas.length) {
-		const meanB = baseline.reduce((s, r) => s + r.score, 0) / baseline.length
-		const meanA = atlas.reduce((s, r) => s + r.score, 0) / atlas.length
-		const tokB = baseline.reduce((s, r) => s + r.tokens, 0) / baseline.length
-		const tokA = atlas.reduce((s, r) => s + r.tokens, 0) / atlas.length
-		console.log(`\ndelta (with-atlas − baseline):`)
-		console.log(`  score:  ${(meanA - meanB >= 0 ? '+' : '')}${(meanA - meanB).toFixed(3)}`)
-		console.log(`  tokens: ${(tokA - tokB >= 0 ? '+' : '')}${Math.round(tokA - tokB)} per task (${tokB > 0 ? (((tokA - tokB) / tokB) * 100).toFixed(0) : '—'}%)`)
+	if (baseline.length === 0) return
+	const meanB = baseline.reduce((s, r) => s + r.score, 0) / baseline.length
+	const tokB = baseline.reduce((s, r) => s + r.tokens, 0) / baseline.length
+
+	console.log(`\ndelta vs baseline:`)
+	for (const [agent, trs] of byAgent) {
+		if (agent === 'baseline') continue
+		const meanA = trs.reduce((s, r) => s + r.score, 0) / trs.length
+		const tokA = trs.reduce((s, r) => s + r.tokens, 0) / trs.length
+		const dScore = meanA - meanB
+		const dTok = tokA - tokB
+		const tokPct = tokB > 0 ? ((dTok / tokB) * 100).toFixed(0) : '—'
+		console.log(
+			`  ${pad(agent, 12)}  score=${dScore >= 0 ? '+' : ''}${dScore.toFixed(3)}  tokens=${dTok >= 0 ? '+' : ''}${Math.round(dTok)} per task (${dTok >= 0 ? '+' : ''}${tokPct}%)`,
+		)
 	}
 }
 
@@ -254,12 +284,13 @@ async function main() {
 	for (const { corpus, task } of filtered) {
 		const corpusRoot = corpusRoots.get(corpus)!
 		for (let trial = 0; trial < opts.trials; trial++) {
-			jobs.push({ corpus, corpusRoot, task, trial, agent: 'baseline', model: opts.model })
-			jobs.push({ corpus, corpusRoot, task, trial, agent: 'with-atlas', model: opts.model })
+			for (const agent of opts.agents) {
+				jobs.push({ corpus, corpusRoot, task, trial, agent, model: opts.model })
+			}
 		}
 	}
 
-	console.log(`bench-llm: model=${opts.model} mode=${opts.mode} tasks=${filtered.length} trials=${opts.trials} concurrency=${opts.concurrency} total-jobs=${jobs.length}`)
+	console.log(`bench-llm: model=${opts.model} mode=${opts.mode} agents=${opts.agents.join(',')} tasks=${filtered.length} trials=${opts.trials} concurrency=${opts.concurrency} total-jobs=${jobs.length}`)
 
 	const startAll = performance.now()
 	const poolResults = await runPool(jobs, opts.concurrency, runJob, (done, total, last) => {
@@ -295,9 +326,14 @@ async function main() {
 		trials: opts.trials,
 		concurrency: opts.concurrency,
 		wallSec: Number(wallSec),
+		agents: opts.agents,
 		results: allRows,
 	}, null, 2))
 	console.log(`\nwrote ${outFile}`)
+
+	// tear down spawned mcp clients (cbm + chunkhound). harmless when
+	// neither was used in this run.
+	await Promise.allSettled([closeCbmAgents(), closeChunkhoundAgents()])
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
