@@ -109,6 +109,21 @@ export const api = {
 	hotFragile: (limit = 30) => get<HotFragileEntry[]>('/hot-fragile', { limit: String(limit) }),
 	symbolArticle: (q: string) => get<SymbolArticleResult>('/article/symbol', { q }),
 	fileArticle: (path: string) => get<FileArticleResult>('/article/file', { path }),
+	hotspots: (limit = 30, coverage?: 'called' | 'imported' | 'none') =>
+		get<HotspotEntry[]>('/hotspots', { limit: String(limit), coverage }),
+}
+
+export interface HotspotEntry {
+	stableId: string
+	name: string
+	qualifiedName: string
+	kind: string
+	filePath: string
+	lineStart: number
+	fanin: number
+	commits: number
+	coverage: 'called' | 'imported' | 'none'
+	score: number
 }
 
 export interface ChurnEntry {
