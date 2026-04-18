@@ -107,6 +107,117 @@ export function mergeSemanticResults<T extends { distance: number }>(
 	return merged.slice(0, limit)
 }
 
+// boundary-hop entry for (possibly multi-hop) cross-project paths.
+// `boundaryChain` lists every cross_project_edges row walked from the
+// source anchor to `landingStableId` inside the destination project,
+// ordered source → dest. a direct hop has one entry in the chain.
+export interface BoundaryHop {
+	landingStableId: string
+	boundaryChain: Array<{
+		sourceProject: string
+		sourceStableId: string
+		targetProject: string
+		targetStableId: string
+		kind: string
+	}>
+}
+
+// BFS over the meta-graph of cross_project_edges. at each node we take
+// its outbound cross-project edges via the remote project's engine and
+// enqueue the landing point. the search records every distinct landing
+// in toProject under the hop cap, so two different edges from different
+// intermediate projects both surface. we track landings in their own
+// dedupe set so each (landing_project, landing_stable_id) pair is
+// recorded at most once (prevents exponential blowup when toProject
+// also appears as an intermediate hop in cycles). intermediate nodes
+// are deduped in `visited` to keep cycles bounded. maxHops is the
+// number of cross_project_edges walked (hop=1 direct, hop=2 one
+// intermediate, etc.). see #72 + deep-review.
+export function findCrossProjectBoundaries(
+	fromEngine: AtlasEngine,
+	fromProjectId: string,
+	fromStableId: string,
+	toProjectId: string,
+	maxHops: number,
+): BoundaryHop[] {
+	if (fromProjectId === toProjectId) {
+		// nothing to walk: same-project trace is handled by the caller
+		// without crossing any boundary. bail early rather than mining
+		// self-referencing cross_project_edges rows, which would be a
+		// misleading result.
+		return []
+	}
+
+	type QueueItem = {
+		engine: AtlasEngine
+		projectId: string
+		stableId: string
+		chain: BoundaryHop['boundaryChain']
+	}
+	const hops: BoundaryHop[] = []
+	const visited = new Set<string>()
+	const landingSeen = new Set<string>()
+	const queue: QueueItem[] = [
+		{ engine: fromEngine, projectId: fromProjectId, stableId: fromStableId, chain: [] },
+	]
+	visited.add(`${fromProjectId}|${fromStableId}`)
+
+	while (queue.length > 0) {
+		const item = queue.shift()!
+		if (item.chain.length >= maxHops) continue
+		const edges = item.engine.getCrossProjectEdgesOutbound(item.projectId, item.stableId)
+		for (const edge of edges) {
+			const nextChain = [
+				...item.chain,
+				{
+					sourceProject: item.projectId,
+					sourceStableId: item.stableId,
+					targetProject: edge.targetProject,
+					targetStableId: edge.targetStableId,
+					kind: edge.kind,
+				},
+			]
+			if (edge.targetProject === toProjectId) {
+				// record each distinct landing in toProject once. this
+				// prevents an exponential blowup when toProject appears
+				// as an intermediate hop in a cycle.
+				const landingKey = `${edge.targetProject}|${edge.targetStableId}`
+				if (landingSeen.has(landingKey)) continue
+				landingSeen.add(landingKey)
+				hops.push({ landingStableId: edge.targetStableId, boundaryChain: nextChain })
+				continue
+			}
+			const key = `${edge.targetProject}|${edge.targetStableId}`
+			if (visited.has(key)) continue
+			visited.add(key)
+			const nextProject = getProject(edge.targetProject)
+			if (!nextProject) {
+				log.debug(
+					`findCrossProjectBoundaries: edge references unknown project "${edge.targetProject}", skipping subtree`,
+				)
+				continue
+			}
+			let nextEngine: AtlasEngine
+			try {
+				nextEngine = getOrCreateEngine(nextProject.id, nextProject.root)
+			} catch (e) {
+				log.warn(
+					`findCrossProjectBoundaries: failed to open engine for "${nextProject.id}": ${e instanceof Error ? e.message : e}`,
+				)
+				continue
+			}
+			queue.push({
+				engine: nextEngine,
+				projectId: nextProject.id,
+				stableId: edge.targetStableId,
+				chain: nextChain,
+			})
+		}
+	}
+
+	return hops
+}
+
 // restricts a project list to the connected component reachable via
 // linkProjects from the active project. lifted out of search.ts so
 // all federated commands share the same definition. falls back to

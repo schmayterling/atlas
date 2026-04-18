@@ -1,6 +1,7 @@
-import { lstatSync, readFileSync, readdirSync } from 'node:fs'
-import { join, resolve as resolvePath } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
 import { log } from '../../shared/logger.js'
+import { stableSymbolId } from '../../shared/identity.js'
 import type { ChannelHit } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
 import {
@@ -11,24 +12,23 @@ import {
 	shouldKeepIdentifier,
 } from './channel-utils.js'
 
-// graphql_type channel linker (#30b). extracts type / input / enum /
-// interface definitions from `gql\`...\`` template literals embedded
-// in already-indexed ts/js files. writes channel_hits rows with
-// kind='graphql_type', attributing each hit to the surrounding
-// function/class via store.getSymbolContainingByte.
+// graphql_type channel linker (#30b / #66). extracts type / input /
+// enum / interface definitions from two sources:
+//   1. `gql\`...\`` template literals embedded in already-indexed
+//      ts/js files (original MVP scope)
+//   2. standalone `.graphql` / `.graphqls` / `.gql` schema files,
+//      which the indexer registers in the files table with
+//      language='graphql' so channel_hits.file_id has a real target.
+//      see file-discovery + indexer extractOneFile for the plumbing.
 //
-// scope:
-//   - top-level definitions inside gql template literals
-//     (`gql\`type X { ... }\``, `gql\`input X { ... }\``)
+// writes channel_hits rows with kind='graphql_type'. for embedded
+// literals, attribution goes to the surrounding function/class via
+// store.getSymbolContainingByte. for standalone files there is no
+// enclosing symbol, so the hit is attributed to the file-level
+// stable_id recorded in metadata.schemaPath.
+//
+// out of scope:
 //   - field references inside resolver bodies are NOT extracted
-//   - **standalone .graphql / .graphqls / .gql schema files are NOT
-//     extracted in this MVP**. those files don't go through the
-//     normal file-discovery pipeline, so they have no row in the
-//     files table, and channel_hits.file_id has a NOT NULL FK
-//     constraint. extracting them would require either inserting
-//     the schema file into the files table (mixing schema with
-//     source language extractors) or relaxing the FK. tracked as a
-//     follow-up to #30b.
 
 const GRAPHQL_DEF_RE = /^\s*(?:extend\s+)?(type|input|enum|interface|union|scalar)\s+([A-Z][\w]*)/gm
 const TEMPLATE_TAG_RE = /\bgql\s*`([^`]+)`/g
@@ -39,23 +39,18 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 	const hits: ChannelHit[] = []
 	const rootReal = safeRealpath(projectRoot) ?? projectRoot
 
-	// surface the standalone-schema-file gap to users: if the project
-	// has .graphql / .graphqls / .gql files but we only extract from
-	// gql`...` template literals, the user will see zero hits with no
-	// explanation. log a warning once when standalone schemas are
-	// present so they understand the limitation.
-	const standaloneCount = countStandaloneSchemas(rootReal)
-	if (standaloneCount > 0) {
-		log.warn(
-			`graphql-linker: found ${standaloneCount} standalone .graphql/.graphqls/.gql file(s); only gql\`\` template literals embedded in ts/js files are extracted in this MVP`,
-		)
-	}
-
 	const indexedFiles = store.getAllFiles().filter((f) => !f.isTest)
 	const tsExt = new Set(['.ts', '.tsx', '.js', '.jsx'])
+	const graphqlExt = new Set(['.graphql', '.graphqls', '.gql'])
 	for (const f of indexedFiles) {
 		const dot = f.path.lastIndexOf('.')
-		if (dot < 0 || !tsExt.has(f.path.slice(dot))) continue
+		if (dot < 0) continue
+		const ext = f.path.slice(dot)
+		if (graphqlExt.has(ext)) {
+			extractFromStandaloneSchema(store, projectRoot, rootReal, f, hits)
+			continue
+		}
+		if (!tsExt.has(ext)) continue
 		const abs = resolvePath(projectRoot, f.path)
 		const real = safeRealpath(abs)
 		if (real && !isUnderRoot(real, rootReal)) continue
@@ -102,46 +97,115 @@ export function linkGraphqlTypes(store: AtlasStore, projectRoot: string): { hits
 	return { hits: hits.length }
 }
 
-const STANDALONE_GRAPHQL_EXT = ['.graphql', '.graphqls', '.gql']
-const STANDALONE_SKIP_DIRS = new Set([
-	'node_modules',
-	'.git',
-	'dist',
-	'build',
-	'.atlas',
-	'vendor',
-	'target',
-	'.next',
-	'.nuxt',
-	'.output',
-	'coverage',
-])
+// standalone .graphql / .graphqls / .gql schema file extraction.
+// the indexer has already registered a files row (see extractOneFile
+// no-extractor branch), so channel_hits.file_id points at a real
+// file. for each type/input/enum definition:
+//   1. emit one hit attributed to a synthetic per-file stable_id so
+//      every definition in the same schema file groups together, and
+//      distinct schema files don't collide.
+//   2. emit additional hits attributed to any indexed ts/go symbol
+//      (interface / type / class) sharing the type name, so
+//      listChannels (which requires ≥2 distinct symbols per group)
+//      actually groups the schema type with its language-level twin.
+//      without this step, a schema-first project never produces
+//      cross-language groups in listChannels. see #66 + deep-review.
+function extractFromStandaloneSchema(
+	store: AtlasStore,
+	projectRoot: string,
+	rootReal: string,
+	f: { id: number; path: string },
+	hits: ChannelHit[],
+): void {
+	const abs = resolvePath(projectRoot, f.path)
+	const real = safeRealpath(abs)
+	if (real && !isUnderRoot(real, rootReal)) return
+	let source: string
+	try {
+		source = readFileSync(abs, 'utf-8')
+	} catch (e) {
+		log.warn(`graphql-linker: read ${f.path}: ${e}`)
+		return
+	}
+	const lineOffsets = buildLineOffsets(source)
+	const synthSid = stableSymbolId(f.path, 'module', `${f.path}::schema`)
 
-function countStandaloneSchemas(root: string): number {
-	let count = 0
-	const walk = (dir: string) => {
-		let entries: string[]
-		try {
-			entries = readdirSync(dir)
-		} catch {
-			return
-		}
-		for (const entry of entries) {
-			if (STANDALONE_SKIP_DIRS.has(entry)) continue
-			const abs = join(dir, entry)
-			let stat
-			try {
-				stat = lstatSync(abs)
-			} catch {
-				continue
-			}
-			if (stat.isDirectory()) {
-				walk(abs)
-				continue
-			}
-			if (STANDALONE_GRAPHQL_EXT.some((ext) => entry.endsWith(ext))) count++
+	// collect definitions first so the cross-language lookup is one
+	// batched query instead of n per-definition queries.
+	const definitions: Array<{ definition: string; name: string; line: number }> = []
+	for (const m of source.matchAll(GRAPHQL_DEF_RE)) {
+		const definition = m[1]
+		const name = m[2]
+		if (!shouldKeepIdentifier(name)) continue
+		const matchOffset = m.index ?? 0
+		definitions.push({
+			definition,
+			name,
+			line: offsetToLine(lineOffsets, matchOffset) + 1,
+		})
+	}
+	if (definitions.length === 0) return
+
+	const uniqueNames = Array.from(new Set(definitions.map((d) => d.name)))
+	const namePlaceholders = uniqueNames.map(() => '?').join(',')
+	const symRows = store.queryRawWithParams<{
+		stableId: string
+		name: string
+		fileId: number
+		lineStart: number
+	}>(
+		`SELECT s.stable_id as stableId, s.name as name, s.file_id as fileId, s.line_start as lineStart
+		 FROM symbols s
+		 JOIN files fi ON fi.id = s.file_id
+		 WHERE s.name IN (${namePlaceholders})
+		   AND s.kind IN ('interface', 'type', 'class')
+		   AND fi.is_test = 0`,
+		...uniqueNames,
+	)
+	const symsByName = new Map<string, Array<{ stableId: string; fileId: number; lineStart: number }>>()
+	for (const row of symRows) {
+		const list = symsByName.get(row.name) ?? []
+		list.push({ stableId: row.stableId, fileId: row.fileId, lineStart: row.lineStart })
+		symsByName.set(row.name, list)
+	}
+
+	for (const def of definitions) {
+		// synthetic hit keeps the schema file itself groupable.
+		hits.push({
+			symbolStableId: synthSid,
+			fileId: f.id,
+			kind: 'graphql_type',
+			value: def.name,
+			line: def.line,
+			metadata: JSON.stringify({
+				definition: def.definition,
+				source: 'schema_file',
+				schemaPath: f.path,
+			}),
+		})
+		// cross-language mirror hits so listChannels groups match the
+		// expected "schema type X corresponds to ts interface X" shape.
+		// each mirror hit records the ts/go symbol's own line_start
+		// (its `fileId` points at the ts/go file, not the schema), so
+		// downstream consumers that display file:line get a coherent
+		// location. the schema path is preserved in metadata.
+		const matches = symsByName.get(def.name)
+		if (!matches) continue
+		for (const sym of matches) {
+			hits.push({
+				symbolStableId: sym.stableId,
+				fileId: sym.fileId,
+				kind: 'graphql_type',
+				value: def.name,
+				line: sym.lineStart,
+				metadata: JSON.stringify({
+					definition: def.definition,
+					source: 'schema_file',
+					schemaPath: f.path,
+					schemaLine: def.line,
+					crossLanguageMirror: true,
+				}),
+			})
 		}
 	}
-	walk(root)
-	return count
 }

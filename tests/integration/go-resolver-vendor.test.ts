@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../helpers/setup.js'
-import { AtlasEngine } from '../../src/core/engine.js'
+import type { AtlasEngine } from '../../src/core/engine.js'
+import { addProject } from '../../src/core/registry.js'
+import { closeAll, getOrCreateEngine } from '../../src/core/engine-pool.js'
 
 // covers #29: vendor-only external go resolver. drops a tiny vendored
 // dependency under ./vendor/example.com/widget/ and asserts the
@@ -61,12 +63,13 @@ func main() {
 `,
 	)
 
-	engine = new AtlasEngine(root)
-	await engine.index({ noEmbed: true, noSummarize: true, force: true })
+	const project = addProject(root)
+	engine = getOrCreateEngine(project.id, root)
+	await engine.index({ noEmbed: true, noSummarize: true, force: true, withGitHub: false })
 })
 
 afterAll(() => {
-	engine.close()
+	closeAll()
 	rmSync(root, { recursive: true, force: true })
 })
 

@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { basename, join, relative } from 'node:path'
+import { readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { basename, dirname, join, relative } from 'node:path'
 import { stableSymbolId } from '../../shared/identity.js'
 import { log } from '../../shared/logger.js'
 import { toForwardSlash } from '../../shared/paths.js'
@@ -77,11 +77,20 @@ export function resolveGoProject(
 	// cache package names per dir so we only read/parse the target
 	// package's package_clause once per resolver run. see #28.
 	const packageNameCache = new Map<string, string | null>()
+	// cache proximity-ranked module lists per importing file dir so
+	// the sort in rankModulesByProximity runs once per unique source
+	// directory instead of per-import. see #65 + deep-review pass 5.
+	const proximityCache = new Map<string, RepoModule[]>()
 
 	for (const absPath of absoluteFilePaths) {
 		const relPath = toForwardSlash(relative(projectRoot, absPath))
 		const fileRecord = store.getFileByPath(relPath)
 		if (!fileRecord) continue
+
+		// proximity anchor for vendor fall-through: use the importing
+		// file's directory so multi-module monorepos pick the nearest
+		// enclosing go module's vendor dir. see #65.
+		const fromFileDir = dirname(absPath)
 
 		let source: string
 		try {
@@ -114,7 +123,7 @@ export function resolveGoProject(
 			// file's declared package, falling back to the path's
 			// last component when we can't resolve the directory
 			// (external / unresolved). see #28.
-			const dir = resolveImportPath(raw.importPath, goModules, projectRoot)
+			const dir = resolveImportPath(raw.importPath, goModules, projectRoot, fromFileDir, proximityCache)
 			let localName: string | null = null
 			if (dir) {
 				localName = discoverPackageName(dir, packageNameCache, dirListCache)
@@ -138,7 +147,7 @@ export function resolveGoProject(
 			if (emitted.has(importPath)) continue
 			emitted.add(importPath)
 			if (!pathToDir.has(importPath)) {
-				pathToDir.set(importPath, resolveImportPath(importPath, goModules, projectRoot))
+				pathToDir.set(importPath, resolveImportPath(importPath, goModules, projectRoot, fromFileDir, proximityCache))
 			}
 			const dir = pathToDir.get(importPath) ?? null
 			const line = importLines.get(importPath) ?? 0
@@ -281,7 +290,12 @@ function discoverPackageName(
 // resolve an import path to an absolute directory on disk. tries (in
 // order):
 //   1. longest-matching go.mod modulePath in this repo (in-module hit)
-//   2. <go-mod-rootDir>/vendor/<importPath> if a vendor dir exists
+//   2. <nearest-go-mod-rootDir>/vendor/<importPath> if a vendor dir
+//      exists. "nearest" = the go module whose rootDir is the
+//      longest prefix of the importing file's directory. this matches
+//      go's own toolchain behaviour in multi-module monorepos where
+//      services/a and services/b each have their own vendor/ at
+//      different versions. see #65.
 // returns null when neither matches, and the import falls through to
 // heuristic edges. rootDir on RepoModule is a path relative to
 // projectRoot (see module-detector.ts:126), so the caller must pass
@@ -293,6 +307,8 @@ function resolveImportPath(
 	importPath: string,
 	goModules: RepoModule[],
 	projectRoot: string,
+	fromFileDir: string | undefined,
+	proximityCache: Map<string, RepoModule[]>,
 ): string | null {
 	let best: RepoModule | null = null
 	for (const mod of goModules) {
@@ -310,25 +326,76 @@ function resolveImportPath(
 	}
 
 	// vendor fall-through: many repos commit ./vendor/<import-path> as a
-	// pinned copy of their dependencies. when the vendor dir exists for
-	// the nearest go module and contains the imported package, return
-	// that path. the file-discovery pipeline already walks vendor/ when
-	// it isn't excluded so symbols and edges resolve normally.
+	// pinned copy of their dependencies. prefer the nearest enclosing
+	// go module (longest rootDir prefix of the importing file) so a
+	// multi-module monorepo with different vendored versions picks the
+	// right copy. when no fromFileDir is known, fall back to the
+	// deepest module first (longest rootDir wins) to mimic the old
+	// behaviour without regressing multi-module cases.
 	//
 	// containment guard: tree-sitter hands us the raw import literal
 	// which a malicious source can set to `../../../etc`. path.join
 	// normalizes that to escape the vendor dir and eventually the repo
 	// root. reject any resolved vendor path that isn't inside its go
 	// module root.
-	for (const mod of goModules) {
+	const cacheKey = fromFileDir ?? ''
+	let ranked = proximityCache.get(cacheKey)
+	if (!ranked) {
+		ranked = rankModulesByProximity(goModules, projectRoot, fromFileDir)
+		proximityCache.set(cacheKey, ranked)
+	}
+	for (const mod of ranked) {
 		const moduleAbsRoot = mod.rootDir ? join(projectRoot, mod.rootDir) : projectRoot
 		const vendorRoot = join(moduleAbsRoot, 'vendor')
 		const vendoredDir = join(vendorRoot, importPath)
+		// string-level containment catches `..`-style escapes (path.join
+		// normalizes them out) but doesn't follow symlinks. resolve
+		// both the candidate and the vendor root to realpaths so
+		// macOS /tmp -> /private/tmp doesn't trip, then confirm the
+		// candidate still lives under the resolved vendor dir. a
+		// `vendor/pkg -> ../../outside` symlink escapes vendorRealRoot
+		// after realpath, so it gets rejected. see #75 deep-review.
 		if (!isUnderRoot(vendoredDir, vendorRoot)) continue
+		let realDir: string
+		let realVendorRoot: string
+		try {
+			realDir = realpathSync(vendoredDir)
+			realVendorRoot = realpathSync(vendorRoot)
+		} catch {
+			continue
+		}
+		if (!isUnderRoot(realDir, realVendorRoot)) continue
+		// return the non-realpath'd vendoredDir so downstream
+		// `relative(projectRoot, dir)` calls keep the path inside the
+		// repo tree (macOS /tmp -> /private/tmp would otherwise
+		// produce an escape string). the containment check above
+		// already used realpaths to reject out-of-tree symlinks.
 		if (directoryHasGoFiles(vendoredDir)) return vendoredDir
 	}
 
 	return null
+}
+
+// order go modules by proximity to the importing file. the enclosing
+// module (longest rootDir that is a prefix of fromFileDir) comes
+// first, then any remaining modules sorted by rootDir length desc so
+// deeply-nested modules beat the repo-root module.
+function rankModulesByProximity(
+	goModules: RepoModule[],
+	projectRoot: string,
+	fromFileDir?: string,
+): RepoModule[] {
+	const absRootOf = (m: RepoModule) => (m.rootDir ? join(projectRoot, m.rootDir) : projectRoot)
+	const modules = [...goModules]
+	if (!fromFileDir) {
+		return modules.sort((a, b) => (b.rootDir?.length ?? 0) - (a.rootDir?.length ?? 0))
+	}
+	return modules.sort((a, b) => {
+		const aEncloses = isUnderRoot(fromFileDir, absRootOf(a))
+		const bEncloses = isUnderRoot(fromFileDir, absRootOf(b))
+		if (aEncloses !== bEncloses) return aEncloses ? -1 : 1
+		return (b.rootDir?.length ?? 0) - (a.rootDir?.length ?? 0)
+	})
 }
 
 function isUnderRoot(abs: string, root: string): boolean {

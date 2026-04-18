@@ -11,7 +11,14 @@ import { searchCommand } from './commands/search.js'
 import { statusCommand } from './commands/status.js'
 import { traceCommand } from './commands/trace.js'
 import { watchCommand } from './commands/watch.js'
-import { projectsCommand } from './commands/projects.js'
+import {
+	projectsAdd,
+	projectsBuildEdges,
+	projectsClearEdges,
+	projectsLink,
+	projectsList,
+	projectsRemove,
+} from './commands/projects.js'
 import { useCommand } from './commands/use.js'
 import {
 	churnCommand,
@@ -159,7 +166,8 @@ program
 	.command('trace <from> <to>')
 	.description('trace execution paths between two symbols')
 	.option('--max-paths <n>', 'max paths to show', '5')
-	.option('--depth <n>', 'max path depth', '10')
+	.option('--depth <n>', 'max path depth inside a project', '10')
+	.option('--hops <n>', 'max cross-project boundary hops (default 3, max 5)', '3')
 	.option('--from-project <id>', 'project id where the <from> symbol lives (required for cross-project trace)')
 	.option('--to-project <id>', 'project id where the <to> symbol lives (required for cross-project trace)')
 	.action((from, to, cmdOpts) => {
@@ -167,6 +175,7 @@ program
 		traceCommand(opts.project, from, to, opts.json, {
 			maxPaths: Number(cmdOpts.maxPaths),
 			depth: Number(cmdOpts.depth),
+			hops: Number(cmdOpts.hops),
 			fromProject: cmdOpts.fromProject,
 			toProject: cmdOpts.toProject,
 		})
@@ -192,18 +201,26 @@ program
 program
 	.command('flows')
 	.description('show detected execution flows')
-	.action(() => {
+	.action(async () => {
 		const opts = program.opts()
-		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const { getOrCreateEngine } = await import('../core/engine-pool.js')
+		const pc = (await import('picocolors')).default
 		const engine = getOrCreateEngine(undefined, opts.project)
 		const flows = engine.flows()
-		if (opts.json) { console.log(JSON.stringify(flows, null, 2)); engine.close(); return }
-		if (flows.length === 0) { console.log('no flows detected. run `atlas index` with Ollama to detect flows.'); engine.close(); return }
-		const pc = require('picocolors')
+		if (opts.json) {
+			console.log(JSON.stringify(flows, null, 2))
+			engine.close()
+			return
+		}
+		if (flows.length === 0) {
+			console.log('no flows detected. run `atlas index` with Ollama to detect flows.')
+			engine.close()
+			return
+		}
 		console.log(pc.bold(`${flows.length} flow${flows.length > 1 ? 's' : ''} detected\n`))
 		for (const f of flows) {
-			console.log(`  ${pc.cyan(f.name)}${f.description ? ` — ${f.description}` : ''}`)
-			console.log(`    ${f.symbols.map((s: any) => s.name).join(' → ')}`)
+			console.log(`  ${pc.cyan(f.name)}${f.description ? `: ${f.description}` : ''}`)
+			console.log(`    ${f.symbols.map((s) => s.name).join(' -> ')}`)
 			console.log()
 		}
 		engine.close()
@@ -213,18 +230,26 @@ program
 	.command('duplicates')
 	.description('show potential duplicate code')
 	.option('--include-tests', 'include duplicate pairs in test files')
-	.action((cmdOpts) => {
+	.action(async (cmdOpts) => {
 		const opts = program.opts()
-		const { getOrCreateEngine } = require('../core/engine-pool.js')
+		const { getOrCreateEngine } = await import('../core/engine-pool.js')
+		const pc = (await import('picocolors')).default
 		const engine = getOrCreateEngine(undefined, opts.project)
 		const dups = engine.duplicates({ includeTests: cmdOpts.includeTests })
-		if (opts.json) { console.log(JSON.stringify(dups, null, 2)); engine.close(); return }
-		if (dups.length === 0) { console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.'); engine.close(); return }
-		const pc = require('picocolors')
+		if (opts.json) {
+			console.log(JSON.stringify(dups, null, 2))
+			engine.close()
+			return
+		}
+		if (dups.length === 0) {
+			console.log('no duplicates detected. run `atlas index` with embeddings to detect duplicates.')
+			engine.close()
+			return
+		}
 		console.log(pc.bold(`${dups.length} potential duplicate${dups.length > 1 ? 's' : ''}\n`))
 		for (const d of dups) {
-			console.log(`  ${pc.yellow((d.similarity * 100).toFixed(0) + '%')} ${d.symbolA.name} ↔ ${d.symbolB.name}`)
-			console.log(`    ${d.symbolA.filePath}:${d.symbolA.lineStart}  ↔  ${d.symbolB.filePath}:${d.symbolB.lineStart}`)
+			console.log(`  ${pc.yellow((d.similarity * 100).toFixed(0) + '%')} ${d.symbolA.name} <-> ${d.symbolB.name}`)
+			console.log(`    ${d.symbolA.filePath}:${d.symbolA.lineStart}  <->  ${d.symbolB.filePath}:${d.symbolB.lineStart}`)
 			if (d.description) console.log(`    ${d.description}`)
 			console.log()
 		}
@@ -261,12 +286,58 @@ program
 		})
 	})
 
-program
-	.command('projects <action> [args...]')
-	.description('manage projects (list, add <path>, remove <id>, link <from> <to>, build-edges [--all|--from <id> --to <id>] [--match-by-name], clear-edges [...ids])')
-	.action((action, args) => {
-		const opts = program.opts()
-		projectsCommand(action, args, opts.json)
+// projects subcommand group. each action is a real Commander
+// subcommand so flag validation (required values, missing pairs,
+// unknown flags) is handled by the library instead of hand-rolled
+// args.indexOf probes. see #69.
+const projects = program
+	.command('projects')
+	.description('manage projects (list, add, remove, link, build-edges, clear-edges)')
+
+projects
+	.command('list')
+	.description('list registered projects and their links')
+	.action(() => {
+		projectsList(program.opts().json)
+	})
+
+projects
+	.command('add [root] [name]')
+	.description('register a project at <root> with an optional display name')
+	.action((root?: string, name?: string) => {
+		projectsAdd(root, name, program.opts().json)
+	})
+
+projects
+	.command('remove <id>')
+	.description('unregister a project by id')
+	.action((id: string) => {
+		projectsRemove(id, program.opts().json)
+	})
+
+projects
+	.command('link <from-id> <to-id>')
+	.description('link two projects so federated queries fan out between them')
+	.action((from: string, to: string) => {
+		projectsLink(from, to, program.opts().json)
+	})
+
+projects
+	.command('build-edges')
+	.description('build cross_project_edges between linked project pairs')
+	.option('--all', 'use every cartesian pair of registered projects')
+	.option('--from <id>', 'project id of the source (requires --to)')
+	.option('--to <id>', 'project id of the target (requires --from)')
+	.option('--match-by-name', 'also run the heuristic symbol-name linker')
+	.action((cmdOpts: { all?: boolean; from?: string; to?: string; matchByName?: boolean }) => {
+		projectsBuildEdges(program.opts().json, cmdOpts)
+	})
+
+projects
+	.command('clear-edges [ids...]')
+	.description('clear cross_project_edges (pass project ids to limit, or empty to clear every project)')
+	.action((ids: string[]) => {
+		projectsClearEdges(ids, program.opts().json)
 	})
 
 program

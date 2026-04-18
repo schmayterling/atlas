@@ -21,9 +21,16 @@ describe('shouldKeepIdentifier', () => {
 		expect(shouldKeepIdentifier('THIS')).toBe(false)
 	})
 
-	test('rejects sql reserved words', () => {
-		expect(shouldKeepIdentifier('select')).toBe(false)
-		expect(shouldKeepIdentifier('UPDATE')).toBe(false)
+	test('rejects sql reserved words only when sqlReserved is opted in (#66)', () => {
+		// default behaviour: sql reserved words are allowed because other
+		// linkers (graphql, queue, env) have legitimate reasons to pass
+		// identifiers like 'Order' or 'Update' through.
+		expect(shouldKeepIdentifier('select')).toBe(true)
+		expect(shouldKeepIdentifier('UPDATE')).toBe(true)
+		// sql-linker opts into the sql-specific denylist.
+		expect(shouldKeepIdentifier('select', { sqlReserved: true })).toBe(false)
+		expect(shouldKeepIdentifier('UPDATE', { sqlReserved: true })).toBe(false)
+		// null is a universal stopword, rejected in both modes.
 		expect(shouldKeepIdentifier('null')).toBe(false)
 	})
 

@@ -148,7 +148,7 @@ export function linkSqlTables(store: AtlasStore, projectRoot: string): { hits: n
 				const table = normaliseTableName(raw)
 				if (!table) continue
 				if (cteNames.has(table.toLowerCase())) continue
-				if (!shouldKeepIdentifier(table)) continue
+				if (!shouldKeepIdentifier(table, { sqlReserved: true })) continue
 				const literal = getEnclosingLiteralContent(source, matchIndex)
 				if (!literal) continue
 				if (!SQL_VERB_REGEX.test(literal)) continue

@@ -76,12 +76,19 @@ const COMMON_STOPWORDS = new Set<string>([
 	'would',
 	'you',
 	'your',
+	// boolean / null literals — universal junk across every channel
+	// kind (sql, graphql, openapi, queue, env). kept in the common
+	// stopword set so callers don't need to opt in.
+	'true',
+	'false',
+	'null',
 ])
 
 // sql keyword denylist that often appears between sql keywords and a
 // real table name (e.g. `FROM (SELECT ...)`, `JOIN ON`, `INTO TEMPORARY`).
 // these are technically valid sql but should never be classified as
-// table identifiers.
+// table identifiers. boolean/null literals live in COMMON_STOPWORDS
+// instead, since they're universal junk across every channel kind.
 const SQL_RESERVED_WORDS = new Set<string>([
 	'select',
 	'insert',
@@ -113,9 +120,6 @@ const SQL_RESERVED_WORDS = new Set<string>([
 	'intersect',
 	'distinct',
 	'all',
-	'true',
-	'false',
-	'null',
 ])
 
 // additional sqlite internal table names that are real in the schema
@@ -134,12 +138,13 @@ const SQLITE_INTERNAL_TABLES = new Set<string>([
 // real corpora are noise). callers can override per channel kind.
 const MIN_IDENTIFIER_LENGTH = 3
 
-// a precompiled denylist of "junk" identifiers used by every
-// channel linker. callers can pass an extra channel-specific set
-// via shouldKeepIdentifier(channelExtras).
+// a precompiled denylist of universal junk identifiers (english
+// stopwords + sqlite internal tables). every channel linker applies
+// this. sql reserved words are applied only to sql_table hits because
+// they're legitimate type names in graphql ('Order'), topic names in
+// queue ('update'), etc. see #66 + #73.
 const BASE_JUNK = new Set<string>([
 	...COMMON_STOPWORDS,
-	...SQL_RESERVED_WORDS,
 	...SQLITE_INTERNAL_TABLES,
 ])
 
@@ -147,18 +152,21 @@ const BASE_JUNK = new Set<string>([
 // table, topic, schema, env var, etc.) and false when it should be
 // dropped. the `extras` set lets a specific linker add its own
 // language-specific junk (e.g. queue linker might denylist 'event',
-// 'message', 'topic' literals).
+// 'message', 'topic' literals). `sqlReserved: true` additionally
+// rejects sql keywords — only the sql-linker should pass this.
 export function shouldKeepIdentifier(
 	value: string,
 	opts: {
 		extras?: Set<string>
 		minLength?: number
+		sqlReserved?: boolean
 	} = {},
 ): boolean {
 	const lower = value.toLowerCase().trim()
 	if (lower.length === 0) return false
 	if (lower.length < (opts.minLength ?? MIN_IDENTIFIER_LENGTH)) return false
 	if (BASE_JUNK.has(lower)) return false
+	if (opts.sqlReserved && SQL_RESERVED_WORDS.has(lower)) return false
 	if (opts.extras?.has(lower)) return false
 	// must contain at least one alphabetic character; pure numeric
 	// values (`123`) are never identifiers.

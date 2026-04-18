@@ -1,6 +1,6 @@
 import pc from 'picocolors'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
-import { anchorSymbol } from '../../core/federation/federated-engine.js'
+import { anchorSymbol, findCrossProjectBoundaries } from '../../core/federation/federated-engine.js'
 import { getProject } from '../../core/registry.js'
 import { fileRef, heading, outputJson } from '../formatters/common.js'
 
@@ -9,7 +9,13 @@ export function traceCommand(
 	from: string,
 	to: string,
 	json: boolean,
-	opts: { maxPaths?: number; depth?: number; fromProject?: string; toProject?: string },
+	opts: {
+		maxPaths?: number
+		depth?: number
+		hops?: number
+		fromProject?: string
+		toProject?: string
+	},
 ) {
 	if (opts.fromProject || opts.toProject) {
 		traceCrossProject(from, to, json, opts)
@@ -75,7 +81,13 @@ function traceCrossProject(
 	from: string,
 	to: string,
 	json: boolean,
-	opts: { maxPaths?: number; depth?: number; fromProject?: string; toProject?: string },
+	opts: {
+		maxPaths?: number
+		depth?: number
+		hops?: number
+		fromProject?: string
+		toProject?: string
+	},
 ) {
 	if (!opts.fromProject || !opts.toProject) {
 		console.error(
@@ -119,11 +131,23 @@ function traceCrossProject(
 		process.exit(1)
 	}
 
-	// look for direct cross_project_edges from `from` that land in
-	// `toProject`. if none, the user is asking for a path through more
-	// than one boundary which is out of scope for the MVP.
-	const xEdges = fromEngine.getCrossProjectEdgesByStableId(fromProject.id, fromAnchor.stableId)
-	const matchingHops = xEdges.outbound.filter((e) => e.targetProject === toProject.id)
+	// find every way to reach toProject::toAnchor starting from the
+	// from-anchor. direct hops are the simple case (a -> c via one
+	// cross_project_edges row). multi-hop searches go through 1+
+	// intermediate projects via BFS over cross_project_edges. hop
+	// count is capped (default 3) because the meta-graph over cross-
+	// project edges can grow quickly, and most real federation paths
+	// reach their destination in 1-2 hops. `--hops` controls the
+	// cross-project boundary count, separate from `--depth` which
+	// bounds the per-leg intra-project path length. see #72.
+	const maxHops = Math.max(1, Math.min(opts.hops ?? 3, 5))
+	const matchingHops = findCrossProjectBoundaries(
+		fromEngine,
+		fromProject.id,
+		fromAnchor.stableId,
+		toProject.id,
+		maxHops,
+	)
 
 	const result = {
 		fromAnchor: { project: fromProject.id, ...fromAnchor },
@@ -138,19 +162,21 @@ function traceCrossProject(
 		} else {
 			console.error(
 				pc.yellow(
-					`no direct cross_project_edges from ${pc.cyan(fromProject.id)}::${from} into ${pc.cyan(toProject.id)}. multi-hop cross-project trace is out of scope for the MVP.`,
+					`no cross_project_edges path from ${pc.cyan(fromProject.id)}::${from} into ${pc.cyan(toProject.id)} within ${maxHops} hops.`,
 				),
 			)
 		}
 		return
 	}
 
-	// for each boundary hop, run a local trace inside the to-project
-	// using stable-id entry points on both ends. name-based resolution
-	// would pick the first same-named hit in the to-project, which is
-	// wrong when multiple symbols share a name.
+	// for each boundary hop (possibly multi-hop), run a local trace
+	// inside the destination project using stable-id entry points on
+	// both ends. name-based resolution would pick the first same-
+	// named hit in the to-project, which is wrong when multiple
+	// symbols share a name. the hop's landingStableId is the symbol
+	// that lands in toProject after the final cross-project edge.
 	for (const hop of matchingHops) {
-		const trace = toEngine.traceByStableIds(hop.targetStableId, toAnchor.stableId, {
+		const trace = toEngine.traceByStableIds(hop.landingStableId, toAnchor.stableId, {
 			maxPaths: opts.maxPaths,
 			maxDepth: opts.depth ?? 5,
 		})
@@ -188,3 +214,4 @@ function traceCrossProject(
 		}
 	}
 }
+

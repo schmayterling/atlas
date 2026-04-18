@@ -962,6 +962,13 @@ export class AtlasStore {
 		project: string,
 		stableId: string,
 	): CrossProjectEdgeRow[] {
+		// defensive runtime allowlist: the ts union narrows callers at
+		// compile time, but column-name interpolation into sql can't
+		// be parameterized, so reject anything unexpected at runtime.
+		// see project guideline: don't interpolate user input into sql.
+		if (field !== 'source' && field !== 'target') {
+			throw new Error(`queryCrossProjectEdges: invalid field ${String(field)}`)
+		}
 		const projectCol = `${field}_project`
 		const stableIdCol = `${field}_stable_id`
 		return this.db
@@ -1076,12 +1083,19 @@ export class AtlasStore {
 		return out
 	}
 
-	// the enclosing symbol lookup used by channel linkers that have a
-	// byte offset (typically from a regex match inside a string
-	// literal) and need to credit the hit to the smallest symbol that
-	// covers it. falls back to file-level if no symbol wraps the
-	// offset (e.g. top-level module strings). uses the prepared
-	// statement + byte-range composite index. see #52.
+	// the enclosing symbol lookup used by channel linkers that have an
+	// offset (typically from a regex match inside a string literal)
+	// and need to credit the hit to the smallest symbol that covers
+	// it. falls back to file-level if no symbol wraps the offset (e.g.
+	// top-level module strings). uses the prepared statement +
+	// composite byte-range index. see #52.
+	//
+	// NOTE on "byte" naming: tree-sitter-node's Node.startIndex
+	// returns UTF-16 code units (verified in #64 probe), the same
+	// units as JS regex `.index` and `String.prototype.indexOf`. so
+	// channel linkers passing `source.matchAll(...).index` in as
+	// `byteOffset` is correct. the column is named byte_* for legacy
+	// reasons but stores UTF-16 code units. see #64 for the audit.
 	getSymbolContainingByte(fileId: number, byteOffset: number): SymbolRecord | null {
 		return (this.stmtSymbolContainingByte as any).get(
 			fileId,

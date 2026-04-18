@@ -490,6 +490,17 @@ export const MIGRATIONS: Migration[] = [
 		// against). dedupe pre-existing rows on the natural key, drop
 		// and recreate with the constraint, then rebuild the lookup
 		// indexes. see #8a / codex finding 2.
+		//
+		// #68 considered replacing this with a CREATE UNIQUE INDEX
+		// approach (no rename-swap, no WAL DDL lock risk). decision:
+		// not worth a v19 migration. v18 already applied on ~zero rows
+		// for every existing installation, so the WAL contention risk
+		// cited in the issue is hypothetical. rewriting v18 itself is
+		// forbidden (migrations are append-only once shipped), and
+		// shipping v19 would re-run an equivalent rename-swap on the
+		// same users we already migrated. keep the comment as a
+		// prompt for future schema changes to prefer CREATE UNIQUE
+		// INDEX where feasible. see #68 for the full audit.
 		up: `
 			CREATE TABLE IF NOT EXISTS cross_project_edges_v18 (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
