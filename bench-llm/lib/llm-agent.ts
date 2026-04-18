@@ -65,16 +65,29 @@ TOOL ROUTING (pick the tool that best fits the question; do not shotgun):
   Read the source of X → atlas_symbol_detail.
   File inventory / "how many files under X/" / "how many rust files" → atlas_files. Use the returned \`count\` field DIRECTLY. Do NOT re-count. Pass \`language\` when the question specifies one (e.g. rust, typescript).
 
-OUTPUT RULES:
+OUTPUT RULES — the answer shape depends on the expected type the task declares:
 
-Your FINAL message MUST be a single \`\`\`json fenced block with one of these shapes (no prose outside the block):
+  type "symbols" → {"symbols": ["filePath::symbolName", ...]}
+      The array MUST contain JUST STRINGS. Extract the qualifiedName value
+      from each tool result and put that string in the array. Do NOT put
+      tool-result objects inside "symbols"; arrays of objects score 0.
+      Example: if atlas_search returned {results: [{qualifiedName: "pkg/x.ts::Foo", kind: "class", ...}]},
+      your answer is {"symbols": ["pkg/x.ts::Foo"]}.
 
-  For "symbols" answers: {"symbols": ["filePath::symbolName", "..."]}
-  For "count" answers:   {"count": 42}
-  For "files" answers:   {"files": ["a.ts", "b.ts"]}
-  For "structural" answers: {"raw": <the relevant tool output, preserving object keys like qualifiedName, name, kind, filePath; do NOT collapse object arrays into bare string arrays>}
+  type "count" → {"count": 42}   (a bare number, not an object)
 
-When a tool returns \`{symbols: [{qualifiedName, ...}], summary: {...}}\`, PASS THAT THROUGH VERBATIM in your \`raw\` field. The scorer looks for quoted qualifiedName values, so bare arrays of strings like ["a::b", "c::d"] score 0 even when the content is correct.
+  type "files" → {"files": ["a.ts", "b.ts"]}   (strings only)
+
+  type "structural" → {"raw": <preserve tool object keys verbatim>}
+      This is the ONLY shape that accepts nested objects. Keep the
+      qualifiedName / name / kind / filePath keys visible; the scorer
+      counts quoted "qualifiedName" occurrences. A bare array of strings
+      like ["a::b"] scores 0 for structural tasks.
+
+Quick check before you submit: if the expected type is "symbols", every
+entry in your array must be a string containing "::". If the expected
+type is "structural", your raw field should be an object (or object
+array) that preserves the tool's keys.
 
 BEHAVIOR RULES:
 
@@ -194,12 +207,37 @@ function parseAnswer(text: string): AgentAnswer {
 	try {
 		const parsed = JSON.parse(body) as Record<string, unknown>
 		const out: AgentAnswer = {}
-		if (Array.isArray(parsed.symbols)) out.symbols = parsed.symbols.map(String)
-		if (Array.isArray(parsed.files)) out.files = parsed.files.map(String)
+		// normalize symbols: llms occasionally dump full tool-result objects
+		// into the array instead of just qualifiedName strings. .map(String)
+		// on an object produces "[object Object]" which is worse than
+		// extracting the qualifiedName field. preserve the string path for
+		// clean responses; fall back to qualifiedName / qn / name for objects.
+		if (Array.isArray(parsed.symbols)) out.symbols = parsed.symbols.map(toSymbolString)
+		if (Array.isArray(parsed.files)) out.files = parsed.files.map(toFileString)
 		if (typeof parsed.count === 'number') out.count = parsed.count
 		if (parsed.raw !== undefined) out.raw = parsed.raw
 		return out
 	} catch (e) {
 		return { error: `parse failure: ${e instanceof Error ? e.message : String(e)}` }
 	}
+}
+
+function toSymbolString(entry: unknown): string {
+	if (typeof entry === 'string') return entry
+	if (entry && typeof entry === 'object') {
+		const obj = entry as Record<string, unknown>
+		const qn = obj.qualifiedName ?? obj.qn ?? obj.name
+		if (typeof qn === 'string') return qn
+	}
+	return String(entry)
+}
+
+function toFileString(entry: unknown): string {
+	if (typeof entry === 'string') return entry
+	if (entry && typeof entry === 'object') {
+		const obj = entry as Record<string, unknown>
+		const p = obj.path ?? obj.filePath ?? obj.file
+		if (typeof p === 'string') return p
+	}
+	return String(entry)
 }
