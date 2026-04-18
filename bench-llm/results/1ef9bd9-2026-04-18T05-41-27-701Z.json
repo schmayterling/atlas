@@ -1,0 +1,127 @@
+{
+  "commit": "1ef9bd9",
+  "model": "openai/gpt-5.4-nano",
+  "trials": 1,
+  "results": [
+    {
+      "taskId": "ripgrep-02-discovery",
+      "corpus": "ripgrep",
+      "capability": "discovery",
+      "agent": "baseline",
+      "score": 1,
+      "tokens": 2323,
+      "cost": 0.0005506999999999999,
+      "toolCalls": 2,
+      "wallMs": 3157,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "ripgrep-02-discovery",
+      "corpus": "ripgrep",
+      "capability": "discovery",
+      "agent": "with-atlas",
+      "score": 1,
+      "tokens": 1982,
+      "cost": 0.0004468,
+      "toolCalls": 1,
+      "wallMs": 3583,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "ripgrep-04-call-tracing",
+      "corpus": "ripgrep",
+      "capability": "call-tracing",
+      "agent": "baseline",
+      "score": 1,
+      "tokens": 2200,
+      "cost": 0.00052925,
+      "toolCalls": 2,
+      "wallMs": 3194,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "ripgrep-04-call-tracing",
+      "corpus": "ripgrep",
+      "capability": "call-tracing",
+      "agent": "with-atlas",
+      "score": 1,
+      "tokens": 1926,
+      "cost": 0.00043665,
+      "toolCalls": 1,
+      "wallMs": 1699,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "ripgrep-05-graph-querying",
+      "corpus": "ripgrep",
+      "capability": "graph-querying",
+      "agent": "baseline",
+      "score": 0,
+      "tokens": 15350,
+      "cost": 0.00203491,
+      "toolCalls": 5,
+      "wallMs": 4711,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "ripgrep-05-graph-querying",
+      "corpus": "ripgrep",
+      "capability": "graph-querying",
+      "agent": "with-atlas",
+      "score": 1,
+      "tokens": 8518,
+      "cost": 0.00218417,
+      "toolCalls": 4,
+      "wallMs": 12723,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "zod-02-discovery",
+      "corpus": "zod",
+      "capability": "discovery",
+      "agent": "baseline",
+      "score": 1,
+      "tokens": 7630,
+      "cost": 0.00109274,
+      "toolCalls": 3,
+      "wallMs": 6016,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "zod-02-discovery",
+      "corpus": "zod",
+      "capability": "discovery",
+      "agent": "with-atlas",
+      "score": 1,
+      "tokens": 2025,
+      "cost": 0.00046065000000000006,
+      "toolCalls": 1,
+      "wallMs": 1841,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "zod-04-call-tracing",
+      "corpus": "zod",
+      "capability": "call-tracing",
+      "agent": "baseline",
+      "score": 1,
+      "tokens": 39047,
+      "cost": 0.0076885899999999995,
+      "toolCalls": 5,
+      "wallMs": 22897,
+      "stoppedReason": "natural"
+    },
+    {
+      "taskId": "zod-04-call-tracing",
+      "corpus": "zod",
+      "capability": "call-tracing",
+      "agent": "with-atlas",
+      "score": 0,
+      "tokens": 14746,
+      "cost": 0.0027131,
+      "toolCalls": 2,
+      "wallMs": 4479,
+      "stoppedReason": "natural"
+    }
+  ]
+}

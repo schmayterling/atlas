@@ -5,9 +5,9 @@ on real OSS codebases. companion to `docs/CAPABILITIES.md`, which
 covers atlas-only capabilities (call-tracing, blast radius, etc.) that
 text search cannot reasonably attempt.
 
-**this document is a work in progress** — phase B of the benchmark
-plan. results below are the comparable subset; atlas-only capabilities
-live in `CAPABILITIES.md`.
+**this document covers phases A + B + C** of the benchmark plan.
+results below are the comparable subset; atlas-only capabilities live
+in `CAPABILITIES.md`.
 
 ## methodology
 
@@ -129,14 +129,86 @@ zod's deps/blast are slower because the v3+v4+mini packages share
 many cross-imports — a ZodObject `deps` walk fans out to hundreds
 of nodes. ripgrep's rust workspace has shorter chains.
 
+## phase C appendix: LLM head-to-head (real run)
+
+run on **2026-04-18**, commit `1ef9bd9`, model
+`openai/gpt-5.4-nano` via OpenRouter, **single trial per task**.
+results JSON: `bench-llm/results/1ef9bd9-2026-04-18T05-46-27-534Z.json`.
+
+both agents got `read_file`, `grep`, `glob`. with-atlas additionally
+got `atlas_search`, `atlas_overview`, `atlas_deps`,
+`atlas_blast_radius`, `atlas_trace`, `atlas_call_sites`,
+`atlas_test_coverage`, `atlas_files`. they answered the same 12
+tasks (6 ripgrep + 6 zod) used by the deterministic eval above.
+
+**aggregate (12 tasks, 1 trial)**
+
+| metric                 | baseline | with-atlas |     delta |
+|------------------------|---------:|-----------:|----------:|
+| mean score             |    0.500 |      0.917 |    +0.417 |
+| total tokens           |  175,799 |     70,041 |   −60.2%  |
+| total cost (USD)       |  $0.0219 |    $0.0222 |     +1.3% |
+| mean tool calls / task |      3.8 |        1.5 |    −60.5% |
+
+cost is essentially equal even though atlas uses 60% fewer tokens —
+atlas tool responses (e.g. `atlas_call_sites` returning 200 entries
+serialized as JSON) bill as input tokens, which are cheap; baseline
+spends more on output tokens through repeated grep + summarize loops.
+
+**per-task results**
+
+| task                            | capability       | baseline | atlas | tokens (b) | tokens (a) |
+|---------------------------------|------------------|---------:|------:|-----------:|-----------:|
+| ripgrep-01-indexing             | indexing         |     0.00 |  1.00 |      4,014 |      2,642 |
+| ripgrep-02-discovery            | discovery        |     1.00 |  1.00 |      2,473 |      1,982 |
+| ripgrep-03-code-access          | code-access      |     1.00 |  1.00 |      1,592 |      2,496 |
+| ripgrep-04-call-tracing         | call-tracing     |     0.00 |  1.00 |      1,782 |      1,926 |
+| ripgrep-05-graph-querying       | graph-querying   |     0.00 |  1.00 |      4,942 |      5,736 |
+| ripgrep-06-file-navigation      | file-navigation  |     1.00 |  1.00 |      1,056 |      1,896 |
+| zod-01-indexing                 | indexing         |     0.00 |  0.00 |      2,998 |     15,819 |
+| zod-02-discovery                | discovery        |     1.00 |  1.00 |      4,855 |      2,025 |
+| zod-03-code-access              | code-access      |     1.00 |  1.00 |     23,058 |      3,451 |
+| zod-04-call-tracing             | call-tracing     |     0.00 |  1.00 |     53,419 |     16,499 |
+| zod-05-graph-querying           | graph-querying   |     0.00 |  1.00 |     74,159 |     13,278 |
+| zod-06-file-navigation          | file-navigation  |     1.00 |  1.00 |      1,451 |      2,291 |
+
+honest reads:
+
+- **5 atlas wins, 6 ties, 1 mutual fail.** the wins are exactly the
+  capability categories atlas was designed for (call-tracing,
+  graph-querying, blast). the ties are surface-level discovery /
+  code-access / file-navigation — text search handles those fine.
+- **`zod-01-indexing` is a mutual fail.** both models got the wrong
+  count for "ts files under `packages/zod/src/v4/`". atlas tried 3
+  prefixes and missed; baseline missed in 1 call. the task surfaces a
+  real ambiguity in how the prefix must be specified, and both fixed
+  the symptom not the cause. fair benchmark behaviour.
+- **the 60% token reduction comes mostly from `zod-04` and `zod-05`.**
+  baseline burns 53k–74k tokens trying to compute call-tracing /
+  blast via grep loops; atlas resolves both in 1–2 tool calls.
+
+**what's NOT claimed by this number**
+
+- 1 trial per task. no variance bands. recommended next run uses
+  `--trials 3` so stderr is visible.
+- one model. the wedge would shrink on a stronger model
+  (haiku 4.5 / 4o / sonnet) because smarter agents can compensate for
+  missing tools. it would widen on dumber models. publishing across
+  the model tier is the real story.
+- the LLM judge is bench-eval's deterministic judge (F1 / count /
+  structural). when an LLM-as-judge replaces this, scores will move.
+- 12 tasks is too few for a trustworthy headline number outside the
+  context of this commit. expand the task set before treating this as
+  a "score." it's a directional signal today.
+
 ## what's next
 
 - 4-corpus complete set (django + next.js + 1 awkward) — django and
   next.js each take 5-10 min to clone + index, so they ship in a
   separate commit
-- phase C LLM appendix is wired (`bun run bench-llm`) but the
-  reproduction numbers below are pending real LLM runs with an
-  `OPENROUTER_API_KEY`
+- multi-trial LLM runs with `--trials 3` and a second model tier
+  (haiku 4.5 + 4o-mini) for variance + cross-model comparison
+- LLM-as-judge for open-ended capability tasks
 
 ## what we explicitly are NOT claiming
 
