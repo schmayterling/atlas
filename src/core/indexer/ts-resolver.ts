@@ -547,8 +547,13 @@ function resolveFieldAccess(
 	store: AtlasStore,
 	edges: ResolvedEdge[],
 ) {
-	// don't double-count: if this property access is a callee, the
-	// calls/passed_as edge handles it. likewise for instantiates.
+	// don't double-count:
+	// - callee of a call expression: `obj.method()` is covered by calls
+	// - operand of a new expression: `new foo.Bar()` is covered by instantiates
+	// - argument of a call/new expression when the target is a function
+	//   or method: `arr.map(obj.method)` is covered by passed_as
+	// the first two guards check by identity; the third check is done
+	// later (after resolution) so it can inspect the decl kind.
 	const parent = node.parent
 	if (ts.isCallExpression(parent) && parent.expression === node) return
 	if (ts.isNewExpression(parent) && parent.expression === node) return
@@ -560,20 +565,31 @@ function resolveFieldAccess(
 		const resolved = resolveOriginalSymbol(sym, checker)
 		if (!resolved) return
 
-		// only emit for property / method-like declarations. class
-		// declarations, interface declarations, variable declarations
-		// at the property position are not what this edge models.
+		// only emit for declaration kinds the atlas extractor actually
+		// indexes as its own symbol row. PropertyAssignment (object
+		// literal keys) and EnumMember are not indexed, so an edge at
+		// the computed stable_id would dangle. get/set accessors are
+		// indexed as `method`, not `property`. see deep-review.
 		const decl = resolved.decl
-		const isProperty =
-			ts.isPropertyDeclaration(decl) ||
-			ts.isPropertySignature(decl) ||
-			ts.isPropertyAssignment(decl) ||
-			ts.isMethodDeclaration(decl) ||
-			ts.isMethodSignature(decl) ||
-			ts.isGetAccessorDeclaration(decl) ||
-			ts.isSetAccessorDeclaration(decl) ||
-			ts.isEnumMember(decl)
-		if (!isProperty) return
+		let targetKind: SymbolKind
+		if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
+			targetKind = 'method'
+		} else if (ts.isGetAccessorDeclaration(decl) || ts.isSetAccessorDeclaration(decl)) {
+			targetKind = 'method'
+		} else if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
+			targetKind = 'property'
+		} else {
+			return
+		}
+
+		// skip when this property access is a function-valued argument
+		// to a call/new expression. `arr.map(obj.method)` emits a
+		// passed_as edge from resolveArgumentReferencesFromArgs; without
+		// this guard the same site would also emit a field_access edge.
+		if (targetKind === 'method') {
+			if (ts.isCallExpression(parent) && parent.arguments.includes(node)) return
+			if (ts.isNewExpression(parent) && parent.arguments?.includes(node)) return
+		}
 
 		const declFile = decl.getSourceFile()
 		const declRelPath = toForwardSlash(relative(projectRoot, declFile.fileName))
@@ -583,11 +599,6 @@ function resolveFieldAccess(
 		if (!containingFn) return
 
 		const targetName = resolved.symbol.getName()
-		const targetKind: SymbolKind = ts.isEnumMember(decl)
-			? 'enum'
-			: ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)
-				? 'method'
-				: 'property'
 		const existing = store.findSymbolInFile(declRelPath, targetName, targetKind)
 		const targetId = existing
 			? existing.stableId

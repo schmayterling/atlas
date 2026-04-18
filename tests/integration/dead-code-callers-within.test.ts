@@ -97,7 +97,7 @@ export function cliCaller(): string {
 		expect(names).not.toContain('leakyHelper')
 	})
 
-	test('does not include symbols with zero callers (that is default dead-code territory)', async () => {
+	test('zero-caller symbols match trivially as internal-only (issue #86 acceptance criterion)', async () => {
 		writeFileSync(
 			join(projectRoot, 'src/queries/util.ts'),
 			`export function neverCalled(): string { return 'x' }
@@ -113,9 +113,13 @@ export function cliCaller(): string {
 			withCoChange: false,
 		})
 
+		// a symbol with zero callers has no callers outside the prefix by
+		// definition, so it passes the "all callers within" filter
+		// trivially. this deliberately overlaps with the default dead-
+		// code set; the mode semantics are "no escape outside prefix."
 		const result = engine.deadCode({ callersWithin: 'src/queries/' })
 		const names = result.symbols.map((s) => s.name)
-		expect(names).not.toContain('neverCalled')
+		expect(names).toContain('neverCalled')
 	})
 
 	test('counts instantiates edges as callers', async () => {

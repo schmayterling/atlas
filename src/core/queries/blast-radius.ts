@@ -62,6 +62,13 @@ export function getBlastRadius(
 	const memberIds = seedIds.slice(1)
 	const distances = reachableNodes(graph, symbolStableId, 'inbound', maxDepth, memberIds)
 
+	// member seeds are structural scaffolding — the consumer cares
+	// about "who depends on the class", not "the class contains these
+	// fields". drop the members themselves from the result set so they
+	// don't show up as direct dependents. see deep-review.
+	const memberIdSet = new Set(memberIds)
+	for (const id of memberIdSet) distances.delete(id)
+
 	// batch-fetch all symbols and convert to results in 2 bulk queries
 	const nodeIds = [...distances.keys()]
 	const symMap = store.getSymbolsByStableIds(nodeIds)

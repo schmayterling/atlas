@@ -418,7 +418,7 @@ export class AtlasStore {
 					f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
 					s.is_exported as isExported, s.doc_comment as docComment,
 					(SELECT COUNT(*) FROM "references" r WHERE r.symbol_id = s.stable_id) as usageCount,
-					(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
+					(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id AND e.kind != 'field_access') as dependentCount
 					FROM symbols_fts
 					JOIN symbols s ON s.id = symbols_fts.rowid
 					JOIN files f ON f.id = s.file_id
@@ -444,7 +444,7 @@ export class AtlasStore {
 				f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
 				s.is_exported as isExported, s.doc_comment as docComment,
 				(SELECT COUNT(*) FROM "references" r WHERE r.symbol_id = s.stable_id) as usageCount,
-				(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
+				(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id AND e.kind != 'field_access') as dependentCount
 				FROM symbols s
 				JOIN files f ON f.id = s.file_id
 				WHERE s.name = ? ${kindClause} ${testClause}
@@ -496,7 +496,7 @@ export class AtlasStore {
 				f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
 				s.is_exported as isExported, s.doc_comment as docComment,
 				0 as usageCount,
-				(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id) as dependentCount
+				(SELECT COUNT(DISTINCT e.source_id) FROM edges e WHERE e.target_id = s.stable_id AND e.kind != 'field_access') as dependentCount
 				FROM symbols s
 				JOIN files f ON f.id = s.file_id
 				WHERE s.is_exported = 1 AND f.is_test = 0

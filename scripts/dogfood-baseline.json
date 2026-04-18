@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-04-18T05:46:14.758Z",
-  "commit": "8032f2a",
+  "timestamp": "2026-04-18T06:14:02.345Z",
+  "commit": "cc468fe",
   "files": 207,
-  "symbols": 2257,
-  "edges": 8586,
-  "indexMs": 20731,
+  "symbols": 2259,
+  "edges": 8539,
+  "indexMs": 20085,
   "warnings": 0,
   "depsDown": 30,
   "depsEdges": 331,
@@ -13,13 +13,13 @@
   "searchResults": 10,
   "channelHitGroups": 19,
   "queryMs": {
-    "deps": 3.269,
-    "blast": 0.167,
-    "search": 0.29,
-    "trace": 3.502,
-    "deadCode": 7.7,
-    "channelHitGroups": 0.112,
-    "hotspots": 15.341,
-    "hotFragile": 1.918
+    "deps": 3.327,
+    "blast": 0.116,
+    "search": 0.309,
+    "trace": 3.541,
+    "deadCode": 6.544,
+    "channelHitGroups": 0.105,
+    "hotspots": 12.493,
+    "hotFragile": 1.494
   }
 }

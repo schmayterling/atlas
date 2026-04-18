@@ -1,6 +1,21 @@
 import type { DeadCodeResult, SymbolKind, SymbolResult } from '../../shared/types.js'
 import type { AtlasStore } from '../storage/store.js'
 
+// shared edge-kind set used by the dead-code reachability CTE and by
+// findInternalOnlySymbols. defined once so adding a new edge kind
+// (instantiates, field_access, etc.) to the liveness set is a one-line
+// change rather than two co-dependent literals. see deep-review.
+const LIVENESS_EDGE_KINDS_SQL =
+	"('calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access')"
+
+// sqlite LIKE with ESCAPE '\' requires three characters to be escaped:
+// the escape character itself, plus % and _. escape the backslash
+// first so a raw `\` in user input doesn't masquerade as the escape
+// prefix for the `%` or `_` that follow. see deep-review.
+function escapeLikePattern(raw: string): string {
+	return raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
 export function findDeadCode(
 	store: AtlasStore,
 	opts?: {
@@ -66,7 +81,7 @@ export function findDeadCode(
 		SELECT e.target_id
 		FROM edges e
 		JOIN reachable r ON r.stable_id = e.source_id
-		WHERE e.kind IN ('calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access')
+		WHERE e.kind IN ${LIVENESS_EDGE_KINDS_SQL}
 	)
 	SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
 		f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
@@ -95,9 +110,8 @@ export function findDeadCode(
 	}
 
 	if (opts?.path) {
-		const escapedPath = opts.path.replace(/%/g, '\\%').replace(/_/g, '\\_')
 		sql += ` AND f.path LIKE ? ESCAPE '\\'`
-		params.push(`%${escapedPath}%`)
+		params.push(`%${escapeLikePattern(opts.path)}%`)
 	}
 
 	if (opts?.kind) {
@@ -169,10 +183,16 @@ function findInternalOnlySymbols(
 		callersWithin: string
 	},
 ): DeadCodeResult {
-	const relevantKinds = "('calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access')"
-	const escapedPrefix = opts.callersWithin.replace(/%/g, '\\%').replace(/_/g, '\\_')
-	const prefixLike = `${escapedPrefix}%`
+	const prefixLike = `${escapeLikePattern(opts.callersWithin)}%`
 
+	// issue #86 acceptance criterion: "zero-caller symbol (should
+	// still match as trivially internal-only)". the NOT EXISTS clause
+	// already expresses "no caller lives outside the prefix"; a symbol
+	// with zero callers vacuously satisfies that. we only require the
+	// symbol to be defined somewhere (the path join) and non-trivial
+	// (the kind filter + name != 'constructor'). this deliberately
+	// overlaps with dead-code's zero-caller set; see the CLI heading
+	// text for mode framing.
 	let sql = `SELECT s.name, s.qualified_name as qualifiedName, s.kind, s.signature,
 		f.path as filePath, s.line_start as lineStart, s.line_end as lineEnd,
 		s.is_exported as isExported, s.doc_comment as docComment
@@ -180,19 +200,12 @@ function findInternalOnlySymbols(
 		JOIN files f ON f.id = s.file_id
 		WHERE s.kind IN ('function', 'class', 'method', 'interface', 'type', 'enum')
 		AND s.name != 'constructor'
-		AND EXISTS (
-			SELECT 1 FROM edges e
-			JOIN symbols src ON src.stable_id = e.source_id
-			JOIN files sf ON sf.id = src.file_id
-			WHERE e.target_id = s.stable_id
-			AND e.kind IN ${relevantKinds}
-		)
 		AND NOT EXISTS (
 			SELECT 1 FROM edges e
 			JOIN symbols src ON src.stable_id = e.source_id
 			JOIN files sf ON sf.id = src.file_id
 			WHERE e.target_id = s.stable_id
-			AND e.kind IN ${relevantKinds}
+			AND e.kind IN ${LIVENESS_EDGE_KINDS_SQL}
 			AND sf.path NOT LIKE ? ESCAPE '\\'
 			${opts.includeTests ? '' : 'AND sf.is_test = 0'}
 		)`
@@ -208,9 +221,8 @@ function findInternalOnlySymbols(
 		for (const id of opts.excludeFileIds) params.push(id)
 	}
 	if (opts.path) {
-		const escapedPath = opts.path.replace(/%/g, '\\%').replace(/_/g, '\\_')
 		sql += ` AND f.path LIKE ? ESCAPE '\\'`
-		params.push(`%${escapedPath}%`)
+		params.push(`%${escapeLikePattern(opts.path)}%`)
 	}
 	if (opts.kind) {
 		sql += ' AND s.kind = ?'
