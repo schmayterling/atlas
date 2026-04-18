@@ -73,6 +73,16 @@ export function extractTypeScript(
 		processNode(child, filePath, null, false, symbols, edges, imports)
 	}
 
+	// synthesize symbols for test-framework callback bodies so calls
+	// made from inside `test('name', () => {...})` / `describe` / `it`
+	// callbacks get attributed to a real symbol row. without this the
+	// ts-resolver's findContainingFunction walks up from the call site,
+	// hits the anonymous arrow under a call_expression, and returns
+	// null; the edge is then dropped silently. see deep-review
+	// follow-up on the atlas-002 benchmark failing to find test
+	// call sites.
+	extractTestCallbacks(root, filePath, symbols)
+
 	// extract API endpoints (fetch calls, route registrations)
 	const apiEndpoints: ExtractedApiEndpoint[] = []
 	extractApiEndpoints(root, filePath, apiEndpoints)
@@ -646,6 +656,96 @@ function stripQuotes(s: string): string {
 		return s.slice(1, -1)
 	}
 	return s
+}
+
+// test-framework callables whose first-arg string labels the callback
+// body. bun:test + jest + mocha + vitest share this shape. `test.only` /
+// `it.skip` member-expression forms are covered via the member-access
+// branch below.
+const TEST_CALLABLES = new Set([
+	'test',
+	'it',
+	'describe',
+	'suite',
+	'context',
+	'beforeAll',
+	'beforeEach',
+	'afterAll',
+	'afterEach',
+	'before',
+	'after',
+])
+
+// synthesize a function-kind symbol for every test callable's callback
+// body. qname shape `<callee>:<label>` (e.g. `test:emits edge`) keeps
+// the namespace grep-friendly and matches the shape the resolver builds
+// when attributing inner calls. nested describe/test each get their
+// own symbol so leaf call-sites attribute to the innermost label.
+function extractTestCallbacks(root: SyntaxNode, filePath: string, symbols: ExtractedSymbol[]) {
+	const seen = new Set<string>()
+	const walk = (node: SyntaxNode) => {
+		if (node.type === 'call_expression') {
+			const info = testCallableInfo(node)
+			if (info) {
+				const qname = `${filePath}::${info.callee}:${info.label}`
+				if (!seen.has(qname)) {
+					seen.add(qname)
+					symbols.push({
+						name: `${info.callee}:${info.label}`,
+						qualifiedName: qname,
+						kind: 'function',
+						isExported: false,
+						visibility: null,
+						...nodeSpan(node),
+						parentQualifiedName: null,
+						signature: null,
+						docComment: null,
+					})
+				}
+			}
+		}
+		for (const child of node.namedChildren) walk(child)
+	}
+	walk(root)
+}
+
+// returns { callee, label } when `node` is a recognized test callable
+// invocation whose first argument is a string literal. otherwise null.
+// handles both `test('x', cb)` and `test.skip('x', cb)` / `describe.each(...)('x', cb)`.
+export function testCallableInfo(
+	node: SyntaxNode,
+): { callee: string; label: string } | null {
+	if (node.type !== 'call_expression') return null
+	const fnNode = node.childForFieldName('function')
+	if (!fnNode) return null
+	let callee: string | null = null
+	if (fnNode.type === 'identifier') {
+		callee = fnNode.text
+	} else if (fnNode.type === 'member_expression') {
+		// test.only / it.skip / describe.each -- the root-most identifier
+		// is the callable. grab it by walking down the object chain.
+		let cursor: SyntaxNode | null = fnNode
+		while (cursor && cursor.type === 'member_expression') {
+			cursor = cursor.childForFieldName('object')
+		}
+		if (cursor && cursor.type === 'identifier') callee = cursor.text
+	} else if (fnNode.type === 'call_expression') {
+		// e.g. describe.each(cases)('x', cb): the outer call's callee is
+		// itself a call expression; recurse one level to recover the root
+		// test-framework identifier.
+		const inner = testCallableInfo(fnNode)
+		if (inner) callee = inner.callee
+	}
+	if (!callee || !TEST_CALLABLES.has(callee)) return null
+
+	const argsNode = node.childForFieldName('arguments')
+	if (!argsNode) return null
+	const firstArg = argsNode.namedChildren[0]
+	if (!firstArg) return null
+	if (firstArg.type !== 'string' && firstArg.type !== 'template_string') return null
+	const label = stripQuotes(truncate(firstArg.text, 80))
+	if (!label) return null
+	return { callee, label }
 }
 
 function truncate(s: string, max: number): string {

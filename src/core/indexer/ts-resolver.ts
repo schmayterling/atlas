@@ -544,8 +544,68 @@ function findContainingFunction(
 			if (ts.isVariableDeclaration(varDecl) && ts.isIdentifier(varDecl.name)) {
 				return { kind: 'function', qname: `${relPath}::${varDecl.name.getText()}` }
 			}
+			// bun:test / jest / mocha / vitest: `test('name', () => {...})`,
+			// `describe('suite', () => {...})`, etc. attribute the callback's
+			// inner calls to a synthetic `<callee>:<label>` symbol that the
+			// tree-sitter extractor emits alongside. without this branch
+			// call-sites inside test bodies return null and every edge out
+			// of a test file is silently dropped. see deep-review follow-up
+			// on atlas-002.
+			const label = testCallableLabel(current.parent)
+			if (label) {
+				return { kind: 'function', qname: `${relPath}::${label}` }
+			}
 		}
 		current = current.parent
+	}
+	return null
+}
+
+// test-framework callables whose first-arg string labels the callback
+// body. must match TEST_CALLABLES in src/core/parser/extractors/typescript.ts.
+const TS_RESOLVER_TEST_CALLABLES = new Set([
+	'test', 'it', 'describe', 'suite', 'context',
+	'beforeAll', 'beforeEach', 'afterAll', 'afterEach',
+	'before', 'after',
+])
+
+// mirror of the tree-sitter extractor's testCallableInfo: returns the
+// `<callee>:<label>` form when `node` is a recognized test callable's
+// call expression, else null. kept here instead of shared because the
+// extractor sees tree-sitter nodes while the resolver sees ts compiler
+// nodes, and the duplication is tiny.
+function testCallableLabel(node: ts.Node | undefined): string | null {
+	if (!node || !ts.isCallExpression(node)) return null
+	let callee: string | null = null
+	const expr = node.expression
+	if (ts.isIdentifier(expr)) {
+		callee = expr.text
+	} else if (ts.isPropertyAccessExpression(expr)) {
+		// test.only / it.skip / describe.each -- walk down the object chain
+		// to the root identifier.
+		let cursor: ts.Expression = expr
+		while (ts.isPropertyAccessExpression(cursor)) {
+			cursor = cursor.expression
+		}
+		if (ts.isIdentifier(cursor)) callee = cursor.text
+	} else if (ts.isCallExpression(expr)) {
+		// describe.each(cases)('label', cb): the outer callee is a call.
+		const inner = testCallableLabel(expr)
+		if (inner) {
+			// inner returns '<callee>:<innerLabel>'; we only need the callee
+			// prefix for our outer label.
+			const idx = inner.indexOf(':')
+			callee = idx > 0 ? inner.slice(0, idx) : inner
+		}
+	}
+	if (!callee || !TS_RESOLVER_TEST_CALLABLES.has(callee)) return null
+	const firstArg = node.arguments[0]
+	if (!firstArg) return null
+	if (ts.isStringLiteral(firstArg) || ts.isNoSubstitutionTemplateLiteral(firstArg)) {
+		const label = firstArg.text
+		if (!label) return null
+		const truncated = label.length > 80 ? `${label.slice(0, 80)}...` : label
+		return `${callee}:${truncated}`
 	}
 	return null
 }
@@ -578,6 +638,14 @@ function findContainingDeclaration(
 		}
 		if (ts.isVariableDeclaration(current) && ts.isIdentifier(current.name)) {
 			return { kind: 'variable', qname: `${relPath}::${current.name.getText()}` }
+		}
+		if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+			// mirror findContainingFunction: type refs inside test callbacks
+			// should attribute to the synthetic `<callee>:<label>` symbol.
+			const label = testCallableLabel(current.parent)
+			if (label) {
+				return { kind: 'function', qname: `${relPath}::${label}` }
+			}
 		}
 		current = current.parent
 	}
