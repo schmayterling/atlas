@@ -27,10 +27,8 @@
 import { resolve } from 'node:path'
 import type { LlmAgentResult, LlmTaskInput } from '../lib/llm-agent.js'
 import { runLlmAgent } from '../lib/llm-agent.js'
-import { TEXT_TOOLS, makeTextHandler } from '../lib/text-tools.js'
 import { openMcpAgent } from '../lib/mcp-client.js'
 import type { McpAgentHandle } from '../lib/mcp-client.js'
-import type { ToolCall } from '../lib/openrouter.js'
 import { getChunkhoundHandle } from '../lib/preconfigure.js'
 
 const REPO_ROOT = resolve(import.meta.dir, '..', '..')
@@ -65,18 +63,14 @@ export async function runWithChunkhoundAgent(opts: {
 	task: LlmTaskInput
 	corpusRoot: string
 }): Promise<LlmAgentResult> {
+	// chunkhound tools ONLY, no text fallback. isolates chunkhound's
+	// native capability for a clean head-to-head with atlas and cbm.
 	const ch = await getHandle(opts.corpusRoot)
-	const textHandler = makeTextHandler(opts.corpusRoot)
-	const handler = async (call: ToolCall) => {
-		const chNames = new Set(ch.tools.map((t) => t.function.name))
-		if (chNames.has(call.function.name)) return ch.handler(call)
-		return textHandler(call)
-	}
 	return runLlmAgent({
 		model: opts.model,
 		task: opts.task,
-		tools: [...TEXT_TOOLS, ...ch.tools],
-		toolHandler: handler,
+		tools: ch.tools,
+		toolHandler: ch.handler,
 	})
 }
 

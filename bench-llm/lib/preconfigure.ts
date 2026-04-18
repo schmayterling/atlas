@@ -77,7 +77,10 @@ export async function preconfigure(
 
 async function preconfigAtlas(corpusRoot: string): Promise<string> {
 	const engine = getOrCreateEngine(undefined, corpusRoot)
-	const r = await engine.index({ force: true, noEmbed: true, noSummarize: true, withGitHub: false })
+	// embeddings on for parity with chunkhound/cbm (both embed by default during
+	// preconfigure). summaries stay off; they're an atlas-only llm enrichment
+	// and not part of what competitors ship.
+	const r = await engine.index({ force: true, noEmbed: false, noSummarize: true, withGitHub: false })
 	return `${r.filesTotal} files, ${r.symbols} symbols, ${r.edges} edges`
 }
 

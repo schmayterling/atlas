@@ -26,7 +26,8 @@ import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import pc from 'picocolors'
-import { resolve as resolvePath } from 'node:path'
+import { initSqliteExtensions } from '../src/core/storage/sqlite-ext.js'
+initSqliteExtensions()
 import { ensureCorpus, listCorpora, loadManifest } from '../bench-eval/lib/corpus.js'
 import { judge, type Expected, type AgentAnswer } from '../bench-eval/lib/judge.js'
 import type { Task } from '../bench-eval/agents/text-search.js'
@@ -41,7 +42,7 @@ import { preconfigure, closePreconfiguredHandles } from './lib/preconfigure.js'
 import { judgeWithLlm } from './lib/llm-judge.js'
 
 const CHUNKHOUND_CONFIG = process.env.CHUNKHOUND_CONFIG_FILE
-	|| resolvePath(import.meta.dir, 'config', 'chunkhound.json')
+	|| resolve(import.meta.dir, 'config', 'chunkhound.json')
 
 const REPO_ROOT = resolve(import.meta.dir, '..')
 const DEFAULT_MODEL = 'anthropic/claude-haiku-4.5'
@@ -145,6 +146,14 @@ interface TrialResult {
 	tokens: number
 	cost: number
 	toolCalls: number
+	toolSequence: string[]
+	toolBreakdown: Record<string, number>
+	// full per-call trace (name + args + result preview). kept so post-hoc
+	// failure analysis doesn't require a re-run.
+	trace: Array<{ tool: string; args: string; resultLen: number; resultPreview: string }>
+	// final assistant message. distinguishes json-parse failure from
+	// bad-tool-output failure when a trial scores 0.
+	finalMessage: string
 	wallMs: number
 	stoppedReason: string
 	error?: string
@@ -174,6 +183,10 @@ function toTrial(job: Job, r: LlmAgentResult, score: number): TrialResult {
 		tokens: r.tokens.total,
 		cost: r.cost,
 		toolCalls: r.toolCallCount,
+		toolSequence: r.toolSequence,
+		toolBreakdown: r.toolBreakdown,
+		trace: r.trace,
+		finalMessage: r.finalMessage,
 		wallMs: r.wallMs,
 		stoppedReason: r.stoppedReason,
 		error: r.error,
@@ -282,6 +295,70 @@ function summarize(rows: TrialResult[]): void {
 		)
 	}
 
+	// per-agent tool breakdown: which tools each agent actually called across
+	// all trials. reveals tool-selection patterns (e.g. if atlas leans heavily
+	// on atlas_search and rarely touches semantic_search, or if baseline
+	// spams grep for every question. sorted by call count desc, top 8 shown.
+	console.log(`\n${pc.bold('tool usage per agent:')}`)
+	for (const [agent, trs] of byAgent) {
+		const agg: Record<string, number> = {}
+		for (const r of trs) {
+			for (const [tool, n] of Object.entries(r.toolBreakdown ?? {})) {
+				agg[tool] = (agg[tool] ?? 0) + n
+			}
+		}
+		const ranked = Object.entries(agg).sort((a, b) => b[1] - a[1]).slice(0, 8)
+		const total = Object.values(agg).reduce((s, n) => s + n, 0)
+		const breakdown = ranked.length
+			? ranked.map(([t, n]) => `${t}=${n} (${total > 0 ? Math.round((n / total) * 100) : 0}%)`).join('  ')
+			: pc.dim('(no tool calls)')
+		console.log(`  ${colorAgent(agent as AgentName).padEnd(12 + (colorAgent(agent as AgentName).length - agent.length))}  ${breakdown}`)
+	}
+
+	// per-agent top unique (tool + args) calls, showing the actual queries each
+	// agent made, collapsed across trials. tells us whether atlas_search is
+	// being asked sensible things ("ZodObject", "safeParse") or spammed with
+	// garbage queries that explain tool-effectiveness gaps.
+	console.log(`\n${pc.bold('top queries per agent (tool + args, collapsed):')}`)
+	for (const [agent, trs] of byAgent) {
+		const uniq = new Map<string, number>()
+		for (const r of trs) {
+			for (const step of r.trace ?? []) {
+				const key = `${step.tool}(${step.args})`
+				uniq.set(key, (uniq.get(key) ?? 0) + 1)
+			}
+		}
+		const top = [...uniq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+		console.log(`  ${colorAgent(agent as AgentName)}`)
+		if (top.length === 0) {
+			console.log(`    ${pc.dim('(no tool calls)')}`)
+			continue
+		}
+		for (const [key, n] of top) {
+			const display = key.length > 140 ? `${key.slice(0, 140)}…` : key
+			console.log(`    ${pc.dim(`×${String(n).padStart(3)}`)}  ${display}`)
+		}
+	}
+
+	// timeout / max-iter summary per agent. surfaces stuck trials that would
+	// otherwise hide in aggregate score averages.
+	const abnormalByAgent = new Map<string, Record<string, number>>()
+	for (const [agent, trs] of byAgent) {
+		const counts: Record<string, number> = {}
+		for (const r of trs) {
+			if (r.stoppedReason === 'natural') continue
+			counts[r.stoppedReason] = (counts[r.stoppedReason] ?? 0) + 1
+		}
+		if (Object.keys(counts).length > 0) abnormalByAgent.set(agent, counts)
+	}
+	if (abnormalByAgent.size > 0) {
+		console.log(`\n${pc.bold('abnormal trial outcomes:')}`)
+		for (const [agent, counts] of abnormalByAgent) {
+			const parts = Object.entries(counts).map(([k, n]) => `${k}=${pc.red(String(n))}`).join('  ')
+			console.log(`  ${colorAgent(agent as AgentName)}  ${parts}`)
+		}
+	}
+
 	const baseline = byAgent.get('baseline') ?? []
 	if (baseline.length === 0) return
 	const meanB = baseline.reduce((s, r) => s + r.score, 0) / baseline.length
@@ -306,6 +383,81 @@ function summarize(rows: TrialResult[]): void {
 			`  ${colorAgent(agent as AgentName).padEnd(12 + (colorAgent(agent as AgentName).length - agent.length))}  score=${dScore >= 0 ? '+' : ''}${dScore.toFixed(3)}${llmDelta}  tokens=${dTok >= 0 ? '+' : ''}${Math.round(dTok)} per task (${dTok >= 0 ? '+' : ''}${tokPct}%)`,
 		)
 	}
+
+	// paired-bootstrap 95% CI for agent-vs-baseline deltas. pairs per (task,
+	// trial). the LLM receives identical task input across agents so any
+	// delta is attributable to the agent, not task variance. we've watched
+	// three runs on the same commit swing ±0.03 deterministic for atlas;
+	// without CIs the team was chasing noise. flag CIs that straddle zero
+	// as "not significant" so we stop believing tiny reported deltas.
+	const pairedCI = computePairedCI(rows)
+	if (pairedCI.size > 0) {
+		console.log(`\n${pc.bold('paired-bootstrap 95% CI vs baseline (n=1000 resamples):')}`)
+		for (const [agent, entry] of pairedCI) {
+			if (agent === 'baseline') continue
+			const fmt = (m: { mean: number; lo: number; hi: number } | null) => {
+				if (!m) return pc.dim('—')
+				const sig = (m.lo > 0 || m.hi < 0) ? pc.green('*') : pc.dim(' ')
+				const mean = m.mean >= 0 ? `+${m.mean.toFixed(3)}` : m.mean.toFixed(3)
+				return `${mean} [${m.lo.toFixed(3)}, ${m.hi.toFixed(3)}] ${sig}`
+			}
+			console.log(
+				`  ${colorAgent(agent as AgentName).padEnd(12 + (colorAgent(agent as AgentName).length - agent.length))}  det=${fmt(entry.det)}  llm=${fmt(entry.llm)}`,
+			)
+		}
+		console.log(`  ${pc.dim('* = CI excludes zero (significant)')}`)
+	}
+}
+
+// paired-bootstrap CI. pairs trials by (taskId, trial) so the resample
+// keeps task difficulty constant across agents. 1000 resamples is the
+// sweet spot between runtime (~100ms on 140 pairs) and CI stability.
+function computePairedCI(
+	rows: TrialResult[],
+): Map<string, { det: BootCI | null; llm: BootCI | null }> {
+	const baseline = rows.filter((r) => r.agent === 'baseline')
+	const baselineByKey = new Map<string, TrialResult>()
+	for (const b of baseline) baselineByKey.set(`${b.taskId}::${b.trial}`, b)
+
+	const agents = [...new Set(rows.map((r) => r.agent))].filter((a) => a !== 'baseline')
+	const out = new Map<string, { det: BootCI | null; llm: BootCI | null }>()
+	for (const agent of agents) {
+		const detPairs: number[] = []
+		const llmPairs: number[] = []
+		for (const r of rows) {
+			if (r.agent !== agent) continue
+			const b = baselineByKey.get(`${r.taskId}::${r.trial}`)
+			if (!b) continue
+			detPairs.push(r.score - b.score)
+			if (r.llmScore != null && b.llmScore != null) {
+				llmPairs.push(r.llmScore - b.llmScore)
+			}
+		}
+		out.set(agent, {
+			det: bootstrapCI(detPairs, 1000),
+			llm: bootstrapCI(llmPairs, 1000),
+		})
+	}
+	return out
+}
+
+interface BootCI { mean: number; lo: number; hi: number }
+
+function bootstrapCI(xs: number[], resamples: number): BootCI | null {
+	if (xs.length === 0) return null
+	const mean = xs.reduce((s, x) => s + x, 0) / xs.length
+	const means: number[] = new Array(resamples)
+	for (let i = 0; i < resamples; i++) {
+		let sum = 0
+		for (let j = 0; j < xs.length; j++) {
+			sum += xs[Math.floor(Math.random() * xs.length)]
+		}
+		means[i] = sum / xs.length
+	}
+	means.sort((a, b) => a - b)
+	const lo = means[Math.floor(0.025 * resamples)]
+	const hi = means[Math.floor(0.975 * resamples)]
+	return { mean, lo, hi }
 }
 
 function commitSha(): string {
@@ -400,8 +552,9 @@ async function main() {
 		const llmTag = r.llmScore !== undefined && r.llmScore !== null
 			? `  llm=${scoreColor(r.llmScore)}`
 			: ''
+		const seqTag = r.toolSequence.length > 0 ? `  ${pc.dim(formatSequence(r.toolSequence))}` : ''
 		console.log(
-			`  ${pc.green('✓')} ${pc.dim(idx)} ${taskId} ${agent} ${trialTag}  score=${tag}${llmTag}  ${pc.dim(`${r.tokens}t  $${r.cost.toFixed(4)}  ${r.toolCalls}c  ${r.wallMs}ms`)}`,
+			`  ${pc.green('✓')} ${pc.dim(idx)} ${taskId} ${agent} ${trialTag}  score=${tag}${llmTag}  ${pc.dim(`${r.tokens}t  $${r.cost.toFixed(4)}  ${r.toolCalls}c  ${r.wallMs}ms`)}${seqTag}`,
 		)
 	})
 	const wallSec = ((performance.now() - startAll) / 1000).toFixed(1)
@@ -451,6 +604,15 @@ function scoreColor(s: number): string {
 	if (s >= 0.5)  return pc.yellow(t)
 	if (s > 0)     return pc.yellow(pc.dim(t))
 	return pc.red(t)
+}
+
+// compact per-trial tool sequence. first few names in order + a +N suffix
+// when truncated. keeps the progress line informative without wrapping.
+function formatSequence(seq: string[], max = 5): string {
+	if (seq.length === 0) return ''
+	const head = seq.slice(0, max)
+	const tail = seq.length > max ? ` +${seq.length - max}` : ''
+	return `[${head.join(', ')}${tail}]`
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })

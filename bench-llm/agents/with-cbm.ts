@@ -25,10 +25,8 @@
 
 import type { LlmAgentResult, LlmTaskInput } from '../lib/llm-agent.js'
 import { runLlmAgent } from '../lib/llm-agent.js'
-import { TEXT_TOOLS, makeTextHandler } from '../lib/text-tools.js'
 import { openMcpAgent } from '../lib/mcp-client.js'
 import type { McpAgentHandle } from '../lib/mcp-client.js'
-import type { ToolCall } from '../lib/openrouter.js'
 import { getCbmHandle } from '../lib/preconfigure.js'
 
 const CBM_BIN = process.env.CODEBASE_MEMORY_MCP_BIN
@@ -65,22 +63,14 @@ export async function runWithCbmAgent(opts: {
 	task: LlmTaskInput
 	corpusRoot: string
 }): Promise<LlmAgentResult> {
+	// cbm tools ONLY, no text fallback. isolates cbm's native capability
+	// the same way with-atlas and with-chunkhound are isolated.
 	const cbm = await getHandle(opts.corpusRoot)
-	const textHandler = makeTextHandler(opts.corpusRoot)
-	const handler = async (call: ToolCall) => {
-		// dispatch by tool name. cbm tools don't share a prefix; they're
-		// listed by name (index_repository, search_graph, trace_call_path,
-		// query_graph, etc.). we know what cbm.tools is — anything else
-		// is text-tools.
-		const cbmNames = new Set(cbm.tools.map((t) => t.function.name))
-		if (cbmNames.has(call.function.name)) return cbm.handler(call)
-		return textHandler(call)
-	}
 	return runLlmAgent({
 		model: opts.model,
 		task: opts.task,
-		tools: [...TEXT_TOOLS, ...cbm.tools],
-		toolHandler: handler,
+		tools: cbm.tools,
+		toolHandler: cbm.handler,
 	})
 }
 

@@ -57,7 +57,7 @@ export interface RunResult {
 	usage: Usage
 	cost: number
 	model: string
-	stoppedReason: 'natural' | 'max-iters' | 'error'
+	stoppedReason: 'natural' | 'max-iters' | 'error' | 'timeout'
 	error?: string
 }
 
@@ -69,6 +69,10 @@ export interface RunOptions {
 	maxIters?: number
 	maxOutputTokens?: number
 	temperature?: number
+	// abort signal for the whole chat loop. when fired, any in-flight fetch
+	// cancels and the loop returns with stoppedReason: 'timeout' (the caller
+	// sets this via setTimeout for per-trial wallclock caps).
+	signal?: AbortSignal
 }
 
 export async function runChat(opts: RunOptions): Promise<RunResult> {
@@ -92,6 +96,21 @@ export async function runChat(opts: RunOptions): Promise<RunResult> {
 	const maxIters = opts.maxIters ?? 12
 
 	for (let iter = 0; iter < maxIters; iter++) {
+		// caller-supplied signal (see bench-llm/lib/llm-agent.ts wiring it up
+		// to a 2-min setTimeout per trial). bail BEFORE starting another
+		// network call so the returned state includes every step completed
+		// so far rather than throwing mid-fetch.
+		if (opts.signal?.aborted) {
+			return {
+				finalMessage: '',
+				steps,
+				usage: totalUsage,
+				cost: totalCost,
+				model: opts.model,
+				stoppedReason: 'timeout',
+			}
+		}
+
 		const body: Record<string, unknown> = {
 			model: opts.model,
 			messages,
@@ -102,16 +121,33 @@ export async function runChat(opts: RunOptions): Promise<RunResult> {
 		// openrouter passes through to upstream provider's usage accounting
 		body.usage = { include: true }
 
-		const res = await fetch(ENDPOINT, {
-			method: 'POST',
-			headers: {
-				'authorization': `Bearer ${apiKey}`,
-				'content-type': 'application/json',
-				'http-referer': 'https://github.com/atlas/bench-llm',
-				'x-title': 'atlas bench-llm',
-			},
-			body: JSON.stringify(body),
-		})
+		let res: Response
+		try {
+			res = await fetch(ENDPOINT, {
+				method: 'POST',
+				headers: {
+					'authorization': `Bearer ${apiKey}`,
+					'content-type': 'application/json',
+					'http-referer': 'https://github.com/atlas/bench-llm',
+					'x-title': 'atlas bench-llm',
+				},
+				body: JSON.stringify(body),
+				signal: opts.signal,
+			})
+		} catch (e) {
+			// AbortError (signal fired mid-fetch) → timeout, not error.
+			// other throws (network) surface as stoppedReason: 'error'.
+			const aborted = e instanceof Error && e.name === 'AbortError'
+			return {
+				finalMessage: '',
+				steps,
+				usage: totalUsage,
+				cost: totalCost,
+				model: opts.model,
+				stoppedReason: aborted ? 'timeout' : 'error',
+				error: aborted ? undefined : (e instanceof Error ? e.message : String(e)),
+			}
+		}
 
 		if (!res.ok) {
 			const text = await res.text().catch(() => '')
@@ -160,9 +196,28 @@ export async function runChat(opts: RunOptions): Promise<RunResult> {
 			}
 		}
 
-		// run each tool call, append results, continue loop
+		// run each tool call, append results, continue loop. check the
+		// abort signal between every tool call so a fired timeout stops
+		// the trial promptly rather than letting the remaining queued
+		// calls run to completion past the wallclock cap. a tool call
+		// already in flight cannot be interrupted here (each tool decides
+		// what to do with cancellation on its own), but we bound the
+		// BETWEEN-calls slack.
 		const toolResults: { tool_call_id: string; content: string }[] = []
 		for (const call of toolCalls) {
+			if (opts.signal?.aborted) {
+				if (toolResults.length > 0) {
+					steps.push({ role: 'tool', content: null, tool_results: toolResults })
+				}
+				return {
+					finalMessage: '',
+					steps,
+					usage: totalUsage,
+					cost: totalCost,
+					model: opts.model,
+					stoppedReason: 'timeout',
+				}
+			}
 			let result: string
 			try { result = await opts.toolHandler(call) }
 			catch (e) { result = `error: ${e instanceof Error ? e.message : String(e)}` }
