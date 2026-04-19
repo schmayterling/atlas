@@ -74,6 +74,10 @@ interface CliOptions {
 	agents: AgentName[]
 	llmJudge: boolean
 	judgeModel: string
+	// when true the judge gets read_file/grep/glob tools to verify claims
+	// before scoring. opt-in because flipping it changes methodology;
+	// rubric-only is comparable to all runs <= c222cba.
+	judgeVerify: boolean
 	skipPreconfig: boolean
 	taskSet: TaskSet
 }
@@ -82,7 +86,7 @@ function parseCli(argv: string[]): CliOptions {
 	const opts: CliOptions = {
 		mode: 'ci', taskFilter: null, model: DEFAULT_MODEL, trials: 1,
 		corpora: null, concurrency: DEFAULT_CONCURRENCY, agents: [...DEFAULT_AGENTS],
-		llmJudge: false, judgeModel: DEFAULT_JUDGE_MODEL, skipPreconfig: false,
+		llmJudge: false, judgeModel: DEFAULT_JUDGE_MODEL, judgeVerify: false, skipPreconfig: false,
 		taskSet: 'regression',
 	}
 	for (let i = 0; i < argv.length; i++) {
@@ -103,6 +107,7 @@ function parseCli(argv: string[]): CliOptions {
 		}
 		else if (a === '--judge-with-llm') opts.llmJudge = true
 		else if (a === '--judge-model') opts.judgeModel = argv[++i]
+		else if (a === '--judge-verify') { opts.llmJudge = true; opts.judgeVerify = true }
 		else if (a === '--skip-preconfig') opts.skipPreconfig = true
 		else if (a === '--task-set') {
 			const v = argv[++i]
@@ -165,6 +170,10 @@ interface TrialResult {
 	llmRationale?: string
 	llmJudgeTokens?: number
 	llmJudgeCost?: number
+	// number of verification tool calls the judge made on this trial
+	// (read_file/grep/glob). 0 when the judge ran in rubric-only mode
+	// or saw an answer it could rate without checking.
+	llmJudgeVerifyCalls?: number
 	tokens: number
 	cost: number
 	toolCalls: number
@@ -192,6 +201,7 @@ interface Job {
 	model: string
 	llmJudge: boolean
 	judgeModel: string
+	judgeVerify: boolean
 }
 
 function toTrial(job: Job, r: LlmAgentResult, score: number): TrialResult {
@@ -250,11 +260,18 @@ async function runJob(job: Job): Promise<TrialResult> {
 				taskIntent: taskInput.intent || job.task.id,
 				expected: job.task.expected as Expected,
 				answer: r.answer,
+				// pass the corpus root and verify flag so the judge can
+				// verify claims (read_file / grep / glob) before scoring
+				// when --judge-verify was set. otherwise the judge runs
+				// rubric-only (comparable to all runs <= c222cba).
+				corpusRoot: job.corpusRoot,
+				verify: job.judgeVerify,
 			})
 			trial.llmScore = j.score
 			trial.llmRationale = j.rationale
 			trial.llmJudgeTokens = j.tokens
 			trial.llmJudgeCost = j.cost
+			trial.llmJudgeVerifyCalls = j.verifyCalls
 		} catch (e) {
 			trial.llmScore = null
 			trial.llmRationale = `judge call failed: ${e instanceof Error ? e.message : String(e)}`
@@ -527,7 +544,7 @@ async function main() {
 		`trials=${opts.trials}`,
 		`concurrency=${opts.concurrency}`,
 	]
-	if (opts.llmJudge) header.push(`llm-judge=${pc.magenta(opts.judgeModel)}`)
+	if (opts.llmJudge) header.push(`llm-judge=${pc.magenta(opts.judgeModel)}${opts.judgeVerify ? pc.green('+verify') : ''}`)
 	header.push(`task-set=${pc.cyan(opts.taskSet)}`)
 	console.log(header.join('  '))
 
@@ -552,7 +569,7 @@ async function main() {
 		const corpusRoot = corpusRoots.get(corpus)!
 		for (let trial = 0; trial < opts.trials; trial++) {
 			for (const agent of opts.agents) {
-				jobs.push({ corpus, corpusRoot, task, trial, agent, model: opts.model, llmJudge: opts.llmJudge, judgeModel: opts.judgeModel })
+				jobs.push({ corpus, corpusRoot, task, trial, agent, model: opts.model, llmJudge: opts.llmJudge, judgeModel: opts.judgeModel, judgeVerify: opts.judgeVerify })
 			}
 		}
 	}
