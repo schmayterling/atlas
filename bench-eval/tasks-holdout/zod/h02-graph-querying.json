@@ -1,0 +1,17 @@
+{
+	"id": "zod-h02-graph-querying",
+	"capability": "graph-querying",
+	"intent": "what are the upstream dependents of v3 `ZodNumber` (which symbols depend on it)?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "packages/zod/src/v3/types.ts::ZodNumber",
+		"direction": "upstream",
+		"depth": 3
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 4 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "holdout — upstream dependent walk for a concrete schema class. text-search has no graph; can only grep for `ZodNumber` mentions which conflates type refs with actual structural deps."
+}

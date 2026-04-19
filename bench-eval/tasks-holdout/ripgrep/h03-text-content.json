@@ -1,0 +1,11 @@
+{
+	"id": "ripgrep-h03-text-content",
+	"capability": "text-content",
+	"intent": "how many .rs files contain the word `unsafe` anywhere in their content?",
+	"atlas_method": "searchContent",
+	"atlas_args": { "q": "unsafe", "language": "rust", "maxMatches": 500 },
+	"expected": { "type": "count", "value": 18, "tolerance": 4 },
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "rg-files-with-matches", "pattern": "unsafe", "glob": "**/*.rs" },
+	"notes": "holdout — substring count over file content; both atlas_content_search and rg should hit the same file set. expected based on a manual count at the pinned commit; tolerance ±4 covers transient changes."
+}

@@ -1,0 +1,8 @@
+{
+	"name": "expo",
+	"git_url": "https://github.com/expo/expo.git",
+	"ref": "sdk-52.0.0",
+	"expected_languages": ["typescript", "javascript"],
+	"notes": "react native: the expo monorepo, sdk 52. heavy ts surface (packages/expo-*), large package count, jsx-heavy components. exercises atlas's react/jsx handling and monorepo cross-package resolution at scale. shallow-clone-friendly via the sdk-52.0.0 tag.",
+	"root_subdir": null
+}

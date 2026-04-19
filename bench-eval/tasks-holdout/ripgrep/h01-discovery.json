@@ -1,0 +1,14 @@
+{
+	"id": "ripgrep-h01-discovery",
+	"capability": "discovery",
+	"intent": "find every public function whose name starts with `make_` (factories used across the workspace)",
+	"atlas_method": "search",
+	"atlas_args": { "q": "make_", "kind": "function", "limit": 50 },
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 4 }]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "rg-with-pattern", "pattern": "fn make_", "glob": "**/*.rs" },
+	"notes": "holdout — naming-convention discovery (factory pattern). atlas's name search filters by symbol kind directly; grep approximates with the `fn make_` pattern but picks up false-positive comments and string literals."
+}

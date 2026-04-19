@@ -1,0 +1,14 @@
+{
+	"id": "zod-h01-discovery",
+	"capability": "discovery",
+	"intent": "find every exported class whose name starts with `Zod` (the public type surface)",
+	"atlas_method": "search",
+	"atlas_args": { "q": "Zod", "kind": "class", "limit": 100 },
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 20 }]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": { "mode": "rg-with-pattern", "pattern": "export class Zod", "glob": "**/*.ts" },
+	"notes": "holdout — public api discovery via name-prefix search. atlas filters by kind; grep needs exact `export class Zod` pattern."
+}

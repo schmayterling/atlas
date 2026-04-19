@@ -75,6 +75,7 @@ interface CliOptions {
 	llmJudge: boolean
 	judgeModel: string
 	skipPreconfig: boolean
+	taskSet: TaskSet
 }
 
 function parseCli(argv: string[]): CliOptions {
@@ -82,6 +83,7 @@ function parseCli(argv: string[]): CliOptions {
 		mode: 'ci', taskFilter: null, model: DEFAULT_MODEL, trials: 1,
 		corpora: null, concurrency: DEFAULT_CONCURRENCY, agents: [...DEFAULT_AGENTS],
 		llmJudge: false, judgeModel: DEFAULT_JUDGE_MODEL, skipPreconfig: false,
+		taskSet: 'regression',
 	}
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
@@ -102,6 +104,11 @@ function parseCli(argv: string[]): CliOptions {
 		else if (a === '--judge-with-llm') opts.llmJudge = true
 		else if (a === '--judge-model') opts.judgeModel = argv[++i]
 		else if (a === '--skip-preconfig') opts.skipPreconfig = true
+		else if (a === '--task-set') {
+			const v = argv[++i]
+			if (v !== 'regression' && v !== 'holdout') throw new Error(`--task-set must be regression|holdout, got '${v}'`)
+			opts.taskSet = v
+		}
 	}
 	return opts
 }
@@ -111,18 +118,33 @@ interface CorpusTasks {
 	tasks: Task[]
 }
 
-function loadAllTasks(): CorpusTasks[] {
+function loadAllTasks(taskSet: TaskSet = 'regression'): CorpusTasks[] {
+	// `regression` = the published 28-task set under bench-eval/tasks/.
+	// `holdout`    = a separate set under bench-eval/tasks-holdout/ that
+	//               we never tune against. results from holdout are an
+	//               overfitting alarm: if regression numbers move but
+	//               holdout doesn't, we've been gaming the published set.
+	const subdir = taskSet === 'holdout' ? 'tasks-holdout' : 'tasks'
 	const out: CorpusTasks[] = []
 	for (const corpus of listCorpora()) {
-		const dir = join(REPO_ROOT, 'bench-eval', 'tasks', corpus)
+		const dir = join(REPO_ROOT, 'bench-eval', subdir, corpus)
+		let files: string[]
+		try {
+			files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
+		} catch {
+			// holdout dir for this corpus may not exist yet; skip it.
+			continue
+		}
 		const tasks: Task[] = []
-		for (const file of readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
+		for (const file of files) {
 			tasks.push(JSON.parse(readFileSync(join(dir, file), 'utf-8')))
 		}
 		if (tasks.length > 0) out.push({ corpus, tasks })
 	}
 	return out
 }
+
+type TaskSet = 'regression' | 'holdout'
 
 function expectedShape(task: Task): 'symbols' | 'count' | 'files' | 'structural' {
 	const t = (task.expected as { type: string }).type
@@ -472,7 +494,7 @@ async function main() {
 		process.exit(1)
 	}
 
-	const all = loadAllTasks()
+	const all = loadAllTasks(opts.taskSet)
 	const filtered: { corpus: string; task: Task }[] = []
 	for (const { corpus, tasks } of all) {
 		if (opts.corpora && !opts.corpora.includes(corpus)) continue
@@ -506,6 +528,7 @@ async function main() {
 		`concurrency=${opts.concurrency}`,
 	]
 	if (opts.llmJudge) header.push(`llm-judge=${pc.magenta(opts.judgeModel)}`)
+	header.push(`task-set=${pc.cyan(opts.taskSet)}`)
 	console.log(header.join('  '))
 
 	// preconfigure: ensure each non-baseline agent has indexed every

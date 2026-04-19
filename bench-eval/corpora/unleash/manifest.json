@@ -1,0 +1,8 @@
+{
+	"name": "unleash",
+	"git_url": "https://github.com/Unleash/unleash.git",
+	"ref": "v6.4.0",
+	"expected_languages": ["typescript", "go"],
+	"notes": "typescript+go: feature-flag platform. typescript server + react frontend; go SDK lives in companion repo so we pin the v6.4.0 tag of the main monorepo. exercises ts cross-package resolution within a sizable production codebase. add a separate go corpus for pure-go coverage.",
+	"root_subdir": null
+}

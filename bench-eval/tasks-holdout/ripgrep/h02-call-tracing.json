@@ -1,0 +1,13 @@
+{
+	"id": "ripgrep-h02-call-tracing",
+	"capability": "call-tracing",
+	"intent": "what calls `Searcher::new` (constructor of the core searcher type)?",
+	"atlas_method": "callSites",
+	"atlas_args": { "symbol": "Searcher::new", "direction": "inbound", "limit": 50 },
+	"expected": {
+		"type": "structural",
+		"predicates": [{ "kind": "min-results", "n": 2 }]
+	},
+	"comparable_to_text_search": false,
+	"notes": "holdout — constructor call sites for a rust associated function. text-search would have to grep for both `Searcher::new` and `SearcherBuilder` constructions to approximate."
+}
