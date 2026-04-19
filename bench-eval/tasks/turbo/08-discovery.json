@@ -1,0 +1,24 @@
+{
+	"id": "turbo-08-discovery",
+	"capability": "discovery",
+	"intent": "find the Alternative class definition",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "Alternative",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"crates/turborepo-wax/src/token/mod.rs::Alternative"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(Alternative)\\b",
+		"glob": "*.rs",
+		"capture": 1
+	}
+}

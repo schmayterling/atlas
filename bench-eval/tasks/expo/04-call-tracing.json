@@ -1,0 +1,22 @@
+{
+	"id": "expo-04-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of renderRouter (a popular function in expo)",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "packages/expo-router/src/testing-library/index.tsx::renderRouter",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 5
+			}
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "renderRouter has 564 inbound calls per the indexed graph"
+}

@@ -1,7 +1,7 @@
 {
 	"name": "hugo",
 	"git_url": "https://github.com/gohugoio/hugo.git",
-	"ref": "v0.140.0",
+	"ref": "3f35721fb2c75a1f7cc5a7a14400b66e73d4b06e",
 	"expected_languages": ["go"],
 	"notes": "pure go: hugo static-site generator at v0.140.0. ~250k loc go, well-organized cmd/ + content/ + tpl/ packages. exercises atlas's go extractor + cross-package call resolution at production scale.",
 	"root_subdir": null

@@ -1,7 +1,7 @@
 {
 	"name": "gradio",
 	"git_url": "https://github.com/gradio-app/gradio.git",
-	"ref": "v5.7.0",
+	"ref": "275cd04831efc09f4cf2c87e17a8e8b39446f958",
 	"expected_languages": ["python", "typescript"],
 	"notes": "typescript+python: gradio v5.7.0. python backend (gradio/) plus svelte+ts frontend (js/). exercises atlas's python intra-file extractor and ts cross-package resolution side-by-side; also a real cross-language API (python emits openapi consumed by ts client) so the api_endpoints surface should detect cross-stack handlers if/when py cross-file resolution lands.",
 	"root_subdir": null

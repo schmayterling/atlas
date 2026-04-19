@@ -1,0 +1,24 @@
+{
+	"id": "gradio-02-discovery",
+	"capability": "discovery",
+	"intent": "find the Message class definition in gradio",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "Message",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"gradio/components/chatbot.py::Message"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(Message)\\b",
+		"glob": "*.py",
+		"capture": 1
+	}
+}

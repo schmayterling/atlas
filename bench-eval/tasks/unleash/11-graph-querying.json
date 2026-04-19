@@ -1,0 +1,21 @@
+{
+	"id": "unleash-11-graph-querying",
+	"capability": "graph-querying",
+	"intent": "what does render call (downstream callees, depth 2)?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "frontend/src/utils/testRenderer.tsx::render",
+		"direction": "downstream",
+		"depth": 2
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 1
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

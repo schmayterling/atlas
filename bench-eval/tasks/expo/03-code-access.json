@@ -1,0 +1,21 @@
+{
+	"id": "expo-03-code-access",
+	"capability": "code-access",
+	"intent": "where is renderRouter defined in expo?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "packages/expo-router/src/testing-library/index.tsx::renderRouter"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"packages/expo-router/src/testing-library/index.tsx"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def renderRouter|fn renderRouter|function renderRouter|func renderRouter",
+		"glob": "**/*.ts"
+	}
+}

@@ -1,7 +1,7 @@
 {
 	"name": "pydantic",
 	"git_url": "https://github.com/pydantic/pydantic.git",
-	"ref": "v2.10.0",
+	"ref": "910bc54b6d5c05e4eabb4a9076def9e7ed23d38a",
 	"expected_languages": ["python"],
 	"notes": "pure python: pydantic v2.10.0. core validation library, ~80k loc python, well-tested public api. atlas's python extractor is intra-file only today (CLAUDE.md known limitation), so pydantic exercises atlas's python coverage at production scale and surfaces where cross-file resolution would land in the future.",
 	"root_subdir": null

@@ -1,0 +1,22 @@
+{
+	"id": "pydantic-05-graph-querying",
+	"capability": "graph-querying",
+	"intent": "what depends on MockValSer in pydantic (upstream graph)?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "pydantic/_internal/_mock_val_ser.py::MockValSer",
+		"direction": "upstream",
+		"depth": 3
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 2
+			}
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "upstream dependents walk; text-search has no graph"
+}

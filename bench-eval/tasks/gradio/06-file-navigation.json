@@ -1,0 +1,21 @@
+{
+	"id": "gradio-06-file-navigation",
+	"capability": "file-navigation",
+	"intent": "list python files under gradio/",
+	"atlas_method": "files",
+	"atlas_args": {
+		"pathPrefix": "gradio/",
+		"language": "python",
+		"includeTests": true
+	},
+	"expected": {
+		"type": "count",
+		"value": 156,
+		"tolerance": 8
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob-count",
+		"pattern": "gradio/**/*.py"
+	}
+}

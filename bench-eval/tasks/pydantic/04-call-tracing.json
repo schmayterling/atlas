@@ -1,0 +1,22 @@
+{
+	"id": "pydantic-04-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of MockValSer (a popular class in pydantic)",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "pydantic/_internal/_mock_val_ser.py::MockValSer",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 3
+			}
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "MockValSer has 6 inbound calls per the indexed graph"
+}

@@ -97,21 +97,21 @@ export class Indexer {
 		this.stepDetectRepoModules(state)
 		this.stepSyncIsTestFlags(state)
 
-		await this.stepIngestGitHistory(state, opts)
+		await this.runStep('ingest-git-history', () => this.stepIngestGitHistory(state, opts))
 		this.stepLogChangeSummary(state)
-		this.stepHandleRenames(state)
-		this.stepDeleteRemovedRecords(state)
-		this.stepParseAndExtract(state)
-		this.stepResolveCrossFile(state)
-		this.stepLinkCrossLanguageApis(state)
-		await this.stepMapTests(state)
-		await this.stepEmbedSymbols(state, opts)
-		await this.stepSummarizeSymbols(state, opts)
-		this.stepComputeGeneratedCodeFilter(state)
-		await this.stepDetectFlows(state, opts)
-		this.stepDetectDuplicates(state)
-		await this.stepDetectSubsystems(state, opts)
-		await this.stepIngestGitHub(state, opts)
+		this.runStepSync('handle-renames', () => this.stepHandleRenames(state))
+		this.runStepSync('delete-removed', () => this.stepDeleteRemovedRecords(state))
+		this.runStepSync('parse-and-extract', () => this.stepParseAndExtract(state))
+		this.runStepSync('resolve-cross-file', () => this.stepResolveCrossFile(state))
+		this.runStepSync('link-cross-language-apis', () => this.stepLinkCrossLanguageApis(state))
+		await this.runStep('map-tests', () => this.stepMapTests(state))
+		await this.runStep('embed-symbols', () => this.stepEmbedSymbols(state, opts))
+		await this.runStep('summarize-symbols', () => this.stepSummarizeSymbols(state, opts))
+		this.runStepSync('generated-code-filter', () => this.stepComputeGeneratedCodeFilter(state))
+		await this.runStep('detect-flows', () => this.stepDetectFlows(state, opts))
+		this.runStepSync('detect-duplicates', () => this.stepDetectDuplicates(state))
+		await this.runStep('detect-subsystems', () => this.stepDetectSubsystems(state, opts))
+		await this.runStep('ingest-github', () => this.stepIngestGitHub(state, opts))
 		this.stepFinalizeMetadata()
 
 		const duration = performance.now() - state.start
@@ -283,12 +283,68 @@ export class Indexer {
 	// step 5: parse and extract symbols, edges, and api endpoints for
 	// every added + modified file. the per-file loop runs inside a
 	// single bulkInsert transaction for throughput.
+	// instrument every pipeline step with start/elapsed logs at info level.
+	// previously a stuck stepLinkCrossLanguageApis or stepDetectSubsystems
+	// looked indistinguishable from "still parsing" because only the heavier
+	// individual steps had their own logs. now we always know which step is
+	// running and how long each took.
+	//
+	// two overloads so sync steps don't get wrapped in a Promise (which
+	// would queue their "done" log to a microtask drain after every other
+	// sync step finishes, producing a misleading log cluster).
+	private runStepSync<T>(name: string, fn: () => T): T {
+		const t = performance.now()
+		log.info(`step: ${name} ...`)
+		// sync work blocks the event loop, so a setInterval timer can't fire
+		// while fn() is running. for sync steps we just log start + end.
+		// async steps get a 2s heartbeat (see runStep below) because they
+		// yield to the event loop between awaited operations.
+		try {
+			const r = fn()
+			log.info(`step: ${name} done (${(performance.now() - t).toFixed(0)}ms)`)
+			return r
+		} catch (e) {
+			log.warn(`step: ${name} failed after ${(performance.now() - t).toFixed(0)}ms: ${e}`)
+			throw e
+		}
+	}
+
+	private async runStep<T>(name: string, fn: () => Promise<T>): Promise<T> {
+		const t = performance.now()
+		log.info(`step: ${name} ...`)
+		// 2s heartbeat: every 2 seconds the step is still in flight, log a
+		// "still running (Ns)" line so a hung async step is visible without
+		// having to wait for it to finish or instrument every underlying
+		// query. mirrors the embed-pipeline progress cadence.
+		const heartbeat = setInterval(() => {
+			const elapsed = ((performance.now() - t) / 1000).toFixed(1)
+			log.info(`  step: ${name} still running (${elapsed}s)`)
+		}, 2000)
+		try {
+			const r = await fn()
+			clearInterval(heartbeat)
+			log.info(`step: ${name} done (${(performance.now() - t).toFixed(0)}ms)`)
+			return r
+		} catch (e) {
+			clearInterval(heartbeat)
+			log.warn(`step: ${name} failed after ${(performance.now() - t).toFixed(0)}ms: ${e}`)
+			throw e
+		}
+	}
+
 	private stepParseAndExtract(state: IndexState): void {
 		const toProcess = [...state.changes.added, ...state.changes.modified]
 		const discoveredByPath = new Map(state.discovered.map((f) => [f.path, f]))
 		const t = performance.now()
 
 		log.info(`indexing ${toProcess.length} files...`)
+
+		// progress logging mirrors embed-pipeline: emit a status line every
+		// ~2s during long indexing runs so the cli does not look hung. only
+		// kicks in when there are enough files to warrant it.
+		const showProgress = toProcess.length >= 200
+		let lastLog = t
+		let processed = 0
 
 		this.store.bulkInsert(() => {
 			for (const filePath of toProcess) {
@@ -299,6 +355,17 @@ export class Indexer {
 				} catch (e) {
 					state.warnings.push(`failed to index ${filePath}: ${e}`)
 					log.warn(`failed to index ${filePath}: ${e}`)
+				}
+				processed++
+				if (showProgress) {
+					const now = performance.now()
+					if (now - lastLog >= 2000) {
+						const pct = Math.round((processed / toProcess.length) * 100)
+						const elapsed = ((now - t) / 1000).toFixed(1)
+						const rate = Math.round(processed / ((now - t) / 1000))
+						log.info(`  parsing ${processed}/${toProcess.length} (${pct}%), ${elapsed}s, ${rate} files/s`)
+						lastLog = now
+					}
 				}
 			}
 		})
@@ -472,7 +539,8 @@ export class Indexer {
 			return
 		}
 
-		log.info('resolving cross-file references...')
+		const totalToResolve = state.absolutePaths.length + state.goAbsolutePaths.length
+		log.info(`resolving cross-file references (${totalToResolve} files)...`)
 		try {
 			// delete cross-file edges only for symbols in processed files (not all)
 			if (state.processedStableIds.length > 0) {
@@ -484,10 +552,14 @@ export class Indexer {
 			// targetId referencing a now-missing stable_id) are orphaned.
 			// rebuild from the current TS compiler view of the project to
 			// drop the stale rows. only runs when we have something to resolve.
+			const tsStart = performance.now()
 			const tsResolved =
 				state.absolutePaths.length > 0
 					? resolveProject(this.projectRoot, state.absolutePaths, this.store)
 					: { edges: [], imports: [] }
+			if (state.absolutePaths.length >= 200) {
+				log.info(`  ts compiler resolved ${state.absolutePaths.length} files in ${((performance.now() - tsStart) / 1000).toFixed(1)}s, produced ${tsResolved.edges.length} edges + ${tsResolved.imports.length} imports`)
+			}
 
 			// go resolver: mirrors the shape of resolveProject. step 5
 			// wrote null-target `imports` rows for every go file we're
@@ -597,11 +669,17 @@ export class Indexer {
 	// gracefully if something is wrong with the api_endpoints table.
 	private stepLinkCrossLanguageApis(state: IndexState): void {
 		const runLinker = (label: string, fn: () => { hits?: number; edgesCreated?: number } | void) => {
+			const t = performance.now()
 			try {
 				const result = fn()
-				if (result) {
-					const count = result.hits ?? result.edgesCreated ?? 0
-					if (count > 0) log.debug(`${label}: wrote ${count} channel hits`)
+				const ms = performance.now() - t
+				const count = result ? (result.hits ?? result.edgesCreated ?? 0) : 0
+				// log every linker at info level so a stuck pipeline can be
+				// pinned to the specific linker. previously only non-zero
+				// hits logged at debug, leaving long-running zero-hit
+				// linkers invisible.
+				if (ms >= 100 || count > 0) {
+					log.info(`  ${label}: ${count} hits (${ms.toFixed(0)}ms)`)
 				}
 			} catch (e) {
 				const detail = e instanceof Error ? e.stack ?? e.message : String(e)
@@ -624,11 +702,13 @@ export class Indexer {
 	// stats can read test_links. wrapped in try/catch so a failure here
 	// does not abort the rest of the index pipeline.
 	private async stepMapTests(state: IndexState): Promise<void> {
+		const t = performance.now()
 		try {
 			const { runTestMapping } = await import('./test-mapping.js')
 			const stats = runTestMapping(this.store)
-			log.debug(
-				`test-mapping stats: ${stats.testFiles} test files, ${stats.imported} imported, ${stats.called} called`,
+			const elapsed = ((performance.now() - t) / 1000).toFixed(1)
+			log.info(
+				`test-mapping: ${stats.testFiles} test files, ${stats.imported} imported, ${stats.called} called (${elapsed}s)`,
 			)
 		} catch (e) {
 			state.warnings.push(`test-mapping failed: ${e}`)

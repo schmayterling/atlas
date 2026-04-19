@@ -1,0 +1,20 @@
+{
+	"id": "unleash-12-file-navigation",
+	"capability": "file-navigation",
+	"intent": "count source files by language across the entire unleash project",
+	"atlas_method": "files",
+	"atlas_args": {
+		"includeTests": true
+	},
+	"expected": {
+		"type": "count",
+		"value": 3706,
+		"tolerance": 371
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "**/*.ts"
+	},
+	"notes": "sanity-check that the indexed file count matches a glob walk"
+}

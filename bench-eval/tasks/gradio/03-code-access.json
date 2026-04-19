@@ -1,0 +1,21 @@
+{
+	"id": "gradio-03-code-access",
+	"capability": "code-access",
+	"intent": "where is cast_value_to_type defined in gradio?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "js/dataframe/shared/utils/utils.ts::cast_value_to_type"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"js/dataframe/shared/utils/utils.ts"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def cast_value_to_type|fn cast_value_to_type|function cast_value_to_type|func cast_value_to_type",
+		"glob": "**/*.py"
+	}
+}

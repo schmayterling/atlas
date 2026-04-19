@@ -1,0 +1,21 @@
+{
+	"id": "pydantic-03-code-access",
+	"capability": "code-access",
+	"intent": "where is validator defined in pydantic?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "pydantic/v1/class_validators.py::validator"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"pydantic/v1/class_validators.py"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def validator|fn validator|function validator|func validator",
+		"glob": "**/*.py"
+	}
+}

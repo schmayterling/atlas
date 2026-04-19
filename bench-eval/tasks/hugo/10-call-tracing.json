@@ -1,0 +1,21 @@
+{
+	"id": "hugo-10-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of Test",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "hugolib/integrationtest_builder.go::Test",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 5
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

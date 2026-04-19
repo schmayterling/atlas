@@ -1,0 +1,24 @@
+{
+	"id": "unleash-02-discovery",
+	"capability": "discovery",
+	"intent": "find the AuthenticationError class definition in unleash",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "AuthenticationError",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"frontend/src/utils/apiUtils.ts::AuthenticationError"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(AuthenticationError)\\b",
+		"glob": "*.ts",
+		"capture": 1
+	}
+}

@@ -1,0 +1,22 @@
+{
+	"id": "gradio-04-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of Message (a popular class in gradio)",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "gradio/components/chatbot.py::Message",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 3
+			}
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "Message has 6 inbound calls per the indexed graph"
+}

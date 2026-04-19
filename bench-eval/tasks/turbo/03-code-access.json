@@ -1,0 +1,21 @@
+{
+	"id": "turbo-03-code-access",
+	"capability": "code-access",
+	"intent": "where is fixGlobPattern defined in turbo?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "packages/turbo-codemod/src/transforms/clean-globs.ts::fixGlobPattern"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"packages/turbo-codemod/src/transforms/clean-globs.ts"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def fixGlobPattern|fn fixGlobPattern|function fixGlobPattern|func fixGlobPattern",
+		"glob": "**/*.rs"
+	}
+}

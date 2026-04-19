@@ -1,0 +1,21 @@
+{
+	"id": "pydantic-09-code-access",
+	"capability": "code-access",
+	"intent": "where is float_to_255 defined?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "pydantic/color.py::float_to_255"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"pydantic/color.py"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def float_to_255|fn float_to_255|function float_to_255|func float_to_255",
+		"glob": "**/*.py"
+	}
+}

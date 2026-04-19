@@ -1,0 +1,24 @@
+{
+	"id": "hugo-08-discovery",
+	"capability": "discovery",
+	"intent": "find the KeyIdentity class definition",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "KeyIdentity",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"cache/dynacache/dynacache.go::KeyIdentity"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(KeyIdentity)\\b",
+		"glob": "*.go",
+		"capture": 1
+	}
+}

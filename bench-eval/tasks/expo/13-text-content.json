@@ -1,0 +1,22 @@
+{
+	"id": "expo-13-text-content",
+	"capability": "text-content",
+	"intent": "how many typescript files mention \"expo\" in their content?",
+	"atlas_method": "searchContent",
+	"atlas_args": {
+		"q": "expo",
+		"language": "typescript",
+		"maxMatches": 1000
+	},
+	"expected": {
+		"type": "count",
+		"value": 5739,
+		"tolerance": 50
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "expo",
+		"glob": "**/*.ts"
+	}
+}

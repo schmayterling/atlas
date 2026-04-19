@@ -1,0 +1,21 @@
+{
+	"id": "turbo-06-file-navigation",
+	"capability": "file-navigation",
+	"intent": "list rust files under crates/",
+	"atlas_method": "files",
+	"atlas_args": {
+		"pathPrefix": "crates/",
+		"language": "rust",
+		"includeTests": true
+	},
+	"expected": {
+		"type": "count",
+		"value": 302,
+		"tolerance": 15
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob-count",
+		"pattern": "crates/**/*.rs"
+	}
+}

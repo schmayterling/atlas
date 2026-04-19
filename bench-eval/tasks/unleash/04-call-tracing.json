@@ -1,0 +1,22 @@
+{
+	"id": "unleash-04-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of render (a popular function in unleash)",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "frontend/src/utils/testRenderer.tsx::render",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 5
+			}
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "render has 305 inbound calls per the indexed graph"
+}

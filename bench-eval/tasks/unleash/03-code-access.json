@@ -1,0 +1,21 @@
+{
+	"id": "unleash-03-code-access",
+	"capability": "code-access",
+	"intent": "where is render defined in unleash?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "frontend/src/utils/testRenderer.tsx::render"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"frontend/src/utils/testRenderer.tsx"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def render|fn render|function render|func render",
+		"glob": "**/*.ts"
+	}
+}

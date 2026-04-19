@@ -1,0 +1,24 @@
+{
+	"id": "hugo-02-discovery",
+	"capability": "discovery",
+	"intent": "find the GitInfo class definition in hugo",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "GitInfo",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"source/fileInfo.go::GitInfo"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(GitInfo)\\b",
+		"glob": "*.go",
+		"capture": 1
+	}
+}

@@ -1,0 +1,22 @@
+{
+	"id": "turbo-04-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of InvariantSize (a popular class in turbo)",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "crates/turborepo-wax/src/token/variance.rs::InvariantSize",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 2
+			}
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "InvariantSize has 5 inbound calls per the indexed graph"
+}

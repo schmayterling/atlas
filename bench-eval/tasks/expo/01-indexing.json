@@ -1,0 +1,20 @@
+{
+	"id": "expo-01-indexing",
+	"capability": "indexing",
+	"intent": "how many typescript files does the expo project have?",
+	"atlas_method": "files",
+	"atlas_args": {
+		"language": "typescript",
+		"includeTests": true
+	},
+	"expected": {
+		"type": "count",
+		"value": 4650,
+		"tolerance": 233
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "**/*.ts"
+	}
+}

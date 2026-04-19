@@ -1,0 +1,21 @@
+{
+	"id": "expo-11-graph-querying",
+	"capability": "graph-querying",
+	"intent": "what does renderRouter call (downstream callees, depth 2)?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "packages/expo-router/src/testing-library/index.tsx::renderRouter",
+		"direction": "downstream",
+		"depth": 2
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 1
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

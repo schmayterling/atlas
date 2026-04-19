@@ -27,8 +27,8 @@ export interface AgentAnswer {
 	error?: string
 }
 
-export function judge(expected: Expected, answer: AgentAnswer): number {
-	if (answer.skipped || answer.error) return 0
+export function judge(expected: Expected, answer: AgentAnswer | null | undefined): number {
+	if (!answer || answer.skipped || answer.error) return 0
 	switch (expected.type) {
 		case 'symbol-set': return scoreSymbolSet(expected.symbols, answer.symbols ?? [])
 		case 'count':      return scoreCount(expected.value, expected.tolerance ?? 0, answer.count ?? 0)

@@ -1,0 +1,24 @@
+{
+	"id": "pydantic-08-discovery",
+	"capability": "discovery",
+	"intent": "find the Strict class definition",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "Strict",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"pydantic/types.py::Strict"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(Strict)\\b",
+		"glob": "*.py",
+		"capture": 1
+	}
+}

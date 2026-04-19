@@ -1,0 +1,24 @@
+{
+	"id": "expo-02-discovery",
+	"capability": "discovery",
+	"intent": "find the ScreenInspectorIOS class definition in expo",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "ScreenInspectorIOS",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"apps/bare-expo/e2e/image-comparison/inspector/ScreenInspectorIOS.ts::ScreenInspectorIOS"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(ScreenInspectorIOS)\\b",
+		"glob": "*.ts",
+		"capture": 1
+	}
+}

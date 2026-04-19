@@ -1,7 +1,7 @@
 {
 	"name": "turbo",
 	"git_url": "https://github.com/vercel/turborepo.git",
-	"ref": "v2.5.0",
+	"ref": "df394be8f15726d9ec1267f065a1bb1585a46553",
 	"expected_languages": ["rust", "typescript"],
 	"notes": "rust+typescript: turborepo monorepo. rust crates under crates/ (turbo-tasks, turbopack-*) plus the typescript daemon client and js packages under packages/. tests cross-language interop via the rust task-graph engine and the ts cli front-end. v2.5.0 tag.",
 	"root_subdir": null

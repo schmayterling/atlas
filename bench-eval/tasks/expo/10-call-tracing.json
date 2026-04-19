@@ -1,0 +1,21 @@
+{
+	"id": "expo-10-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of optionalRequire",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "apps/native-component-list/src/navigation/routeBuilder.tsx::optionalRequire",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 5
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

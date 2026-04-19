@@ -1,0 +1,20 @@
+{
+	"id": "turbo-12-file-navigation",
+	"capability": "file-navigation",
+	"intent": "count source files by language across the entire turbo project",
+	"atlas_method": "files",
+	"atlas_args": {
+		"includeTests": true
+	},
+	"expected": {
+		"type": "count",
+		"value": 305,
+		"tolerance": 31
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "**/*.rs"
+	},
+	"notes": "sanity-check that the indexed file count matches a glob walk"
+}

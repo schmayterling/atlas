@@ -1,0 +1,21 @@
+{
+	"id": "hugo-03-code-access",
+	"capability": "code-access",
+	"intent": "where is Test defined in hugo?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "hugolib/integrationtest_builder.go::Test"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"hugolib/integrationtest_builder.go"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def Test|fn Test|function Test|func Test",
+		"glob": "**/*.go"
+	}
+}

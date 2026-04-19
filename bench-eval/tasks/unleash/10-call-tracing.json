@@ -1,0 +1,21 @@
+{
+	"id": "unleash-10-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of testServerRoute",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "frontend/src/utils/testServer.ts::testServerRoute",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 5
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

@@ -1,0 +1,20 @@
+{
+	"id": "gradio-01-indexing",
+	"capability": "indexing",
+	"intent": "how many python files does the gradio project have?",
+	"atlas_method": "files",
+	"atlas_args": {
+		"language": "python",
+		"includeTests": true
+	},
+	"expected": {
+		"type": "count",
+		"value": 622,
+		"tolerance": 31
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob",
+		"pattern": "**/*.py"
+	}
+}

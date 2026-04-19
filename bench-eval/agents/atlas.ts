@@ -25,6 +25,7 @@ export type AtlasMethod =
 	| 'testCoverage'
 	| 'fileArticle'
 	| 'symbolArticle'
+	| 'searchContent'
 
 export async function runAtlasAgent(task: Task, engine: AtlasEngine): Promise<AgentAnswer> {
 	const args = (task.atlas_args ?? {}) as any
@@ -112,6 +113,11 @@ export async function runAtlasAgent(task: Task, engine: AtlasEngine): Promise<Ag
 			case 'symbolArticle': {
 				const r = await engine.symbolArticle(args.q)
 				return r ? { symbols: [qnFor(r.symbol)], raw: r } : { symbols: [] }
+			}
+			case 'searchContent': {
+				const r = engine.searchContent(args.q, { pathPrefix: args.pathPrefix, language: args.language, maxMatches: args.maxMatches })
+				const files = [...new Set(r.matches.map((m) => m.file))]
+				return { files, count: r.fileCount, raw: r }
 			}
 			default: return { error: `unknown atlas_method: ${task.atlas_method}` }
 		}

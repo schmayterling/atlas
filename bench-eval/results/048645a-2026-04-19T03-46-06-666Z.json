@@ -1,0 +1,146 @@
+{
+  "commit": "048645a",
+  "timestamp": 1776570366701,
+  "results": [
+    {
+      "taskId": "pydantic-01-indexing",
+      "corpus": "pydantic",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.85,
+      "textSearchMs": 1.63
+    },
+    {
+      "taskId": "pydantic-02-discovery",
+      "corpus": "pydantic",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.57,
+      "textSearchMs": 11.04
+    },
+    {
+      "taskId": "pydantic-03-code-access",
+      "corpus": "pydantic",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.33333333333333337,
+      "atlasMs": 0.33,
+      "textSearchMs": 9.89
+    },
+    {
+      "taskId": "pydantic-04-call-tracing",
+      "corpus": "pydantic",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 1.6,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-05-graph-querying",
+      "corpus": "pydantic",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 2.77,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-06-file-navigation",
+      "corpus": "pydantic",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 0.46,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "pydantic-07-indexing",
+      "corpus": "pydantic",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 0.44,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "pydantic-08-discovery",
+      "corpus": "pydantic",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 0.4,
+      "textSearchScore": 1,
+      "atlasMs": 2.57,
+      "textSearchMs": 9.68
+    },
+    {
+      "taskId": "pydantic-09-code-access",
+      "corpus": "pydantic",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.6666666666666666,
+      "atlasMs": 0.02,
+      "textSearchMs": 9.38
+    },
+    {
+      "taskId": "pydantic-10-call-tracing",
+      "corpus": "pydantic",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 1.22,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-11-graph-querying",
+      "corpus": "pydantic",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 1.22,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-12-file-navigation",
+      "corpus": "pydantic",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.4,
+      "textSearchMs": 1.1
+    },
+    {
+      "taskId": "pydantic-13-text-content",
+      "corpus": "pydantic",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 10.91,
+      "textSearchMs": 11.06
+    },
+    {
+      "taskId": "pydantic-14-comments",
+      "corpus": "pydantic",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0.6,
+      "textSearchScore": 0,
+      "atlasMs": 9.78,
+      "textSearchMs": 11.04
+    }
+  ]
+}

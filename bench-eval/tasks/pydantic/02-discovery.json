@@ -1,0 +1,24 @@
+{
+	"id": "pydantic-02-discovery",
+	"capability": "discovery",
+	"intent": "find the MockValSer class definition in pydantic",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "MockValSer",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"pydantic/_internal/_mock_val_ser.py::MockValSer"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(MockValSer)\\b",
+		"glob": "*.py",
+		"capture": 1
+	}
+}

@@ -40,7 +40,14 @@ export function runTestMapping(store: AtlasStore): { testFiles: number; imported
 
 		if (testFileCount === 0) return
 
+		// instrumentation: each SQL pair-fetch can dominate test-mapping
+		// runtime on big monorepos (unleash returned 145k imported rows).
+		// per-substep elapsed logs let us pin which join is the bottleneck
+		// and prove the function is making progress rather than stuck.
+		const t1 = performance.now()
 		const importedPairs = store.getTestImportedSymbolPairs()
+		log.info(`  test-mapping: ${importedPairs.length} imported pairs in ${(performance.now() - t1).toFixed(0)}ms`)
+		const t2 = performance.now()
 		store.insertTestLinks(
 			importedPairs.map((p) => ({
 				testFileId: p.testFileId,
@@ -48,9 +55,13 @@ export function runTestMapping(store: AtlasStore): { testFiles: number; imported
 				confidence: 'imported' as const,
 			})),
 		)
+		log.info(`  test-mapping: imported insert ${(performance.now() - t2).toFixed(0)}ms`)
 		importedCount = importedPairs.length
 
+		const t3 = performance.now()
 		const calledPairs = store.getTestCalledSymbolPairs()
+		log.info(`  test-mapping: ${calledPairs.length} called pairs in ${(performance.now() - t3).toFixed(0)}ms`)
+		const t4 = performance.now()
 		store.insertTestLinks(
 			calledPairs.map((p) => ({
 				testFileId: p.testFileId,
@@ -58,6 +69,7 @@ export function runTestMapping(store: AtlasStore): { testFiles: number; imported
 				confidence: 'called' as const,
 			})),
 		)
+		log.info(`  test-mapping: called insert ${(performance.now() - t4).toFixed(0)}ms`)
 		calledCount = calledPairs.length
 	})
 

@@ -1,0 +1,21 @@
+{
+	"id": "expo-09-code-access",
+	"capability": "code-access",
+	"intent": "where is optionalRequire defined?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "apps/native-component-list/src/navigation/routeBuilder.tsx::optionalRequire"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"apps/native-component-list/src/navigation/routeBuilder.tsx"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def optionalRequire|fn optionalRequire|function optionalRequire|func optionalRequire",
+		"glob": "**/*.ts"
+	}
+}

@@ -1,0 +1,21 @@
+{
+	"id": "gradio-09-code-access",
+	"capability": "code-access",
+	"intent": "where is handle_message defined?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "client/js/src/helpers/api_info.ts::handle_message"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"client/js/src/helpers/api_info.ts"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def handle_message|fn handle_message|function handle_message|func handle_message",
+		"glob": "**/*.py"
+	}
+}

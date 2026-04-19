@@ -1,0 +1,146 @@
+{
+  "commit": "048645a",
+  "timestamp": 1776572153885,
+  "results": [
+    {
+      "taskId": "unleash-01-indexing",
+      "corpus": "unleash",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 5.35,
+      "textSearchMs": 21.8
+    },
+    {
+      "taskId": "unleash-02-discovery",
+      "corpus": "unleash",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.21,
+      "textSearchMs": 48.36
+    },
+    {
+      "taskId": "unleash-03-code-access",
+      "corpus": "unleash",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.36,
+      "textSearchMs": 37.94
+    },
+    {
+      "taskId": "unleash-04-call-tracing",
+      "corpus": "unleash",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 4.77,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-05-graph-querying",
+      "corpus": "unleash",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 19.46,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-06-file-navigation",
+      "corpus": "unleash",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 4.76,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "unleash-07-indexing",
+      "corpus": "unleash",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 4.56,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "unleash-08-discovery",
+      "corpus": "unleash",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 0.6666666666666666,
+      "textSearchScore": 0,
+      "atlasMs": 0.3,
+      "textSearchMs": 40.51
+    },
+    {
+      "taskId": "unleash-09-code-access",
+      "corpus": "unleash",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.03,
+      "textSearchMs": 41.35
+    },
+    {
+      "taskId": "unleash-10-call-tracing",
+      "corpus": "unleash",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 4.58,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-11-graph-querying",
+      "corpus": "unleash",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 3.82,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-12-file-navigation",
+      "corpus": "unleash",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.28301886792452835,
+      "atlasMs": 4.59,
+      "textSearchMs": 20.67
+    },
+    {
+      "taskId": "unleash-13-text-content",
+      "corpus": "unleash",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 69.61,
+      "textSearchMs": 46.44
+    },
+    {
+      "taskId": "unleash-14-comments",
+      "corpus": "unleash",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 57.1,
+      "textSearchMs": 41.38
+    }
+  ]
+}

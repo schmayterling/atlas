@@ -1,0 +1,21 @@
+{
+	"id": "gradio-11-graph-querying",
+	"capability": "graph-querying",
+	"intent": "what does Message call (downstream callees, depth 2)?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "gradio/components/chatbot.py::Message",
+		"direction": "downstream",
+		"depth": 2
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 1
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

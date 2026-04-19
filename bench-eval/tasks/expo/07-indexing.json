@@ -1,0 +1,20 @@
+{
+	"id": "expo-07-indexing",
+	"capability": "indexing",
+	"intent": "how many files (any language) live under packages/expo/?",
+	"atlas_method": "files",
+	"atlas_args": {
+		"pathPrefix": "packages/expo/",
+		"includeTests": true
+	},
+	"expected": {
+		"type": "count",
+		"value": 139,
+		"tolerance": 7
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "glob-count",
+		"pattern": "packages/expo/**/*"
+	}
+}

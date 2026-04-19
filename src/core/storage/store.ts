@@ -1427,12 +1427,30 @@ export class AtlasStore {
 
 	insertTestLinks(rows: { testFileId: number; symbolStableId: string; confidence: 'imported' | 'called' }[]) {
 		if (rows.length === 0) return
-		const stmt = this.db.prepare(
-			'INSERT OR REPLACE INTO test_links (test_file_id, source_symbol_stable_id, confidence) VALUES (?, ?, ?)',
-		)
+		// multi-row INSERT batches: one prepared statement per chunk, each
+		// chunk binds 3*N parameters (3 cols × N rows). sqlite's default
+		// SQLITE_MAX_VARIABLE_NUMBER is 32766, so 10k rows × 3 = 30k stays
+		// safely under the limit. previous per-row inserts on a 1.5M-row
+		// unleash mapping took ~30-150s; batched they finish in seconds.
+		const BATCH = 10_000
+		const t = performance.now()
 		this.bulkInsert(() => {
-			for (const row of rows) {
-				stmt.run(row.testFileId, row.symbolStableId, row.confidence)
+			for (let i = 0; i < rows.length; i += BATCH) {
+				const chunk = rows.slice(i, Math.min(i + BATCH, rows.length))
+				const placeholders = chunk.map(() => '(?, ?, ?)').join(', ')
+				const params: (string | number)[] = []
+				for (const row of chunk) {
+					params.push(row.testFileId, row.symbolStableId, row.confidence)
+				}
+				this.db.run(
+					`INSERT OR REPLACE INTO test_links (test_file_id, source_symbol_stable_id, confidence) VALUES ${placeholders}`,
+					params,
+				)
+				// progress for very large maps. every 50k rows or 2s elapsed.
+				if (i > 0 && (i % 50_000 === 0 || performance.now() - t > 2000)) {
+					const pct = Math.round((i / rows.length) * 100)
+					log.info(`    insertTestLinks: ${i}/${rows.length} (${pct}%)`)
+				}
 			}
 		})
 	}

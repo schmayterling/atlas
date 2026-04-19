@@ -1,0 +1,21 @@
+{
+	"id": "gradio-10-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of Dependency",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "gradio/events.py::Dependency",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 3
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

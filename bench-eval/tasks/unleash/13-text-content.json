@@ -1,0 +1,22 @@
+{
+	"id": "unleash-13-text-content",
+	"capability": "text-content",
+	"intent": "how many typescript files mention \"feature\" in their content?",
+	"atlas_method": "searchContent",
+	"atlas_args": {
+		"q": "feature",
+		"language": "typescript",
+		"maxMatches": 1000
+	},
+	"expected": {
+		"type": "count",
+		"value": 798,
+		"tolerance": 30
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "feature",
+		"glob": "**/*.ts"
+	}
+}

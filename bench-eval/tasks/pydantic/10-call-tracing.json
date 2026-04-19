@@ -1,0 +1,21 @@
+{
+	"id": "pydantic-10-call-tracing",
+	"capability": "call-tracing",
+	"intent": "find call sites of Strict",
+	"atlas_method": "callSites",
+	"atlas_args": {
+		"symbol": "pydantic/types.py::Strict",
+		"direction": "inbound",
+		"limit": 50
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 3
+			}
+		]
+	},
+	"comparable_to_text_search": false
+}

@@ -1,0 +1,24 @@
+{
+	"id": "gradio-08-discovery",
+	"capability": "discovery",
+	"intent": "find the Dependency class definition",
+	"atlas_method": "search",
+	"atlas_args": {
+		"q": "Dependency",
+		"kind": "class",
+		"limit": 10
+	},
+	"expected": {
+		"type": "symbol-set",
+		"symbols": [
+			"gradio/events.py::Dependency"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-symbols",
+		"pattern": "^\\s*class\\s+(Dependency)\\b",
+		"glob": "*.py",
+		"capture": 1
+	}
+}

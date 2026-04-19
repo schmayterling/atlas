@@ -1,0 +1,22 @@
+{
+	"id": "unleash-05-graph-querying",
+	"capability": "graph-querying",
+	"intent": "what depends on render in unleash (upstream graph)?",
+	"atlas_method": "deps",
+	"atlas_args": {
+		"symbol": "frontend/src/utils/testRenderer.tsx::render",
+		"direction": "upstream",
+		"depth": 3
+	},
+	"expected": {
+		"type": "structural",
+		"predicates": [
+			{
+				"kind": "min-results",
+				"n": 2
+			}
+		]
+	},
+	"comparable_to_text_search": false,
+	"notes": "upstream dependents walk; text-search has no graph"
+}

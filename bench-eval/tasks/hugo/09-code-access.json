@@ -1,0 +1,21 @@
+{
+	"id": "hugo-09-code-access",
+	"capability": "code-access",
+	"intent": "where is NewIntegrationTestBuilder defined?",
+	"atlas_method": "symbolDetail",
+	"atlas_args": {
+		"symbol": "hugolib/integrationtest_builder.go::NewIntegrationTestBuilder"
+	},
+	"expected": {
+		"type": "file-path",
+		"paths": [
+			"hugolib/integrationtest_builder.go"
+		]
+	},
+	"comparable_to_text_search": true,
+	"text_search_strategy": {
+		"mode": "rg-files-with-matches",
+		"pattern": "def NewIntegrationTestBuilder|fn NewIntegrationTestBuilder|function NewIntegrationTestBuilder|func NewIntegrationTestBuilder",
+		"glob": "**/*.go"
+	}
+}
