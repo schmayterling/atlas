@@ -101,7 +101,9 @@ export function ingestGitHistory(
 		'-z',
 		...range,
 	]
+	const tGit = performance.now()
 	const raw = runGit(projectRoot, log_args)
+	const gitMs = performance.now() - tGit
 	if (raw === null) {
 		return { commitsAdded: 0, fileChangesAdded: 0, skipped: true, reason: 'git log failed' }
 	}
@@ -109,11 +111,19 @@ export function ingestGitHistory(
 		store.setMeta('git_history_last_commit', head)
 		return { commitsAdded: 0, fileChangesAdded: 0, skipped: true, reason: 'no new commits' }
 	}
+	if (gitMs > 200) {
+		log.info(`  git log: ${(raw.length / 1024).toFixed(0)}KB in ${gitMs.toFixed(0)}ms`)
+	}
 
+	const tParse = performance.now()
 	const commits = parseGitLog(raw)
+	const parseMs = performance.now() - tParse
 	if (commits.length === 0) {
 		store.setMeta('git_history_last_commit', head)
 		return { commitsAdded: 0, fileChangesAdded: 0, skipped: true, reason: 'parse produced 0' }
+	}
+	if (parseMs > 200 || commits.length >= 500) {
+		log.info(`  parse: ${commits.length} commits in ${parseMs.toFixed(0)}ms`)
 	}
 
 	let commitCount = 0
@@ -123,53 +133,77 @@ export function ingestGitHistory(
 	// absent or unreadable file returns null and applyMailmap falls through.
 	const mailmap = loadMailmap(projectRoot)
 
-	store.bulkInsert(() => {
-		for (const c of commits) {
-			// keep a file change row when either the new path (filePath) or
-			// the rename source (renameFrom) is in scope. this preserves the
-			// rename-out event for files that exited the project, plus the
-			// rename-in event for files that joined it.
-			const relevantFiles = filterActive
-				? c.files.filter(
-						(fc) =>
-							relevantPaths!.has(fc.filePath) ||
-							(fc.renameFrom !== null && relevantPaths!.has(fc.renameFrom)),
-					)
-				: c.files
-			if (filterActive && relevantFiles.length === 0) continue
-
-			const canonical = applyMailmap(mailmap, c.authorName, c.authorEmail)
-			store.runRaw(
-				'INSERT OR IGNORE INTO commits (hash, author_name, author_email, authored_at, subject) VALUES (?, ?, ?, ?, ?)',
-				c.hash,
-				canonical.name,
-				canonical.email,
-				c.authoredAt,
-				c.subject,
-			)
-			commitCount++
-			for (const fc of relevantFiles) {
-				store.runRaw(
-					'INSERT INTO file_changes (commit_hash, file_path, status, rename_from) VALUES (?, ?, ?, ?)',
-					c.hash,
-					fc.filePath,
-					fc.status,
-					fc.renameFrom,
+	const tInsert = performance.now()
+	// pre-flatten commits + file changes so we can batch-insert each table.
+	// per-row INSERTs were the same hot-path bottleneck the test_links
+	// optimization fixed. 10k rows × 5 cols = 50k bound vars, safely under
+	// SQLITE_MAX_VARIABLE_NUMBER (32766) when batched at 5k rows for commits
+	// and 8k rows for file_changes (4 cols).
+	const commitRows: Array<[string, string, string, number, string]> = []
+	const fileRows: Array<[string, string, string, string | null]> = []
+	for (const c of commits) {
+		const relevantFiles = filterActive
+			? c.files.filter(
+					(fc) =>
+						relevantPaths!.has(fc.filePath) ||
+						(fc.renameFrom !== null && relevantPaths!.has(fc.renameFrom)),
 				)
-				fileChangeCount++
-			}
+			: c.files
+		if (filterActive && relevantFiles.length === 0) continue
+		const canonical = applyMailmap(mailmap, c.authorName, c.authorEmail)
+		commitRows.push([c.hash, canonical.name, canonical.email, c.authoredAt, c.subject])
+		commitCount++
+		for (const fc of relevantFiles) {
+			fileRows.push([c.hash, fc.filePath, fc.status, fc.renameFrom])
+			fileChangeCount++
+		}
+	}
+
+	store.bulkInsert(() => {
+		const COMMIT_BATCH = 5_000
+		for (let i = 0; i < commitRows.length; i += COMMIT_BATCH) {
+			const chunk = commitRows.slice(i, i + COMMIT_BATCH)
+			const placeholders = chunk.map(() => '(?, ?, ?, ?, ?)').join(', ')
+			const params: (string | number)[] = []
+			for (const r of chunk) params.push(...r)
+			store.runRaw(
+				`INSERT OR IGNORE INTO commits (hash, author_name, author_email, authored_at, subject) VALUES ${placeholders}`,
+				...params,
+			)
+		}
+		const FILE_BATCH = 8_000
+		for (let i = 0; i < fileRows.length; i += FILE_BATCH) {
+			const chunk = fileRows.slice(i, i + FILE_BATCH)
+			const placeholders = chunk.map(() => '(?, ?, ?, ?)').join(', ')
+			const params: (string | number | null)[] = []
+			for (const r of chunk) params.push(...r)
+			store.runRaw(
+				`INSERT INTO file_changes (commit_hash, file_path, status, rename_from) VALUES ${placeholders}`,
+				...params,
+			)
 		}
 	})
+
+	const insertMs = performance.now() - tInsert
+	if (insertMs > 200 || commitCount >= 500) {
+		log.info(`  insert: ${commitCount} commits + ${fileChangeCount} file_changes in ${insertMs.toFixed(0)}ms`)
+	}
 
 	store.setMeta('git_history_last_commit', head)
 
 	// refresh co_change_pairs from the new file_changes state. cheap on
 	// repos with < 10k commits; the only mechanism that scales beyond
-	// on-demand pairwise self-joins.
+	// on-demand pairwise self-joins. logged because the self-join can
+	// dominate runtime on monorepos with 100s of file_changes per commit.
+	const tCo = performance.now()
 	try {
 		refreshCoChangePairs(store)
 	} catch (e) {
 		log.warn(`co_change_pairs refresh failed: ${e instanceof Error ? e.message : e}`)
+	}
+	const coMs = performance.now() - tCo
+	if (coMs > 200) {
+		log.info(`  co-change refresh: ${coMs.toFixed(0)}ms`)
 	}
 
 	return {

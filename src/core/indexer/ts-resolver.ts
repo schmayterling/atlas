@@ -108,8 +108,25 @@ export function resolveProject(
 	// identity root) regardless of which bucket owns a file.
 	const buckets = bucketByTsconfig(filePaths)
 
+	// per-bucket progress: a monorepo splits across 10+ tsconfigs and any
+	// single bucket can dominate runtime (expo's packages/expo bucket
+	// alone is several hundred files). log when total file count is large
+	// enough to warrant it (>= 200 files across all buckets) so small repos
+	// stay quiet.
+	const total = filePaths.length
+	const verbose = total >= 200
+	let processed = 0
 	for (const [configPath, bucketFiles] of buckets) {
+		const t = performance.now()
+		const label = configPath ? toForwardSlash(relative(projectRoot, configPath)) : '<no tsconfig>'
+		if (verbose) log.info(`  ts bucket: ${label}  ${bucketFiles.length} files`)
 		processBucket(configPath, bucketFiles, projectRoot, store, edges, imports)
+		processed += bucketFiles.length
+		if (verbose) {
+			const ms = (performance.now() - t).toFixed(0)
+			const pct = Math.round((processed / total) * 100)
+			log.info(`  ts bucket: ${label} done in ${ms}ms (${processed}/${total}, ${pct}%)`)
+		}
 	}
 
 	return { edges, imports }
@@ -189,13 +206,26 @@ function processBucket(
 
 	const checker = program.getTypeChecker()
 
+	// per-file 2s heartbeat for genuinely-slow buckets. ts.createProgram +
+	// getTypeChecker can take seconds on large packages (expo's main package
+	// has ~600 files). without this, a stuck bucket looks like a hang.
+	const start = performance.now()
+	let lastLog = start
+	let processedInBucket = 0
+	const showProgress = bucketFiles.length >= 200
 	for (const filePath of bucketFiles) {
 		const sourceFile = program.getSourceFile(filePath)
-		if (!sourceFile) continue
+		if (!sourceFile) {
+			processedInBucket++
+			continue
+		}
 
 		const relPath = toForwardSlash(relative(projectRoot, filePath))
 		const fileRecord = store.getFileByPath(relPath)
-		if (!fileRecord) continue
+		if (!fileRecord) {
+			processedInBucket++
+			continue
+		}
 
 		resolveImports(
 			sourceFile,
@@ -207,6 +237,17 @@ function processBucket(
 			imports,
 		)
 		resolveReferences(sourceFile, checker, relPath, projectRoot, fileRecord.id, store, edges)
+		processedInBucket++
+
+		if (showProgress) {
+			const now = performance.now()
+			if (now - lastLog >= 2000) {
+				const pct = Math.round((processedInBucket / bucketFiles.length) * 100)
+				const elapsed = ((now - start) / 1000).toFixed(1)
+				log.info(`    ts bucket progress: ${processedInBucket}/${bucketFiles.length} (${pct}%), ${elapsed}s`)
+				lastLog = now
+			}
+		}
 	}
 }
 

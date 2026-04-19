@@ -1,0 +1,1126 @@
+{
+  "commit": "c01a877",
+  "timestamp": 1776572255212,
+  "results": [
+    {
+      "taskId": "expo-01-indexing",
+      "corpus": "expo",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 7.1,
+      "textSearchMs": 396.07
+    },
+    {
+      "taskId": "expo-02-discovery",
+      "corpus": "expo",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 7.44,
+      "textSearchMs": 182.96
+    },
+    {
+      "taskId": "expo-03-code-access",
+      "corpus": "expo",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.33,
+      "textSearchMs": 150.71
+    },
+    {
+      "taskId": "expo-04-call-tracing",
+      "corpus": "expo",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 61.52,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "expo-05-graph-querying",
+      "corpus": "expo",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 72.79,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "expo-06-file-navigation",
+      "corpus": "expo",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 6.34,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "expo-07-indexing",
+      "corpus": "expo",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 6.04,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "expo-08-discovery",
+      "corpus": "expo",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.05,
+      "textSearchMs": 119.83
+    },
+    {
+      "taskId": "expo-09-code-access",
+      "corpus": "expo",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.03,
+      "textSearchMs": 117.05
+    },
+    {
+      "taskId": "expo-10-call-tracing",
+      "corpus": "expo",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 9.84,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "expo-11-graph-querying",
+      "corpus": "expo",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 9.04,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "expo-12-file-navigation",
+      "corpus": "expo",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 6.14,
+      "textSearchMs": 85.47
+    },
+    {
+      "taskId": "expo-13-text-content",
+      "corpus": "expo",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 124.65,
+      "textSearchMs": 169.77
+    },
+    {
+      "taskId": "expo-14-comments",
+      "corpus": "expo",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0.3529411764705882,
+      "textSearchScore": 0,
+      "atlasMs": 72.47,
+      "textSearchMs": 118.56
+    },
+    {
+      "taskId": "gradio-01-indexing",
+      "corpus": "gradio",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 1.04,
+      "textSearchMs": 49.63
+    },
+    {
+      "taskId": "gradio-02-discovery",
+      "corpus": "gradio",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 0.5,
+      "textSearchScore": 0.6666666666666666,
+      "atlasMs": 14.11,
+      "textSearchMs": 30.66
+    },
+    {
+      "taskId": "gradio-03-code-access",
+      "corpus": "gradio",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.04,
+      "textSearchMs": 18.59
+    },
+    {
+      "taskId": "gradio-04-call-tracing",
+      "corpus": "gradio",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 10.48,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "gradio-05-graph-querying",
+      "corpus": "gradio",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 1.33,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "gradio-06-file-navigation",
+      "corpus": "gradio",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.01,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "gradio-07-indexing",
+      "corpus": "gradio",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 2.06,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "gradio-08-discovery",
+      "corpus": "gradio",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 1.37,
+      "textSearchMs": 19.17
+    },
+    {
+      "taskId": "gradio-09-code-access",
+      "corpus": "gradio",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.03,
+      "textSearchMs": 20.58
+    },
+    {
+      "taskId": "gradio-10-call-tracing",
+      "corpus": "gradio",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 1.7,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "gradio-11-graph-querying",
+      "corpus": "gradio",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 1,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "gradio-12-file-navigation",
+      "corpus": "gradio",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.7419354838709677,
+      "atlasMs": 0.94,
+      "textSearchMs": 11.47
+    },
+    {
+      "taskId": "gradio-13-text-content",
+      "corpus": "gradio",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 17.86,
+      "textSearchMs": 22.83
+    },
+    {
+      "taskId": "gradio-14-comments",
+      "corpus": "gradio",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 13.39,
+      "textSearchMs": 20.4
+    },
+    {
+      "taskId": "hugo-01-indexing",
+      "corpus": "hugo",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 1.15,
+      "textSearchMs": 31.15
+    },
+    {
+      "taskId": "hugo-02-discovery",
+      "corpus": "hugo",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 0.6666666666666666,
+      "textSearchScore": 0,
+      "atlasMs": 8.54,
+      "textSearchMs": 30.18
+    },
+    {
+      "taskId": "hugo-03-code-access",
+      "corpus": "hugo",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.005917159763313609,
+      "atlasMs": 0.04,
+      "textSearchMs": 18.84
+    },
+    {
+      "taskId": "hugo-04-call-tracing",
+      "corpus": "hugo",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 30.37,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "hugo-05-graph-querying",
+      "corpus": "hugo",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 2.83,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "hugo-06-file-navigation",
+      "corpus": "hugo",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.11,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "hugo-07-indexing",
+      "corpus": "hugo",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.08,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "hugo-08-discovery",
+      "corpus": "hugo",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.05,
+      "textSearchMs": 17.62
+    },
+    {
+      "taskId": "hugo-09-code-access",
+      "corpus": "hugo",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 1,
+      "atlasMs": 0.04,
+      "textSearchMs": 19.53
+    },
+    {
+      "taskId": "hugo-10-call-tracing",
+      "corpus": "hugo",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 4.87,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "hugo-11-graph-querying",
+      "corpus": "hugo",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 2.05,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "hugo-12-file-navigation",
+      "corpus": "hugo",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 1.08,
+      "textSearchMs": 7.32
+    },
+    {
+      "taskId": "hugo-13-text-content",
+      "corpus": "hugo",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 15.06,
+      "textSearchMs": 17.64
+    },
+    {
+      "taskId": "hugo-14-comments",
+      "corpus": "hugo",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 14.17,
+      "textSearchMs": 16.15
+    },
+    {
+      "taskId": "pydantic-01-indexing",
+      "corpus": "pydantic",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.35,
+      "textSearchMs": 3.91
+    },
+    {
+      "taskId": "pydantic-02-discovery",
+      "corpus": "pydantic",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 2.5,
+      "textSearchMs": 15.44
+    },
+    {
+      "taskId": "pydantic-03-code-access",
+      "corpus": "pydantic",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.33333333333333337,
+      "atlasMs": 0.03,
+      "textSearchMs": 9.51
+    },
+    {
+      "taskId": "pydantic-04-call-tracing",
+      "corpus": "pydantic",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 7.74,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-05-graph-querying",
+      "corpus": "pydantic",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 1.18,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-06-file-navigation",
+      "corpus": "pydantic",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 0.33,
+      "textSearchMs": 0.01
+    },
+    {
+      "taskId": "pydantic-07-indexing",
+      "corpus": "pydantic",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 0.34,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "pydantic-08-discovery",
+      "corpus": "pydantic",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 0.4,
+      "textSearchScore": 1,
+      "atlasMs": 2.19,
+      "textSearchMs": 8.62
+    },
+    {
+      "taskId": "pydantic-09-code-access",
+      "corpus": "pydantic",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.6666666666666666,
+      "atlasMs": 0.03,
+      "textSearchMs": 8.3
+    },
+    {
+      "taskId": "pydantic-10-call-tracing",
+      "corpus": "pydantic",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 1.36,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-11-graph-querying",
+      "corpus": "pydantic",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 0.96,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "pydantic-12-file-navigation",
+      "corpus": "pydantic",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.32,
+      "textSearchMs": 0.8
+    },
+    {
+      "taskId": "pydantic-13-text-content",
+      "corpus": "pydantic",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 8.39,
+      "textSearchMs": 10
+    },
+    {
+      "taskId": "pydantic-14-comments",
+      "corpus": "pydantic",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0.6,
+      "textSearchScore": 0,
+      "atlasMs": 7.08,
+      "textSearchMs": 8.81
+    },
+    {
+      "taskId": "ripgrep-01-indexing",
+      "corpus": "ripgrep",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.24,
+      "textSearchMs": 3.53
+    },
+    {
+      "taskId": "ripgrep-02-discovery",
+      "corpus": "ripgrep",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 2,
+      "textSearchMs": 11.44
+    },
+    {
+      "taskId": "ripgrep-03-code-access",
+      "corpus": "ripgrep",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 10.92,
+      "textSearchMs": 7.39
+    },
+    {
+      "taskId": "ripgrep-04-call-tracing",
+      "corpus": "ripgrep",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 0.68,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "ripgrep-05-graph-querying",
+      "corpus": "ripgrep",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 3.99,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "ripgrep-06-file-navigation",
+      "corpus": "ripgrep",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.21,
+      "textSearchMs": 0.14
+    },
+    {
+      "taskId": "ripgrep-07-indexing",
+      "corpus": "ripgrep",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.22,
+      "textSearchMs": 0.12
+    },
+    {
+      "taskId": "ripgrep-08-discovery",
+      "corpus": "ripgrep",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.27,
+      "textSearchMs": 8.3
+    },
+    {
+      "taskId": "ripgrep-09-code-access",
+      "corpus": "ripgrep",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 5.65,
+      "textSearchMs": 6.87
+    },
+    {
+      "taskId": "ripgrep-10-call-tracing",
+      "corpus": "ripgrep",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 0.62,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "ripgrep-11-graph-querying",
+      "corpus": "ripgrep",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 2.32,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "ripgrep-12-file-navigation",
+      "corpus": "ripgrep",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.2,
+      "textSearchMs": 0.18
+    },
+    {
+      "taskId": "ripgrep-13-text-content",
+      "corpus": "ripgrep",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.41,
+      "textSearchMs": 7.13
+    },
+    {
+      "taskId": "ripgrep-14-comments",
+      "corpus": "ripgrep",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.15,
+      "textSearchMs": 7.23
+    },
+    {
+      "taskId": "turbo-01-indexing",
+      "corpus": "turbo",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.2666666666666667,
+      "atlasMs": 1.26,
+      "textSearchMs": 80.04
+    },
+    {
+      "taskId": "turbo-02-discovery",
+      "corpus": "turbo",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 2.99,
+      "textSearchMs": 34.6
+    },
+    {
+      "taskId": "turbo-03-code-access",
+      "corpus": "turbo",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.03,
+      "textSearchMs": 24.32
+    },
+    {
+      "taskId": "turbo-04-call-tracing",
+      "corpus": "turbo",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 15.85,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "turbo-05-graph-querying",
+      "corpus": "turbo",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 1.84,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "turbo-06-file-navigation",
+      "corpus": "turbo",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 1.29,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "turbo-07-indexing",
+      "corpus": "turbo",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 1.22,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "turbo-08-discovery",
+      "corpus": "turbo",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.48,
+      "textSearchMs": 24.38
+    },
+    {
+      "taskId": "turbo-09-code-access",
+      "corpus": "turbo",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.04,
+      "textSearchMs": 24.68
+    },
+    {
+      "taskId": "turbo-10-call-tracing",
+      "corpus": "turbo",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 1.71,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "turbo-11-graph-querying",
+      "corpus": "turbo",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 2.52,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "turbo-12-file-navigation",
+      "corpus": "turbo",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 1,
+      "atlasMs": 1.29,
+      "textSearchMs": 22.94
+    },
+    {
+      "taskId": "turbo-13-text-content",
+      "corpus": "turbo",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 9.41,
+      "textSearchMs": 26.47
+    },
+    {
+      "taskId": "turbo-14-comments",
+      "corpus": "turbo",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 11.07,
+      "textSearchMs": 23.75
+    },
+    {
+      "taskId": "unleash-01-indexing",
+      "corpus": "unleash",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 4.94,
+      "textSearchMs": 29.36
+    },
+    {
+      "taskId": "unleash-02-discovery",
+      "corpus": "unleash",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 0.55,
+      "textSearchMs": 50.21
+    },
+    {
+      "taskId": "unleash-03-code-access",
+      "corpus": "unleash",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.35,
+      "textSearchMs": 43.06
+    },
+    {
+      "taskId": "unleash-04-call-tracing",
+      "corpus": "unleash",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 5.03,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-05-graph-querying",
+      "corpus": "unleash",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 18.72,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-06-file-navigation",
+      "corpus": "unleash",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 5.59,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "unleash-07-indexing",
+      "corpus": "unleash",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 4.59,
+      "textSearchMs": 0
+    },
+    {
+      "taskId": "unleash-08-discovery",
+      "corpus": "unleash",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 0.6666666666666666,
+      "textSearchScore": 0,
+      "atlasMs": 0.3,
+      "textSearchMs": 38.9
+    },
+    {
+      "taskId": "unleash-09-code-access",
+      "corpus": "unleash",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 0.03,
+      "textSearchMs": 40.95
+    },
+    {
+      "taskId": "unleash-10-call-tracing",
+      "corpus": "unleash",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 0,
+      "textSearchScore": null,
+      "atlasMs": 4.5,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-11-graph-querying",
+      "corpus": "unleash",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 3.72,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "unleash-12-file-navigation",
+      "corpus": "unleash",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0.28301886792452835,
+      "atlasMs": 4.69,
+      "textSearchMs": 20.09
+    },
+    {
+      "taskId": "unleash-13-text-content",
+      "corpus": "unleash",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 68.57,
+      "textSearchMs": 48.38
+    },
+    {
+      "taskId": "unleash-14-comments",
+      "corpus": "unleash",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 55.39,
+      "textSearchMs": 51.72
+    },
+    {
+      "taskId": "zod-01-indexing",
+      "corpus": "zod",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.48,
+      "textSearchMs": 1.86
+    },
+    {
+      "taskId": "zod-02-discovery",
+      "corpus": "zod",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 18.72,
+      "textSearchMs": 18.18
+    },
+    {
+      "taskId": "zod-03-code-access",
+      "corpus": "zod",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 122.73,
+      "textSearchMs": 10.78
+    },
+    {
+      "taskId": "zod-04-call-tracing",
+      "corpus": "zod",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 2.02,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "zod-05-graph-querying",
+      "corpus": "zod",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 8.58,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "zod-06-file-navigation",
+      "corpus": "zod",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.48,
+      "textSearchMs": 0.19
+    },
+    {
+      "taskId": "zod-07-indexing",
+      "corpus": "zod",
+      "capability": "indexing",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.49,
+      "textSearchMs": 0.15
+    },
+    {
+      "taskId": "zod-08-discovery",
+      "corpus": "zod",
+      "capability": "discovery",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 9.08,
+      "textSearchMs": 9.36
+    },
+    {
+      "taskId": "zod-09-code-access",
+      "corpus": "zod",
+      "capability": "code-access",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 6.28,
+      "textSearchMs": 9.38
+    },
+    {
+      "taskId": "zod-10-call-tracing",
+      "corpus": "zod",
+      "capability": "call-tracing",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 1.52,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "zod-11-graph-querying",
+      "corpus": "zod",
+      "capability": "graph-querying",
+      "comparable": false,
+      "atlasScore": 1,
+      "textSearchScore": null,
+      "atlasMs": 6.91,
+      "textSearchMs": null
+    },
+    {
+      "taskId": "zod-12-file-navigation",
+      "corpus": "zod",
+      "capability": "file-navigation",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 1,
+      "atlasMs": 0.46,
+      "textSearchMs": 0.18
+    },
+    {
+      "taskId": "zod-13-text-content",
+      "corpus": "zod",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 0,
+      "textSearchScore": 0,
+      "atlasMs": 5.52,
+      "textSearchMs": 11.65
+    },
+    {
+      "taskId": "zod-14-substring",
+      "corpus": "zod",
+      "capability": "text-content",
+      "comparable": true,
+      "atlasScore": 1,
+      "textSearchScore": 0,
+      "atlasMs": 1.7,
+      "textSearchMs": 9.29
+    }
+  ]
+}
