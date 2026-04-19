@@ -61,6 +61,15 @@ export function findDeadCode(
 	// traversal kinds include passed_as and dispatches_to so
 	// middleware / handler / go interface dispatch are credited.
 	// see #41, #49, #50.
+	// entrypoint-file roots: top-level scripts that run via `program.parse()`
+	// or top-level `main().catch()` chain helpers from a non-exported `main`
+	// the indexer cannot trace through dynamic dispatch. so atlas's earlier
+	// dead-code report flagged 50+ false positives in bench-eval/run.ts,
+	// bench-llm/run.ts, scripts/dogfood.ts, src/cli/index.ts, and similar
+	// entrypoints. treating those files' top-level functions as reachable
+	// roots eliminates the noise without disabling dead-code detection
+	// elsewhere. heuristic is path-based: scripts/, bench*/, and files
+	// named main.ts / bin.ts / run.ts / cli/index.ts.
 	let sql = `WITH RECURSIVE roots(stable_id) AS (
 		SELECT s.stable_id
 		FROM symbols s
@@ -74,6 +83,42 @@ export function findDeadCode(
 		UNION
 		SELECT symbol_stable_id FROM api_endpoints
 		WHERE symbol_stable_id IS NOT NULL
+		UNION
+		SELECT s.stable_id
+		FROM symbols s
+		JOIN files f ON f.id = s.file_id
+		WHERE f.is_test = 0
+		  AND s.parent_id IS NULL
+		  AND s.kind IN ('function', 'class')
+		  AND (
+		    f.path LIKE 'scripts/%'
+		    OR f.path LIKE 'bench/%'
+		    OR f.path LIKE 'bench-eval/%'
+		    OR f.path LIKE 'bench-llm/%'
+		    OR f.path LIKE '%/main.ts'
+		    OR f.path LIKE '%/bin.ts'
+		    OR f.path LIKE '%/run.ts'
+		    OR f.path LIKE '%/cli/index.ts'
+		    OR f.path LIKE '%/cli/index.tsx'
+		    OR f.path LIKE 'src/web/client/index.tsx'
+		  )
+		UNION
+		-- jsx component reachability: a function/class in a .tsx file whose
+		-- name starts with an uppercase letter is almost certainly a react
+		-- component. atlas's extractor does not emit edges for the JSX
+		-- usage syntax (Foo /, lt-Foo-slash-gt) so components otherwise
+		-- look unreferenced even when rendered by a parent.
+		-- the heuristic accepts a small false-negative rate (genuinely-dead
+		-- helpers in .tsx files starting with uppercase) for a large
+		-- false-positive reduction (every page/component currently flagged).
+		SELECT s.stable_id
+		FROM symbols s
+		JOIN files f ON f.id = s.file_id
+		WHERE f.is_test = 0
+		  AND f.path LIKE '%.tsx'
+		  AND s.kind IN ('function', 'class')
+		  AND substr(s.name, 1, 1) = upper(substr(s.name, 1, 1))
+		  AND substr(s.name, 1, 1) != lower(substr(s.name, 1, 1))
 	),
 	reachable(stable_id) AS (
 		SELECT stable_id FROM roots

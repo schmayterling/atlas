@@ -1518,11 +1518,23 @@ export class AtlasStore {
 			if (results.length > 0) return results[0]
 		}
 
-		// try exact name match
+		// try exact name match. when several symbols share the name (e.g.
+		// a `string` factory function in zod and a `string` parameter, or
+		// any overloaded ts pattern), picking byName[0] silently returns
+		// whatever the db enumerated first. that turned into bench loss
+		// zod-04 where atlas resolved `string` to an unrelated `json`
+		// symbol because both lived in the same file. rankCandidates
+		// applies deterministic preferences (exported > private, top-level
+		// > nested, function/class > method/property) so the most-likely
+		// caller intent wins.
 		const byName = this.findSymbolsByName(query)
-		if (byName.length > 0) return byName[0]
+		if (byName.length > 0) return rankCandidates(byName)[0]
 
-		// try qualified name match (escape LIKE wildcards)
+		// try qualified name match (escape LIKE wildcards). cap candidates
+		// at 32 then rank for consistency with the byName branch above.
+		// LIKE %query% can match many overloads in a monorepo (e.g. every
+		// "string" symbol across packages), and silently picking the first
+		// row was the same disambiguation bug the byName path had.
 		const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_')
 		const byQual = this.db
 			.query<SymbolRecord, [string]>(
@@ -1531,10 +1543,11 @@ export class AtlasStore {
 				col_start as colStart, col_end as colEnd, byte_start as byteStart, byte_end as byteEnd,
 				parent_id as parentId, signature, doc_comment as docComment, metadata
 				FROM symbols WHERE qualified_name LIKE ? ESCAPE '\\'
-				LIMIT 1`,
+				LIMIT 32`,
 			)
-			.get(`%${escapedQuery}%`)
-		return byQual ?? null
+			.all(`%${escapedQuery}%`)
+		if (byQual.length === 0) return null
+		return rankCandidates(byQual)[0]
 	}
 
 	// convert a symbol record to a result (without N+1 count queries)
@@ -1603,4 +1616,43 @@ export class AtlasStore {
 			dependentCount: depMap.get(sym.stableId) ?? 0,
 		}))
 	}
+}
+
+// kind preference for ambiguous-name resolution. callers asking for a
+// short name like "string" or "run" almost always mean the canonical
+// top-level definition, not a local variable or property. weights are
+// arbitrary but ordering is stable across queries.
+const KIND_WEIGHT: Record<string, number> = {
+	function: 6,
+	class: 6,
+	interface: 5,
+	type: 5,
+	enum: 5,
+	method: 4,
+	module: 3,
+	variable: 2,
+	property: 1,
+}
+
+// rank a list of name-matched symbol candidates so the most-likely
+// caller-intended one is at index 0. heuristics, in order of weight:
+//   1. exported wins over private (caller code can only see exported)
+//   2. top-level wins over nested (parentId === null)
+//   3. function/class kinds win over method/property
+//   4. shorter qualifiedName wins (rough proxy for canonical location)
+// stable enough to be deterministic across runs; cheap (no DB lookup).
+export function rankCandidates(syms: SymbolRecord[]): SymbolRecord[] {
+	if (syms.length <= 1) return syms
+	return [...syms].sort((a, b) => {
+		const expA = a.isExported ? 1 : 0
+		const expB = b.isExported ? 1 : 0
+		if (expA !== expB) return expB - expA
+		const topA = a.parentId == null ? 1 : 0
+		const topB = b.parentId == null ? 1 : 0
+		if (topA !== topB) return topB - topA
+		const kA = KIND_WEIGHT[a.kind] ?? 0
+		const kB = KIND_WEIGHT[b.kind] ?? 0
+		if (kA !== kB) return kB - kA
+		return a.qualifiedName.length - b.qualifiedName.length
+	})
 }

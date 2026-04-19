@@ -83,6 +83,9 @@ OUTPUT RULES — the answer shape depends on the expected type the task declares
       qualifiedName / name / kind / filePath keys visible; the scorer
       counts quoted "qualifiedName" occurrences. A bare array of strings
       like ["a::b"] scores 0 for structural tasks.
+      If the tool returned a "narrative" string, include it in your raw
+      so the answer carries a one-line plain-language summary alongside
+      the structural keys.
 
 Quick check before you submit: if the expected type is "symbols", every
 entry in your array must be a string containing "::". If the expected
