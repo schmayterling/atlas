@@ -188,18 +188,27 @@ async function dispatch(engine: AtlasEngine, name: string, args: Record<string, 
 	switch (name) {
 		// symbol-name search. returns SymbolResult objects (already rich:
 		// name, qualifiedName, signature, filePath, lineStart, docComment,
-		// usageCount, dependentCount).
-		case 'atlas_search':
-			return engine.search(args.q, { kind: args.kind, limit: args.limit ?? 20 })
+		// usageCount, dependentCount). wrapped with a deterministic
+		// narrative so liftNarrativeFromTrace (bench-llm/lib/llm-agent.ts)
+		// has something to carry to the judge for symbols/count/files
+		// answer shapes that otherwise drop all prose context.
+		case 'atlas_search': {
+			const result = engine.search(args.q, { kind: args.kind, limit: args.limit ?? 20 })
+			return withSearchNarrative(result, args.q, args.kind)
+		}
 
 		// semantic search. same shape as atlas_search results, plus distance.
-		case 'atlas_semantic_search':
-			return engine.semanticSearch(args.q, { limit: args.limit ?? 10 })
+		case 'atlas_semantic_search': {
+			const result = engine.semanticSearch(args.q, { limit: args.limit ?? 10 })
+			return withSemanticNarrative(result, args.q)
+		}
 
 		// one-shot overview bundle. kept raw , the full identity + callers
 		// + callees + blast + tests + subsystem payload IS the point.
-		case 'atlas_overview':
-			return engine.overview(args.q, { depth: args.depth ?? 2, limit: args.limit ?? 10 })
+		case 'atlas_overview': {
+			const result = engine.overview(args.q, { depth: args.depth ?? 2, limit: args.limit ?? 10 })
+			return withOverviewNarrative(result, args.q)
+		}
 
 		// structural graph queries. distilled to { summary, qualifiedNames,
 		// callers/callees/affected/paths, sample } so the agent emits a
@@ -224,15 +233,21 @@ async function dispatch(engine: AtlasEngine, name: string, args: Record<string, 
 
 		// literal content search. fills the atlas_search gap on text/comment/
 		// substring questions. rg-backed, fixed-string, scoped to indexed files.
-		case 'atlas_content_search':
-			return engine.searchContent(args.q, { pathPrefix: args.pathPrefix, language: args.language, maxMatches: args.maxMatches ?? 200 })
+		case 'atlas_content_search': {
+			const result = engine.searchContent(args.q, { pathPrefix: args.pathPrefix, language: args.language, maxMatches: args.maxMatches ?? 200 })
+			return withContentSearchNarrative(result, args.q, args.pathPrefix, args.language)
+		}
 
 		// code-bearing symbol lookup. returns metadata + deps + source body.
-		case 'atlas_symbol_detail':
-			return engine.symbolDetail(args.symbol)
+		case 'atlas_symbol_detail': {
+			const result = await engine.symbolDetail(args.symbol)
+			return withSymbolDetailNarrative(result, args.symbol)
+		}
 
-		case 'atlas_test_coverage':
-			return engine.testCoverage(args.symbol)
+		case 'atlas_test_coverage': {
+			const result = engine.testCoverage(args.symbol)
+			return withTestCoverageNarrative(result, args.symbol)
+		}
 
 		case 'atlas_files': {
 			// default includeTests to true. engine.files() now also defaults true
@@ -252,12 +267,23 @@ async function dispatch(engine: AtlasEngine, name: string, args: Record<string, 
 			const matched = all.filter((f) => (!prefix || f.path.startsWith(prefix)) && (!langFilter || f.language === langFilter))
 			const byLanguage: Record<string, number> = {}
 			for (const f of matched) byLanguage[f.language] = (byLanguage[f.language] ?? 0) + 1
+			const langPart = langFilter ? ` ${langFilter}` : ''
+			const prefixPart = prefix ? ` under ${prefix}` : ''
+			const langSummary = Object.entries(byLanguage)
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 3)
+				.map(([k, v]) => `${k}=${v}`)
+				.join(', ')
+			const narrative = trim(
+				`${matched.length}${langPart} file${matched.length === 1 ? '' : 's'}${prefixPart}${langSummary && !langFilter ? ` (${langSummary})` : ''}`,
+			)
 			return {
 				count: matched.length,
 				byLanguage,
 				pathPrefix: prefix || null,
 				language: langFilter ?? null,
 				includeTests,
+				narrative,
 				// cap the file array in the response. LLM doesn't need every path
 				// for count questions, and large corpora produced 12+ kb responses.
 				files: matched.slice(0, 200).map((f) => ({ path: f.path, language: f.language })),
@@ -468,6 +494,111 @@ function distillTrace(result: unknown): AnyObj | null {
 				: [],
 		})),
 	}
+}
+
+// --- narrative wrappers for tools that previously emitted raw payloads ---
+// these add a deterministic `narrative` summary alongside the existing
+// payload so liftNarrativeFromTrace (bench-llm/lib/llm-agent.ts) has
+// something to carry to the rubric judge for symbols/count/files
+// answer shapes. payload shape is unchanged so the deterministic scorer
+// and any downstream consumer that already destructures the result keep
+// working. wrappers tolerate null/empty input from the engine and
+// degrade to a one-line "no result" narrative.
+
+function withSearchNarrative(result: any, q: string, kind?: string): unknown {
+	if (!result) return result
+	const total = typeof result.total === 'number' ? result.total : (Array.isArray(result.results) ? result.results.length : 0)
+	const top = Array.isArray(result.results) ? result.results.slice(0, 3) : []
+	const sample = top
+		.map((r: any) => `${r?.name ?? '?'}${r?.kind ? ` (${r.kind})` : ''}`)
+		.filter(Boolean)
+		.join(', ')
+	const kindPart = kind ? ` of kind ${kind}` : ''
+	const narrative = trim(
+		total === 0
+			? `no symbols matched "${q}"${kindPart}`
+			: `${total} symbol${total === 1 ? '' : 's'} matched "${q}"${kindPart}${sample ? ` (top: ${sample})` : ''}`,
+	)
+	// place narrative first so RESPONSE_LIMIT truncation can't cut it off.
+	return { narrative, ...result }
+}
+
+function withSemanticNarrative(result: any, q: string): unknown {
+	if (!result) return result
+	if (result.embeddingsAvailable === false) {
+		return { ...result, narrative: trim(`semantic search unavailable (no embeddings); fall back to atlas_search for "${q}"`) }
+	}
+	const top = Array.isArray(result.results) ? result.results.slice(0, 3) : []
+	const sample = top
+		.map((r: any) => `${r?.name ?? '?'}${typeof r?.distance === 'number' ? ` (d=${r.distance.toFixed(2)})` : ''}`)
+		.join(', ')
+	const narrative = trim(
+		top.length === 0
+			? `no semantic matches for "${q}"`
+			: `${top.length} top match${top.length === 1 ? '' : 'es'} for "${q}" (${sample})`,
+	)
+	// place narrative first so RESPONSE_LIMIT truncation can't cut it off.
+	return { narrative, ...result }
+}
+
+function withOverviewNarrative(result: any, q: string): unknown {
+	if (!result) return result
+	const sym = result.symbol
+	const upCount = Array.isArray(result.upstream) ? result.upstream.length : 0
+	const downCount = Array.isArray(result.downstream) ? result.downstream.length : 0
+	const blastTotal = result.blastRadius?.total ?? 0
+	const tests = result.testCoverage?.tests?.length ?? 0
+	const subsystem = result.subsystem?.name ?? null
+	const narrative = trim(
+		!sym
+			? `no symbol matched "${q}"`
+			: `${sym.name} (${sym.kind}) at ${sym.filePath}:${sym.lineStart}: ${upCount} callers, ${downCount} callees, blast ${blastTotal}, ${tests} tests${subsystem ? `, subsystem=${subsystem}` : ''}`,
+	)
+	// place narrative first so RESPONSE_LIMIT truncation can't cut it off.
+	return { narrative, ...result }
+}
+
+function withContentSearchNarrative(result: any, q: string, pathPrefix?: string, language?: string): unknown {
+	if (!result) return result
+	const fileCount = result.fileCount ?? (Array.isArray(result.matches) ? new Set(result.matches.map((m: any) => m.path)).size : 0)
+	const matchCount = result.matchCount ?? (Array.isArray(result.matches) ? result.matches.length : 0)
+	const scope = [language && `lang=${language}`, pathPrefix && `under ${pathPrefix}`].filter(Boolean).join(', ')
+	const narrative = trim(
+		matchCount === 0
+			? `no occurrences of "${q}"${scope ? ` (${scope})` : ''}`
+			: `${matchCount} match${matchCount === 1 ? '' : 'es'} of "${q}" across ${fileCount} file${fileCount === 1 ? '' : 's'}${scope ? ` (${scope})` : ''}${result.truncated ? ' [truncated]' : ''}`,
+	)
+	// place narrative first so RESPONSE_LIMIT truncation can't cut it off.
+	return { narrative, ...result }
+}
+
+function withSymbolDetailNarrative(result: any, q: string): unknown {
+	if (!result) return result
+	const sym = result.symbol ?? result
+	const upCount = Array.isArray(result.upstream) ? result.upstream.length : 0
+	const downCount = Array.isArray(result.downstream) ? result.downstream.length : 0
+	const lines = sym?.lineStart && sym?.lineEnd ? sym.lineEnd - sym.lineStart + 1 : null
+	const narrative = trim(
+		!sym?.qualifiedName
+			? `no detail found for "${q}"`
+			: `${sym.name} (${sym.kind}) at ${sym.filePath}:${sym.lineStart}${lines ? `, ${lines} lines` : ''}; ${upCount} upstream, ${downCount} downstream`,
+	)
+	// place narrative first so RESPONSE_LIMIT truncation can't cut it off.
+	return { narrative, ...result }
+}
+
+function withTestCoverageNarrative(result: any, q: string): unknown {
+	if (!result) return result
+	const tests = Array.isArray(result.tests) ? result.tests : []
+	const direct = tests.filter((t: any) => t.confidence === 'called').length
+	const indirect = tests.filter((t: any) => t.confidence === 'imported').length
+	const narrative = trim(
+		tests.length === 0
+			? `no test coverage found for "${q}"`
+			: `${tests.length} test file${tests.length === 1 ? '' : 's'} cover "${q}" (${direct} called, ${indirect} imported)`,
+	)
+	// place narrative first so RESPONSE_LIMIT truncation can't cut it off.
+	return { narrative, ...result }
 }
 
 function distillCallSites(result: unknown): AnyObj | null {

@@ -23,6 +23,13 @@ export interface AgentAnswer {
 	files?: string[]
 	count?: number
 	raw?: unknown
+	// optional one-line plain-language explanation. surfaced from the
+	// distilled tool narratives (atlas_deps/blast/trace/call_sites) so the
+	// llm-judge sees prose alongside terse symbol-set/count/file answers.
+	// the deterministic scorer ignores this field; it exists purely to
+	// carry context to the rubric judge for shapes that would otherwise
+	// be machine-only output. see BENCHMARK.md §4.3 verbosity-bias note.
+	narrative?: string
 	skipped?: boolean
 	error?: string
 }
