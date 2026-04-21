@@ -313,7 +313,7 @@ export class AtlasEngine {
 	trace(
 		fromQuery: string,
 		toQuery: string,
-		opts?: { maxPaths?: number; maxDepth?: number },
+		opts?: { maxPaths?: number; maxDepth?: number; edgeKinds?: EdgeKind[] },
 	): FlowTraceResult | null {
 		const store = this.getStore()
 		const source = store.resolveSymbol(fromQuery)
@@ -328,7 +328,7 @@ export class AtlasEngine {
 	traceByStableIds(
 		fromStableId: string,
 		toStableId: string,
-		opts?: { maxPaths?: number; maxDepth?: number },
+		opts?: { maxPaths?: number; maxDepth?: number; edgeKinds?: EdgeKind[] },
 	): FlowTraceResult | null {
 		const store = this.getStore()
 		if (!store.getSymbolByStableId(fromStableId)) return null

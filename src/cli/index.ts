@@ -200,6 +200,10 @@ program
 	.option('--hops <n>', 'max cross-project boundary hops (default 3, max 5)', '3')
 	.option('--from-project <id>', 'project id where the <from> symbol lives (required for cross-project trace)')
 	.option('--to-project <id>', 'project id where the <to> symbol lives (required for cross-project trace)')
+	.option(
+		'--edge-kinds <list>',
+		'comma-separated edge kinds to traverse (default: calls,type_ref,extends,passed_as,dispatches_to,instantiates,field_access,contains). use to exclude high-fanout kinds like contains when paths explode.',
+	)
 	.action((from, to, cmdOpts) => {
 		const opts = program.opts()
 		traceCommand(opts.project, from, to, opts.json, {
@@ -208,6 +212,7 @@ program
 			hops: Number(cmdOpts.hops),
 			fromProject: cmdOpts.fromProject,
 			toProject: cmdOpts.toProject,
+			edgeKinds: cmdOpts.edgeKinds,
 		})
 	})
 

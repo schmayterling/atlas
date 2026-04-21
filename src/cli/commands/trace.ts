@@ -2,7 +2,27 @@ import pc from 'picocolors'
 import { getOrCreateEngine } from '../../core/engine-pool.js'
 import { anchorSymbol, findCrossProjectBoundaries } from '../../core/federation/federated-engine.js'
 import { getProject } from '../../core/registry.js'
+import { EDGE_KINDS, type EdgeKind } from '../../shared/types.js'
 import { fileRef, heading, outputJson } from '../formatters/common.js'
+
+// parse a comma-separated --edge-kinds list into a typed EdgeKind[].
+// fails fast on unknown kinds so a typo doesn't silently fall back to
+// the default set. lowercased + trimmed so `Calls, contains` works.
+function parseEdgeKinds(raw: string | undefined): EdgeKind[] | undefined {
+	if (!raw) return undefined
+	const valid = new Set(EDGE_KINDS as readonly string[])
+	const out: EdgeKind[] = []
+	for (const part of raw.split(',')) {
+		const k = part.trim().toLowerCase()
+		if (!k) continue
+		if (!valid.has(k)) {
+			console.error(pc.red(`error: --edge-kinds includes unknown kind "${k}". valid: ${EDGE_KINDS.join(', ')}`))
+			process.exit(1)
+		}
+		out.push(k as EdgeKind)
+	}
+	return out.length > 0 ? out : undefined
+}
 
 export function traceCommand(
 	projectRoot: string,
@@ -15,10 +35,13 @@ export function traceCommand(
 		hops?: number
 		fromProject?: string
 		toProject?: string
+		edgeKinds?: string
 	},
 ) {
+	const edgeKinds = parseEdgeKinds(opts.edgeKinds)
+
 	if (opts.fromProject || opts.toProject) {
-		traceCrossProject(from, to, json, opts)
+		traceCrossProject(from, to, json, { ...opts, edgeKinds })
 		return
 	}
 
@@ -28,6 +51,7 @@ export function traceCommand(
 		const result = engine.trace(from, to, {
 			maxPaths: opts.maxPaths,
 			maxDepth: opts.depth,
+			edgeKinds,
 		})
 
 		if (!result) {
@@ -87,6 +111,7 @@ function traceCrossProject(
 		hops?: number
 		fromProject?: string
 		toProject?: string
+		edgeKinds?: EdgeKind[]
 	},
 ) {
 	// validate `--hops` explicitly instead of silently clamping. the
@@ -196,6 +221,7 @@ function traceCrossProject(
 		const trace = toEngine.traceByStableIds(hop.landingStableId, toAnchor.stableId, {
 			maxPaths: opts.maxPaths,
 			maxDepth: opts.depth ?? 5,
+			edgeKinds: opts.edgeKinds,
 		})
 		if (trace) result.legs.push({ project: toProject.id, trace })
 	}

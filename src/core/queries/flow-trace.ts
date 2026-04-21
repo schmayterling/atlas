@@ -18,12 +18,16 @@ export function traceFlow(
 	// default set includes passed_as so trace surfaces middleware /
 	// handler registration chains, dispatches_to so go interface
 	// dispatch is a reachable hop, instantiates so traces can path
-	// through `new ClassName()` boundaries, and field_access so
-	// structural property reads land as a reachable step. see #49,
-	// #50, #85, #87.
+	// through `new ClassName()` boundaries, field_access so structural
+	// property reads land as a reachable step, and contains so factory
+	// patterns (factory -instantiates-> Class -contains-> .method)
+	// resolve as a single trace path. without contains, atlas_trace
+	// returned 0 paths from `string()` to `ZodString.parse` because the
+	// class→member hop was excluded from traversal. see #49, #50, #85,
+	// #87, BENCHMARK.md §5.1 call-tracing weakness.
 	const edgeKinds =
 		opts?.edgeKinds ??
-		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access'] as EdgeKind[])
+		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access', 'contains'] as EdgeKind[])
 
 	const sourceSym = store.getSymbolByStableId(sourceStableId)
 	const targetSym = store.getSymbolByStableId(targetStableId)
@@ -54,10 +58,21 @@ export function traceFlow(
 		}
 	}
 
-	// collect all paths first, then batch-resolve symbols
+	// collect all paths first, then batch-resolve symbols. the path
+	// enumeration itself has a wall-clock budget independent of the
+	// subgraph load budget — DFS over a graph that includes `contains`
+	// can fan out heavily on classes with many members, and a query that
+	// happens to find no path can otherwise burn CPU exhausting the
+	// search space. cap at 2s by default; the load already budgeted 5s.
+	const pathSearchDeadline = performance.now() + 2000
 	const rawPaths: string[][] = []
-	for (const nodePath of findAllSimplePaths(graph, sourceStableId, targetStableId, maxDepth)) {
+	let truncatedByTimeout = false
+	for (const nodePath of findAllSimplePaths(graph, sourceStableId, targetStableId, maxDepth, pathSearchDeadline)) {
 		if (rawPaths.length >= maxPaths) break
+		if (performance.now() > pathSearchDeadline) {
+			truncatedByTimeout = true
+			break
+		}
 		rawPaths.push(nodePath)
 	}
 
@@ -112,22 +127,34 @@ export function traceFlow(
 		stats: {
 			totalPaths: paths.length,
 			maxLength: paths.length > 0 ? Math.max(...paths.map((p) => p.length)) : 0,
-			truncated: paths.length >= maxPaths,
+			// truncated when either we hit the maxPaths cap or the path-search
+			// deadline expired before exhausting the graph. callers that show
+			// "more paths exist" benefit from both signals being collapsed
+			// here; the deadline case is also worth surfacing in CLI output
+			// so a query that returns 0 paths under timeout doesn't look
+			// indistinguishable from a query that found zero genuine paths.
+			truncated: paths.length >= maxPaths || truncatedByTimeout,
 		},
 	}
 }
 
-// DFS-based all-simple-paths generator, cycle-safe via visited backtracking
+// DFS-based all-simple-paths generator, cycle-safe via visited
+// backtracking. checks the deadline at each branch so a high-fanout
+// graph (notably one that includes `contains` so classes expand to
+// every member) can't burn unbounded CPU on a search that has already
+// run past its budget.
 function* findAllSimplePaths(
 	graph: MultiDirectedGraph,
 	source: string,
 	target: string,
 	maxDepth: number,
+	deadline: number,
 ): Generator<string[]> {
 	const visited = new Set<string>()
 	const path: string[] = [source]
 
 	function* dfs(current: string, depth: number): Generator<string[]> {
+		if (performance.now() > deadline) return
 		if (current === target) {
 			yield [...path]
 			return
