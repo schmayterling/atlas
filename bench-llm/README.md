@@ -23,7 +23,7 @@ requires `OPENROUTER_API_KEY` env var.
 ```bash
 OPENROUTER_API_KEY=sk-or-... bun run bench-llm --ci              # ~5 cheapest tasks
 OPENROUTER_API_KEY=sk-or-... bun run bench-llm --full            # full curated subset
-bun run bench-llm --ci --model openai/gpt-4o-mini                # cheaper-tier comparison
+bun run bench-llm --ci --model google/gemini-3-flash             # alt cheap-tier comparison
 bun run bench-llm --task ripgrep-04-call-tracing                 # one task
 bun run bench-llm --full --trials 3                              # 3 trials per task
 bun run bench-llm --full --concurrency 8                         # 8 jobs in flight

@@ -7,7 +7,7 @@
 // usage:
 //   OPENROUTER_API_KEY=... bun run bench-llm --ci                 ~5 cheapest tasks
 //   OPENROUTER_API_KEY=... bun run bench-llm --full               full curated subset
-//   bun run bench-llm --ci --model openai/gpt-4o-mini             cheaper model
+//   bun run bench-llm --ci --model google/gemini-3-flash          alt cheap-tier model
 //   bun run bench-llm --task ripgrep-02-discovery                 one task
 //   bun run bench-llm --full --trials 3                           3 trials per task
 //   bun run bench-llm --full --concurrency 8                      8 agents in flight
