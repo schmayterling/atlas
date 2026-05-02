@@ -260,14 +260,27 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_files ---
-	server.tool(
+	server.registerTool(
 		'atlas_files',
-		'List indexed files with language, symbol count, and size. Use before reading files when browsing by path prefix.',
 		{
-			pathPrefix: z.string().optional().describe('only files under this repo-relative path prefix'),
-			language: z.string().optional().describe('filter by indexed language'),
-			includeTests: z.boolean().optional().describe('include test files (default true)'),
-			limit: z.number().optional().describe('max files to return (default 200, max 1000)'),
+			description:
+				'List indexed files with language, symbol count, and size. Use before reading files when browsing by path prefix.',
+			inputSchema: {
+				pathPrefix: z
+					.string()
+					.optional()
+					.describe('only files under this repo-relative path prefix'),
+				language: z.string().optional().describe('filter by indexed language'),
+				includeTests: z.boolean().optional().describe('include test files (default true)'),
+				limit: z.number().optional().describe('max files to return (default 200, max 1000)'),
+			},
+			outputSchema: {
+				files: z.array(z.unknown()),
+				counts: z.object({ total: z.number(), returned: z.number() }),
+				pathPrefix: z.string().nullable(),
+				language: z.string().nullable(),
+				includeTests: z.boolean(),
+			},
 		},
 		({ pathPrefix, language, includeTests, limit }) =>
 			wrap(() => {
@@ -302,21 +315,42 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_file_outline ---
-	server.tool(
+	server.registerTool(
 		'atlas_file_outline',
-		'Read a compact indexed outline for one file: symbols, imports, importers, and optional history. Does not include source.',
 		{
-			path: z.string().optional().describe('repo-relative file path'),
-			filePath: z.string().optional().describe('alias for path'),
-			symbolLimit: z.number().optional().describe('max symbols to list (default 80, max 300)'),
-			importLimit: z
-				.number()
-				.optional()
-				.describe('max imports and importers to list (default 40, max 200)'),
-			includeHistory: z
-				.boolean()
-				.optional()
-				.describe('include recent git/churn context (default false)'),
+			description:
+				'Read a compact indexed outline for one file: symbols, imports, importers, and optional history. Does not include source.',
+			inputSchema: {
+				path: z.string().optional().describe('repo-relative file path'),
+				filePath: z.string().optional().describe('alias for path'),
+				symbolLimit: z.number().optional().describe('max symbols to list (default 80, max 300)'),
+				importLimit: z
+					.number()
+					.optional()
+					.describe('max imports and importers to list (default 40, max 200)'),
+				includeHistory: z
+					.boolean()
+					.optional()
+					.describe('include recent git/churn context (default false)'),
+			},
+			outputSchema: {
+				path: z.string(),
+				language: z.string(),
+				sizeBytes: z.number(),
+				isTest: z.boolean(),
+				counts: z.object({
+					symbols: z.number(),
+					imports: z.number(),
+					importers: z.number(),
+				}),
+				symbols: z.array(z.unknown()),
+				imports: z.array(z.unknown()),
+				importers: z.array(z.unknown()),
+				historyIncluded: z.boolean(),
+				lastChanged: z.unknown().nullable(),
+				contributors: z.array(z.unknown()),
+				coChanged: z.array(z.unknown()),
+			},
 		},
 		({ path, filePath, symbolLimit, importLimit, includeHistory }) =>
 			wrap(() => {

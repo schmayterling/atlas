@@ -59,6 +59,26 @@ describe('mcp server tool registration', () => {
 		expect(hotspots?.description).toBeTruthy()
 		expect(hotFragile?.description).toBeTruthy()
 	})
+
+	test('navigation tools expose output schemas for structured results', async () => {
+		const tools = await client.listTools()
+		const files = tools.tools.find((t) => t.name === 'atlas_files')
+		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
+		expect(files?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				files: { type: 'array' },
+				counts: { type: 'object' },
+			},
+		})
+		expect(fileOutline?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				path: { type: 'string' },
+				counts: { type: 'object' },
+			},
+		})
+	})
 })
 
 describe('mcp server tier-4 tools', () => {
