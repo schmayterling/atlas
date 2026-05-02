@@ -4,11 +4,18 @@ import type {
 	CallSite,
 	DeadCodeResult,
 	DependencyResult,
+	FileArticleResult,
 	FlowTraceResult,
 	SearchResult,
 	StatusResult,
 	SymbolOverview,
 } from '../shared/types.js'
+
+function compactInline(value: string, maxChars: number): string {
+	const text = value.replace(/\s+/g, ' ').trim()
+	if (text.length <= maxChars) return text
+	return `${text.slice(0, maxChars - 3)}...`
+}
 
 export function formatStatus(r: StatusResult): string {
 	const lines = [
@@ -32,6 +39,82 @@ export function formatSearch(r: SearchResult): string {
 		lines.push(`${sym.kind} ${sym.name}  ${sym.filePath}:${sym.lineStart}`)
 		if (sym.signature) lines.push(`  signature: ${sym.signature}`)
 	}
+	return lines.join('\n')
+}
+
+export function formatFileOutline(
+	r: FileArticleResult,
+	opts: { symbolLimit: number; importLimit: number; includeHistory: boolean },
+): string {
+	const exported = r.symbols.filter((s) => s.isExported)
+	const internal = r.symbols.filter((s) => !s.isExported)
+	const visibleSymbols = r.symbols.slice(0, opts.symbolLimit)
+	const visibleImports = r.imports.slice(0, opts.importLimit)
+	const visibleImporters = r.importers.slice(0, opts.importLimit)
+	const lines = [
+		`file ${r.path}`,
+		`  language: ${r.language}${r.isTest ? ' test' : ''}`,
+		`  size: ${r.sizeBytes} bytes`,
+		`  symbols: ${r.symbols.length} (${exported.length} exported, ${internal.length} internal)`,
+		`  imports=${r.imports.length} importedBy=${r.importers.length}`,
+	]
+	if (r.summary) lines.push(`  summary: ${r.summary}`)
+
+	if (visibleSymbols.length > 0) {
+		lines.push('', `symbols (${visibleSymbols.length}/${r.symbols.length}):`)
+		for (const sym of visibleSymbols) {
+			const exportedMarker = sym.isExported ? 'exported' : 'internal'
+			lines.push(
+				`  ${sym.kind.padEnd(9)} ${exportedMarker.padEnd(8)} ${sym.name}  L${sym.lineStart}-${sym.lineEnd}`,
+			)
+			if (sym.signature) lines.push(`    ${compactInline(sym.signature, 140)}`)
+		}
+		if (visibleSymbols.length < r.symbols.length) {
+			lines.push(`  ... (+${r.symbols.length - visibleSymbols.length} more symbols)`)
+		}
+	}
+
+	if (visibleImports.length > 0) {
+		lines.push('', `imports (${visibleImports.length}/${r.imports.length}):`)
+		for (const imp of visibleImports) {
+			const target = imp.targetPath || '(unresolved)'
+			const typeOnly = imp.isTypeOnly ? ' type' : ''
+			lines.push(`  L${imp.line}${typeOnly} ${imp.importPath} -> ${target}`)
+		}
+		if (visibleImports.length < r.imports.length) {
+			lines.push(`  ... (+${r.imports.length - visibleImports.length} more imports)`)
+		}
+	}
+
+	if (visibleImporters.length > 0) {
+		lines.push('', `imported by (${visibleImporters.length}/${r.importers.length}):`)
+		for (const imp of visibleImporters) {
+			lines.push(`  ${imp.sourcePath}:L${imp.line}  ${imp.importPath}`)
+		}
+		if (visibleImporters.length < r.importers.length) {
+			lines.push(`  ... (+${r.importers.length - visibleImporters.length} more importers)`)
+		}
+	}
+
+	if (opts.includeHistory) {
+		if (r.lastChanged) {
+			const date = new Date(r.lastChanged.authoredAt).toISOString().slice(0, 10)
+			lines.push(
+				'',
+				`last changed: ${date} ${r.lastChanged.hash.slice(0, 7)} ${r.lastChanged.subject}`,
+			)
+		}
+		if (r.contributors.length > 0) {
+			lines.push(
+				`contributors: ${r.contributors.map((c) => `${c.authorName} (${c.commits})`).join(', ')}`,
+			)
+		}
+		if (r.coChanged.length > 0) {
+			lines.push('co-changed:')
+			for (const c of r.coChanged) lines.push(`  ${c.count}  ${c.otherPath}`)
+		}
+	}
+
 	return lines.join('\n')
 }
 

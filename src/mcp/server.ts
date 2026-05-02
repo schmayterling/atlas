@@ -10,6 +10,7 @@ import {
 	formatCallSites,
 	formatDeadCode,
 	formatDeps,
+	formatFileOutline,
 	formatHotspots,
 	formatOverview,
 	formatSearch,
@@ -127,6 +128,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				'  - "find symbol by name" → atlas_search (exact/fuzzy name match; NOT content search)\n' +
 				'  - "where does the parser handle errors" (intent, no exact name) → atlas_semantic_search (needs Ollama)\n' +
 				'  - "how many files mention pcre2 / TODO / some string" → atlas_content_search (literal text, fixed-string)\n' +
+				'  - "what is in file X" → atlas_file_outline (symbols + imports + importers, no source body)\n' +
 				'  - "show me metadata for X" → atlas_symbol_detail; pass includeSource=true only when source is needed\n' +
 				'  - "what depends on X / what does X call" → atlas_deps, atlas_call_sites, atlas_trace (preset=fast for low-latency traces, preset=full for structural traces)\n' +
 				'  - "impact of changing X" → atlas_blast_radius\n' +
@@ -252,6 +254,67 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				}
 				if (result.matches.length > 80) lines.push(`  ... (+${result.matches.length - 80} more)`)
 				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
+	// --- atlas_file_outline ---
+	server.tool(
+		'atlas_file_outline',
+		'Read a compact indexed outline for one file: symbols, imports, importers, and optional history. Does not include source.',
+		{
+			path: z.string().describe('repo-relative file path'),
+			symbolLimit: z.number().optional().describe('max symbols to list (default 80, max 300)'),
+			importLimit: z
+				.number()
+				.optional()
+				.describe('max imports and importers to list (default 40, max 200)'),
+			includeHistory: z
+				.boolean()
+				.optional()
+				.describe('include recent git/churn context (default false)'),
+		},
+		({ path, symbolLimit, importLimit, includeHistory }) =>
+			wrap(() => {
+				const result = engine.fileArticle(path)
+				if (!result) {
+					return {
+						content: [{ type: 'text' as const, text: `file not found: ${path}` }],
+						isError: true,
+					}
+				}
+				const maxSymbols = clampInt(symbolLimit, 80, 1, 300)
+				const maxImports = clampInt(importLimit, 40, 1, 200)
+				const historyIncluded = includeHistory === true
+				return {
+					content: [
+						{
+							type: 'text' as const,
+							text: formatFileOutline(result, {
+								symbolLimit: maxSymbols,
+								importLimit: maxImports,
+								includeHistory: historyIncluded,
+							}),
+						},
+					],
+					structuredContent: {
+						path: result.path,
+						language: result.language,
+						sizeBytes: result.sizeBytes,
+						isTest: result.isTest,
+						counts: {
+							symbols: result.symbols.length,
+							imports: result.imports.length,
+							importers: result.importers.length,
+						},
+						symbols: result.symbols.slice(0, maxSymbols),
+						imports: result.imports.slice(0, maxImports),
+						importers: result.importers.slice(0, maxImports),
+						historyIncluded,
+						lastChanged: historyIncluded ? result.lastChanged : null,
+						contributors: historyIncluded ? result.contributors : [],
+						coChanged: historyIncluded ? result.coChanged : [],
+					},
+				}
 			}),
 	)
 

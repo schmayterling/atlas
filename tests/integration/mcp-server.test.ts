@@ -20,6 +20,7 @@ describe('mcp server tool registration', () => {
 		const names = result.tools.map((t) => t.name).sort()
 		expect(names).toContain('atlas_status')
 		expect(names).toContain('atlas_search')
+		expect(names).toContain('atlas_file_outline')
 		expect(names).toContain('atlas_overview')
 		expect(names).toContain('atlas_deps')
 		expect(names).toContain('atlas_call_sites')
@@ -46,9 +47,11 @@ describe('mcp server tool registration', () => {
 		// instructions are exposed via initialize result; check the
 		// formatter side instead by listing tools and confirming descriptions
 		const tools = await client.listTools()
+		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
 		const testCov = tools.tools.find((t) => t.name === 'atlas_test_coverage')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		const hotFragile = tools.tools.find((t) => t.name === 'atlas_hot_fragile')
+		expect(fileOutline?.description).toBeTruthy()
 		expect(testCov?.description).toBeTruthy()
 		expect(hotspots?.description).toBeTruthy()
 		expect(hotFragile?.description).toBeTruthy()
@@ -216,6 +219,40 @@ describe('mcp server tool dispatch', () => {
 		expect(sourceContent[0].text).toContain('--- source ---')
 		expect(sourceContent[0].text).toContain('export class AuthService')
 		expect(withSource.structuredContent).toMatchObject({ sourceIncluded: true })
+	})
+
+	test('atlas_file_outline returns a compact indexed file outline', async () => {
+		const result = await client.callTool({
+			name: 'atlas_file_outline',
+			arguments: { path: 'auth.ts', symbolLimit: 3, importLimit: 2 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		const text = content[0].text
+		expect(text).toContain('file auth.ts')
+		expect(text).toContain('symbols')
+		expect(text).not.toContain('export class AuthService')
+		expect(result.structuredContent).toMatchObject({
+			path: 'auth.ts',
+			language: 'typescript',
+			historyIncluded: false,
+		})
+		const structured = result.structuredContent as {
+			symbols: unknown[]
+			counts: { symbols: number }
+		}
+		expect(structured.symbols.length).toBeLessThanOrEqual(3)
+		expect(structured.counts.symbols).toBeGreaterThanOrEqual(structured.symbols.length)
+	})
+
+	test('atlas_file_outline returns file-not-found for an unknown path', async () => {
+		const result = await client.callTool({
+			name: 'atlas_file_outline',
+			arguments: { path: 'does/not/exist.ts' },
+		})
+		expect(result.isError).toBeTruthy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('file not found')
 	})
 
 	test('atlas_trace accepts fast preset and exposes edge kinds in structured content', async () => {
