@@ -74,6 +74,7 @@ describe('mcp server tool registration', () => {
 		const symbolDetail = tools.tools.find((t) => t.name === 'atlas_symbol_detail')
 		const deps = tools.tools.find((t) => t.name === 'atlas_deps')
 		const callSites = tools.tools.find((t) => t.name === 'atlas_call_sites')
+		const blastRadius = tools.tools.find((t) => t.name === 'atlas_blast_radius')
 		const trace = tools.tools.find((t) => t.name === 'atlas_trace')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		expect(status?.outputSchema).toMatchObject({
@@ -139,6 +140,15 @@ describe('mcp server tool registration', () => {
 			properties: {
 				query: { type: 'string' },
 				callSites: { type: 'array' },
+			},
+		})
+		expect(blastRadius?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				target: {},
+				direct: { type: 'array' },
+				transitive: { type: 'array' },
+				summary: {},
 			},
 		})
 		expect(trace?.outputSchema).toMatchObject({
@@ -385,6 +395,35 @@ describe('mcp server tool dispatch', () => {
 		expect(structured.direction).toBe('inbound')
 		expect(structured.limit).toBe(5)
 		expect(structured.count).toBe(structured.callSites.length)
+	})
+
+	test('atlas_blast_radius returns structured impact lists', async () => {
+		const result = await client.callTool({
+			name: 'atlas_blast_radius',
+			arguments: { target: 'AuthService', depth: 2 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('blast radius for AuthService')
+		const structured = result.structuredContent as {
+			query: string
+			depth: number | null
+			target: { name: string }
+			direct: unknown[]
+			transitive: unknown[]
+			affectedTests: unknown[]
+			summary: { totalSymbols: number; totalFiles: number }
+			truncated: boolean
+		}
+		expect(structured.query).toBe('AuthService')
+		expect(structured.depth).toBe(2)
+		expect(structured.target.name).toBe('AuthService')
+		expect(Array.isArray(structured.direct)).toBe(true)
+		expect(Array.isArray(structured.transitive)).toBe(true)
+		expect(Array.isArray(structured.affectedTests)).toBe(true)
+		expect(structured.summary.totalSymbols).toBeGreaterThanOrEqual(0)
+		expect(structured.summary.totalFiles).toBeGreaterThanOrEqual(0)
+		expect(structured.truncated).toBe(false)
 	})
 
 	test('atlas_symbol_detail omits source by default and includes it on request', async () => {

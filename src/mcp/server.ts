@@ -759,12 +759,25 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_blast_radius ---
-	server.tool(
+	server.registerTool(
 		'atlas_blast_radius',
-		'analyze what code would be affected if a symbol or file changes',
 		{
-			target: z.string().describe('symbol name, file path, or file:line'),
-			depth: z.number().optional().describe('max propagation depth (default 5)'),
+			description: 'analyze what code would be affected if a symbol or file changes',
+			inputSchema: {
+				target: z.string().describe('symbol name, file path, or file:line'),
+				depth: z.number().optional().describe('max propagation depth (default 5)'),
+			},
+			outputSchema: {
+				query: z.string(),
+				depth: z.number().nullable(),
+				target: z.unknown(),
+				direct: z.array(z.unknown()),
+				transitive: z.array(z.unknown()),
+				affectedTests: z.array(z.unknown()),
+				summary: z.unknown(),
+				truncated: z.boolean(),
+				truncationReason: z.string().optional(),
+			},
 		},
 		({ target, depth }) =>
 			wrap(() => {
@@ -774,7 +787,20 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						content: [{ type: 'text' as const, text: `symbol not found: ${target}` }],
 						isError: true,
 					}
-				return { content: [{ type: 'text' as const, text: formatBlast(result) }] }
+				return {
+					content: [{ type: 'text' as const, text: formatBlast(result) }],
+					structuredContent: {
+						query: target,
+						depth: depth ?? null,
+						target: result.target,
+						direct: result.direct,
+						transitive: result.transitive,
+						affectedTests: result.affectedTests,
+						summary: result.summary,
+						truncated: result.truncated,
+						truncationReason: result.truncationReason,
+					},
+				}
 			}),
 	)
 
