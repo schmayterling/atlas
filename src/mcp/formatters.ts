@@ -69,10 +69,17 @@ export function formatFiles(
 
 export function formatFileOutline(
 	r: FileArticleResult,
-	opts: { symbolLimit: number; importLimit: number; includeHistory: boolean },
+	opts: {
+		symbolLimit: number
+		importLimit: number
+		includeHistory: boolean
+		totalSymbols?: number
+		filters?: string[]
+	},
 ): string {
 	const exported = r.symbols.filter((s) => s.isExported)
 	const internal = r.symbols.filter((s) => !s.isExported)
+	const totalSymbols = opts.totalSymbols ?? r.symbols.length
 	const visibleSymbols = r.symbols.slice(0, opts.symbolLimit)
 	const visibleImports = r.imports.slice(0, opts.importLimit)
 	const visibleImporters = r.importers.slice(0, opts.importLimit)
@@ -80,13 +87,16 @@ export function formatFileOutline(
 		`file ${r.path}`,
 		`  language: ${r.language}${r.isTest ? ' test' : ''}`,
 		`  size: ${r.sizeBytes} bytes`,
-		`  symbols: ${r.symbols.length} (${exported.length} exported, ${internal.length} internal)`,
+		`  symbols: ${r.symbols.length}${totalSymbols === r.symbols.length ? '' : `/${totalSymbols}`} (${exported.length} exported, ${internal.length} internal)`,
 		`  imports=${r.imports.length} importedBy=${r.importers.length}`,
 	]
+	if (opts.filters && opts.filters.length > 0) lines.push(`  filters: ${opts.filters.join(', ')}`)
 	if (r.summary) lines.push(`  summary: ${r.summary}`)
 
 	if (visibleSymbols.length > 0) {
-		lines.push('', `symbols (${visibleSymbols.length}/${r.symbols.length}):`)
+		const total =
+			totalSymbols === r.symbols.length ? r.symbols.length : `${r.symbols.length}/${totalSymbols}`
+		lines.push('', `symbols (${visibleSymbols.length}/${total}):`)
 		for (const sym of visibleSymbols) {
 			const exportedMarker = sym.isExported ? 'exported' : 'internal'
 			lines.push(

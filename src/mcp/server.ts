@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { getOrCreateEngine } from '../core/engine-pool.js'
 import type { AtlasEngine } from '../core/engine.js'
 import { log } from '../shared/logger.js'
-import { EDGE_KINDS, type EdgeKind } from '../shared/types.js'
+import { EDGE_KINDS, type EdgeKind, SYMBOL_KINDS, type SymbolKind } from '../shared/types.js'
 import {
 	formatBlast,
 	formatCallSites,
@@ -333,6 +333,8 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					.boolean()
 					.optional()
 					.describe('include recent git/churn context (default false)'),
+				kinds: z.array(z.enum(SYMBOL_KINDS)).optional().describe('only list these symbol kinds'),
+				exportedOnly: z.boolean().optional().describe('only list exported symbols'),
 			},
 			outputSchema: {
 				path: z.string(),
@@ -341,8 +343,13 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				isTest: z.boolean(),
 				counts: z.object({
 					symbols: z.number(),
+					totalSymbols: z.number(),
 					imports: z.number(),
 					importers: z.number(),
+				}),
+				filters: z.object({
+					kinds: z.array(z.string()),
+					exportedOnly: z.boolean(),
 				}),
 				symbols: z.array(z.unknown()),
 				imports: z.array(z.unknown()),
@@ -353,7 +360,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				coChanged: z.array(z.unknown()),
 			},
 		},
-		({ path, filePath, symbolLimit, importLimit, includeHistory }) =>
+		({ path, filePath, symbolLimit, importLimit, includeHistory, kinds, exportedOnly }) =>
 			wrap(() => {
 				const targetPath = path ?? filePath
 				if (!targetPath) {
@@ -372,15 +379,30 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				const maxSymbols = clampInt(symbolLimit, 80, 1, 300)
 				const maxImports = clampInt(importLimit, 40, 1, 200)
 				const historyIncluded = includeHistory === true
+				const kindFilter = kinds && kinds.length > 0 ? new Set<SymbolKind>(kinds) : null
+				const filteredSymbols = result.symbols.filter(
+					(sym) =>
+						(exportedOnly !== true || sym.isExported) &&
+						(kindFilter === null || kindFilter.has(sym.kind)),
+				)
+				const filters = [
+					exportedOnly === true ? 'exportedOnly=true' : '',
+					kindFilter ? `kinds=${[...kindFilter].join('|')}` : '',
+				].filter(Boolean)
 				return {
 					content: [
 						{
 							type: 'text' as const,
-							text: formatFileOutline(result, {
-								symbolLimit: maxSymbols,
-								importLimit: maxImports,
-								includeHistory: historyIncluded,
-							}),
+							text: formatFileOutline(
+								{ ...result, symbols: filteredSymbols },
+								{
+									symbolLimit: maxSymbols,
+									importLimit: maxImports,
+									includeHistory: historyIncluded,
+									totalSymbols: result.symbols.length,
+									filters,
+								},
+							),
 						},
 					],
 					structuredContent: {
@@ -389,11 +411,16 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						sizeBytes: result.sizeBytes,
 						isTest: result.isTest,
 						counts: {
-							symbols: result.symbols.length,
+							symbols: filteredSymbols.length,
+							totalSymbols: result.symbols.length,
 							imports: result.imports.length,
 							importers: result.importers.length,
 						},
-						symbols: result.symbols.slice(0, maxSymbols),
+						filters: {
+							kinds: kindFilter ? [...kindFilter] : [],
+							exportedOnly: exportedOnly === true,
+						},
+						symbols: filteredSymbols.slice(0, maxSymbols),
 						imports: result.imports.slice(0, maxImports),
 						importers: result.importers.slice(0, maxImports),
 						historyIncluded,

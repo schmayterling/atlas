@@ -1,4 +1,4 @@
-const SYMBOL_KINDS = [
+export const SYMBOL_KINDS = [
 	'function',
 	'class',
 	'method',

@@ -302,6 +302,25 @@ describe('mcp server tool dispatch', () => {
 		expect(result.structuredContent).toMatchObject({ path: 'auth.ts' })
 	})
 
+	test('atlas_file_outline filters symbols before formatting', async () => {
+		const result = await client.callTool({
+			name: 'atlas_file_outline',
+			arguments: { path: 'auth.ts', kinds: ['function'], exportedOnly: true, symbolLimit: 10 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('filters: exportedOnly=true, kinds=function')
+		const structured = result.structuredContent as {
+			filters: { kinds: string[]; exportedOnly: boolean }
+			counts: { symbols: number; totalSymbols: number }
+			symbols: { kind: string; isExported: boolean; name: string }[]
+		}
+		expect(structured.filters).toEqual({ kinds: ['function'], exportedOnly: true })
+		expect(structured.counts.symbols).toBeLessThan(structured.counts.totalSymbols)
+		expect(structured.symbols.every((s) => s.kind === 'function' && s.isExported)).toBe(true)
+		expect(structured.symbols.some((s) => s.name === 'createAuthService')).toBe(true)
+	})
+
 	test('atlas_file_outline returns file-not-found for an unknown path', async () => {
 		const result = await client.callTool({
 			name: 'atlas_file_outline',
