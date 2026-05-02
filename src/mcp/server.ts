@@ -436,19 +436,29 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// code-bearing lookup: returns symbol metadata, direct deps, cached LLM
 	// summary (if any), AND the actual source body. use when you need to
 	// "read" a symbol's code in one call rather than atlas_search + read_file.
-	server.tool(
+	server.registerTool(
 		'atlas_symbol_detail',
-		'Read compact symbol metadata, relationship counts, optional cached LLM summary, and optionally source. Defaults to metadata only; pass includeSource=true when code is needed.',
 		{
-			symbol: z.string().describe('symbol name or file::name reference'),
-			includeSource: z
-				.boolean()
-				.optional()
-				.describe('include source body (default false to save tokens)'),
-			maxSourceChars: z
-				.number()
-				.optional()
-				.describe('max source chars when includeSource=true (default 12000, max 50000)'),
+			description:
+				'Read compact symbol metadata, relationship counts, optional cached LLM summary, and optionally source. Defaults to metadata only; pass includeSource=true when code is needed.',
+			inputSchema: {
+				symbol: z.string().describe('symbol name or file::name reference'),
+				includeSource: z
+					.boolean()
+					.optional()
+					.describe('include source body (default false to save tokens)'),
+				maxSourceChars: z
+					.number()
+					.optional()
+					.describe('max source chars when includeSource=true (default 12000, max 50000)'),
+			},
+			outputSchema: {
+				symbol: z.unknown(),
+				upstreamCount: z.number(),
+				downstreamCount: z.number(),
+				sourceIncluded: z.boolean(),
+				sourceTruncated: z.boolean(),
+			},
 		},
 		({ symbol, includeSource, maxSourceChars }) =>
 			wrap(async () => {
@@ -629,22 +639,32 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_trace ---
-	server.tool(
+	server.registerTool(
 		'atlas_trace',
-		'find execution paths between two symbols. use preset=fast for low-latency call-flow tracing; use preset=full or explicit edgeKinds when structural contains/type edges are required.',
 		{
-			from: z.string().describe('source symbol name'),
-			to: z.string().describe('target symbol name'),
-			maxPaths: z.number().optional().describe('max paths to return (default 5)'),
-			maxDepth: z.number().optional().describe('max path depth (default 10)'),
-			preset: z
-				.enum(['fast', 'full'])
-				.optional()
-				.describe('fast excludes high-fanout structural edges; full uses the engine default'),
-			edgeKinds: z
-				.array(z.enum(EDGE_KINDS))
-				.optional()
-				.describe('exact edge kinds to traverse; overrides preset when provided'),
+			description:
+				'find execution paths between two symbols. use preset=fast for low-latency call-flow tracing; use preset=full or explicit edgeKinds when structural contains/type edges are required.',
+			inputSchema: {
+				from: z.string().describe('source symbol name'),
+				to: z.string().describe('target symbol name'),
+				maxPaths: z.number().optional().describe('max paths to return (default 5)'),
+				maxDepth: z.number().optional().describe('max path depth (default 10)'),
+				preset: z
+					.enum(['fast', 'full'])
+					.optional()
+					.describe('fast excludes high-fanout structural edges; full uses the engine default'),
+				edgeKinds: z
+					.array(z.enum(EDGE_KINDS))
+					.optional()
+					.describe('exact edge kinds to traverse; overrides preset when provided'),
+			},
+			outputSchema: {
+				source: z.unknown(),
+				target: z.unknown(),
+				stats: z.unknown(),
+				edgeKinds: z.union([z.array(z.string()), z.literal('auto')]),
+				preset: z.string(),
+			},
 		},
 		({ from, to, maxPaths, maxDepth, preset, edgeKinds }) =>
 			wrap(() => {
@@ -844,15 +864,21 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_hotspots ---
-	server.tool(
+	server.registerTool(
 		'atlas_hotspots',
-		'rank exported symbols by fanin * churn * test coverage. use this before reading files to pick the highest-risk symbols.',
 		{
-			limit: z.number().optional().describe('max symbols to return (default 20)'),
-			coverage: z
-				.enum(['called', 'imported', 'none'])
-				.optional()
-				.describe('filter by coverage level'),
+			description:
+				'rank exported symbols by fanin * churn * test coverage. use this before reading files to pick the highest-risk symbols.',
+			inputSchema: {
+				limit: z.number().optional().describe('max symbols to return (default 20)'),
+				coverage: z
+					.enum(['called', 'imported', 'none'])
+					.optional()
+					.describe('filter by coverage level'),
+			},
+			outputSchema: {
+				rows: z.array(z.unknown()),
+			},
 		},
 		({ limit, coverage }) =>
 			wrap(() => {

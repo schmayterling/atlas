@@ -60,10 +60,13 @@ describe('mcp server tool registration', () => {
 		expect(hotFragile?.description).toBeTruthy()
 	})
 
-	test('navigation tools expose output schemas for structured results', async () => {
+	test('structured tools expose output schemas', async () => {
 		const tools = await client.listTools()
 		const files = tools.tools.find((t) => t.name === 'atlas_files')
 		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
+		const symbolDetail = tools.tools.find((t) => t.name === 'atlas_symbol_detail')
+		const trace = tools.tools.find((t) => t.name === 'atlas_trace')
+		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		expect(files?.outputSchema).toMatchObject({
 			type: 'object',
 			properties: {
@@ -76,6 +79,26 @@ describe('mcp server tool registration', () => {
 			properties: {
 				path: { type: 'string' },
 				counts: { type: 'object' },
+			},
+		})
+		expect(symbolDetail?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				symbol: {},
+				sourceIncluded: { type: 'boolean' },
+			},
+		})
+		expect(trace?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				source: {},
+				edgeKinds: {},
+			},
+		})
+		expect(hotspots?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				rows: { type: 'array' },
 			},
 		})
 	})
