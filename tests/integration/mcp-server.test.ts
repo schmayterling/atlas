@@ -225,12 +225,14 @@ describe('mcp server tool dispatch', () => {
 	test('atlas_symbol_detail omits source by default and includes it on request', async () => {
 		const compact = await client.callTool({
 			name: 'atlas_symbol_detail',
-			arguments: { symbol: 'AuthService' },
+			arguments: { symbol: 'loginRoute' },
 		})
 		expect(compact.isError).toBeFalsy()
 		const compactContent = compact.content as { type: string; text: string }[]
+		expect(compactContent[0].text).toContain('loginRoute')
 		expect(compactContent[0].text).toContain('source: omitted')
-		expect(compactContent[0].text).not.toContain('export class AuthService')
+		expect(compactContent[0].text).not.toContain(': :')
+		expect(compactContent[0].text).not.toContain('export function loginRoute')
 		expect(compact.structuredContent).toMatchObject({ sourceIncluded: false })
 
 		const withSource = await client.callTool({

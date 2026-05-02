@@ -15,6 +15,7 @@ import {
 	formatHotspots,
 	formatOverview,
 	formatSearch,
+	formatSignature,
 	formatStatus,
 	formatTrace,
 } from './formatters.js'
@@ -441,7 +442,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				const lines = [
 					`${s.kind} ${s.name}  (${s.qualifiedName})`,
 					`  ${s.filePath}:${s.lineStart}-${s.lineEnd}`,
-					s.signature ? `  signature: ${s.signature}` : '',
+					s.signature ? `  signature: ${formatSignature(s.signature, 180)}` : '',
 					s.docComment ? `  doc: ${s.docComment.slice(0, 200)}` : '',
 					result.summary ? `  summary: ${result.summary}` : '',
 					`  upstream=${result.upstream.length} downstream=${result.downstream.length}`,
@@ -477,7 +478,8 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
 						isError: true,
 					}
-				const text = `${result.kind} ${result.name}\n  file: ${result.filePath}:${result.lineStart}\n  signature: ${result.signature ?? 'none'}\n  exported: ${result.isExported}\n  usages: ${result.usageCount}, dependents: ${result.dependentCount}`
+				const signature = result.signature ? formatSignature(result.signature, 180) : 'none'
+				const text = `${result.kind} ${result.name}\n  file: ${result.filePath}:${result.lineStart}\n  signature: ${signature}\n  exported: ${result.isExported}\n  usages: ${result.usageCount}, dependents: ${result.dependentCount}`
 				return { content: [{ type: 'text' as const, text }] }
 			}),
 	)
