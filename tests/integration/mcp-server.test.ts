@@ -81,6 +81,8 @@ describe('mcp server tool registration', () => {
 		const deadCode = tools.tools.find((t) => t.name === 'atlas_dead_code')
 		const history = tools.tools.find((t) => t.name === 'atlas_history')
 		const churn = tools.tools.find((t) => t.name === 'atlas_churn')
+		const subsystems = tools.tools.find((t) => t.name === 'atlas_subsystems')
+		const subsystem = tools.tools.find((t) => t.name === 'atlas_subsystem')
 		const testCoverage = tools.tools.find((t) => t.name === 'atlas_test_coverage')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		expect(status?.outputSchema).toMatchObject({
@@ -203,6 +205,20 @@ describe('mcp server tool registration', () => {
 				files: { type: 'array' },
 			},
 		})
+		expect(subsystems?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				count: { type: 'number' },
+				subsystems: { type: 'array' },
+			},
+		})
+		expect(subsystem?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				id: { type: 'string' },
+				subsystem: { type: 'object' },
+			},
+		})
 		expect(testCoverage?.outputSchema).toMatchObject({
 			type: 'object',
 			properties: {
@@ -216,6 +232,53 @@ describe('mcp server tool registration', () => {
 				rows: { type: 'array' },
 			},
 		})
+	})
+})
+
+describe('mcp server subsystem tools', () => {
+	test('atlas_subsystems returns structured rows', async () => {
+		const result = await client.callTool({ name: 'atlas_subsystems', arguments: {} })
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].type).toBe('text')
+		const structured = result.structuredContent as {
+			count: number
+			subsystems: { id: string; name: string }[]
+		}
+		expect(structured.count).toBe(structured.subsystems.length)
+		expect(structured.subsystems.length).toBeGreaterThan(0)
+	})
+
+	test('atlas_subsystem returns structured detail for a listed subsystem', async () => {
+		const list = await client.callTool({ name: 'atlas_subsystems', arguments: {} })
+		const listStructured = list.structuredContent as {
+			subsystems: { id: string }[]
+		}
+		const id = listStructured.subsystems[0]?.id
+		expect(id).toBeTruthy()
+
+		const result = await client.callTool({ name: 'atlas_subsystem', arguments: { id } })
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('subsystem:')
+		const structured = result.structuredContent as {
+			id: string
+			subsystem: { id: string; files: unknown[]; topSymbols: unknown[] }
+		}
+		expect(structured.id).toBe(id)
+		expect(structured.subsystem.id).toBe(id)
+		expect(Array.isArray(structured.subsystem.files)).toBe(true)
+		expect(Array.isArray(structured.subsystem.topSymbols)).toBe(true)
+	})
+
+	test('atlas_subsystem returns not-found for an unknown subsystem', async () => {
+		const result = await client.callTool({
+			name: 'atlas_subsystem',
+			arguments: { id: '0000000000000000' },
+		})
+		expect(result.isError).toBeTruthy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('not found')
 	})
 })
 

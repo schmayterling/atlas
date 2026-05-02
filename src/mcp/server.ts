@@ -1003,30 +1003,103 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_subsystems ---
-	server.tool(
+	server.registerTool(
 		'atlas_subsystems',
-		'list detected subsystems (high-level modules from graph clustering)',
-		{},
+		{
+			description: 'list detected subsystems (high-level modules from graph clustering)',
+			inputSchema: {},
+			outputSchema: {
+				count: z.number(),
+				subsystems: z.array(
+					z.object({
+						id: z.string(),
+						name: z.string(),
+						description: z.string().nullable(),
+						fileCount: z.number(),
+						conductance: z.number(),
+					}),
+				),
+			},
+		},
 		() =>
 			wrap(() => {
 				const rows = engine.subsystems()
 				if (rows.length === 0) {
-					return { content: [{ type: 'text' as const, text: 'no subsystems detected' }] }
+					return {
+						content: [{ type: 'text' as const, text: 'no subsystems detected' }],
+						structuredContent: {
+							count: 0,
+							subsystems: rows,
+						},
+					}
 				}
 				const lines = rows.map((r) => {
 					const desc = r.description ? ` — ${r.description}` : ''
 					return `${r.id}  ${String(r.fileCount).padStart(3)} files  conductance=${r.conductance.toFixed(2)}  ${r.name}${desc}`
 				})
-				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+				return {
+					content: [{ type: 'text' as const, text: lines.join('\n') }],
+					structuredContent: {
+						count: rows.length,
+						subsystems: rows,
+					},
+				}
 			}),
 	)
 
 	// --- atlas_subsystem ---
-	server.tool(
+	server.registerTool(
 		'atlas_subsystem',
-		'detail for one subsystem (member files, top exported symbols)',
 		{
-			id: z.string().describe('subsystem id (16-hex content hash)'),
+			description: 'detail for one subsystem (member files, top exported symbols)',
+			inputSchema: {
+				id: z.string().describe('subsystem id (16-hex content hash)'),
+			},
+			outputSchema: {
+				id: z.string(),
+				subsystem: z.object({
+					id: z.string(),
+					name: z.string(),
+					description: z.string().nullable(),
+					conductance: z.number(),
+					generatedAt: z.number(),
+					files: z.array(
+						z.object({
+							id: z.number(),
+							path: z.string(),
+							language: z.string().nullable(),
+						}),
+					),
+					topSymbols: z.array(
+						z.object({
+							name: z.string(),
+							kind: z.string(),
+							filePath: z.string(),
+						}),
+					),
+					topExports: z
+						.array(
+							z.object({
+								name: z.string(),
+								qualifiedName: z.string(),
+								kind: z.string(),
+								filePath: z.string(),
+								dependentCount: z.number(),
+							}),
+						)
+						.optional(),
+					crossEdges: z
+						.array(
+							z.object({
+								otherSubsystemId: z.string(),
+								otherSubsystemName: z.string(),
+								edgeCount: z.number(),
+								fileCount: z.number(),
+							}),
+						)
+						.optional(),
+				}),
+			},
 		},
 		({ id }) =>
 			wrap(() => {
@@ -1048,7 +1121,13 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					for (const s of detail.topSymbols)
 						parts.push(`  ${s.kind.padEnd(10)} ${s.name}  (${s.filePath})`)
 				}
-				return { content: [{ type: 'text' as const, text: parts.join('\n') }] }
+				return {
+					content: [{ type: 'text' as const, text: parts.join('\n') }],
+					structuredContent: {
+						id,
+						subsystem: detail,
+					},
+				}
 			}),
 	)
 
