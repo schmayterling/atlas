@@ -324,11 +324,14 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			inputSchema: {
 				path: z.string().optional().describe('repo-relative file path'),
 				filePath: z.string().optional().describe('alias for path'),
-				symbolLimit: z.number().optional().describe('max symbols to list (default 80, max 300)'),
+				symbolLimit: z
+					.number()
+					.optional()
+					.describe('max symbols to list (default 80, max 300, 0 hides symbols)'),
 				importLimit: z
 					.number()
 					.optional()
-					.describe('max imports and importers to list (default 40, max 200)'),
+					.describe('max imports and importers to list (default 40, max 200, 0 hides them)'),
 				includeHistory: z
 					.boolean()
 					.optional()
@@ -376,8 +379,8 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						isError: true,
 					}
 				}
-				const maxSymbols = clampInt(symbolLimit, 80, 1, 300)
-				const maxImports = clampInt(importLimit, 40, 1, 200)
+				const maxSymbols = clampInt(symbolLimit, 80, 0, 300)
+				const maxImports = clampInt(importLimit, 40, 0, 200)
 				const historyIncluded = includeHistory === true
 				const kindFilter = kinds && kinds.length > 0 ? new Set<SymbolKind>(kinds) : null
 				const filteredSymbols = result.symbols.filter(

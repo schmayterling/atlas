@@ -344,6 +344,26 @@ describe('mcp server tool dispatch', () => {
 		expect(structured.symbols.some((s) => s.name === 'createAuthService')).toBe(true)
 	})
 
+	test('atlas_file_outline allows zero limits to hide sections', async () => {
+		const result = await client.callTool({
+			name: 'atlas_file_outline',
+			arguments: { path: 'auth.ts', symbolLimit: 0, importLimit: 0 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).not.toContain('symbols (')
+		expect(content[0].text).not.toContain('imports (')
+		expect(content[0].text).not.toContain('imported by (')
+		const structured = result.structuredContent as {
+			symbols: unknown[]
+			imports: unknown[]
+			importers: unknown[]
+		}
+		expect(structured.symbols).toHaveLength(0)
+		expect(structured.imports).toHaveLength(0)
+		expect(structured.importers).toHaveLength(0)
+	})
+
 	test('atlas_file_outline returns file-not-found for an unknown path', async () => {
 		const result = await client.callTool({
 			name: 'atlas_file_outline',
