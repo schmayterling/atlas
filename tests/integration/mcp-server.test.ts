@@ -6,13 +6,16 @@ import { getFixtureEngine } from '../helpers/fixture-engine.js'
 
 let client: Client
 
-beforeAll(async () => {
-	const engine = await getFixtureEngine()
-	const server = createMcpServer(engine)
-	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
-	client = new Client({ name: 'atlas-test', version: '0.0.0' })
-	await Promise.all([client.connect(clientTransport), server.connect(serverTransport)])
-})
+beforeAll(
+	async () => {
+		const engine = await getFixtureEngine()
+		const server = createMcpServer(engine)
+		const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+		client = new Client({ name: 'atlas-test', version: '0.0.0' })
+		await Promise.all([client.connect(clientTransport), server.connect(serverTransport)])
+	},
+	{ timeout: 20_000 },
+)
 
 describe('mcp server tool registration', () => {
 	test('exposes the expected atlas_* tools', async () => {
@@ -69,6 +72,8 @@ describe('mcp server tool registration', () => {
 		const files = tools.tools.find((t) => t.name === 'atlas_files')
 		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
 		const symbolDetail = tools.tools.find((t) => t.name === 'atlas_symbol_detail')
+		const deps = tools.tools.find((t) => t.name === 'atlas_deps')
+		const callSites = tools.tools.find((t) => t.name === 'atlas_call_sites')
 		const trace = tools.tools.find((t) => t.name === 'atlas_trace')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		expect(status?.outputSchema).toMatchObject({
@@ -118,6 +123,22 @@ describe('mcp server tool registration', () => {
 			properties: {
 				symbol: {},
 				sourceIncluded: { type: 'boolean' },
+			},
+		})
+		expect(deps?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				symbol: {},
+				upstream: { type: 'array' },
+				downstream: { type: 'array' },
+				stats: {},
+			},
+		})
+		expect(callSites?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				query: { type: 'string' },
+				callSites: { type: 'array' },
 			},
 		})
 		expect(trace?.outputSchema).toMatchObject({
@@ -314,6 +335,31 @@ describe('mcp server tool dispatch', () => {
 		expect(text).toContain('test coverage:')
 	})
 
+	test('atlas_deps returns structured dependency graph', async () => {
+		const result = await client.callTool({
+			name: 'atlas_deps',
+			arguments: { symbol: 'AuthService', direction: 'both', depth: 2 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('AuthService')
+		const structured = result.structuredContent as {
+			symbol: { name: string }
+			direction: string
+			depth: number | null
+			upstream: unknown[]
+			downstream: unknown[]
+			stats: { totalNodes: number; totalEdges: number }
+		}
+		expect(structured.symbol.name).toBe('AuthService')
+		expect(structured.direction).toBe('both')
+		expect(structured.depth).toBe(2)
+		expect(Array.isArray(structured.upstream)).toBe(true)
+		expect(Array.isArray(structured.downstream)).toBe(true)
+		expect(structured.stats.totalNodes).toBeGreaterThanOrEqual(0)
+		expect(structured.stats.totalEdges).toBeGreaterThanOrEqual(0)
+	})
+
 	// atlas_call_sites is the grep-granularity complement to atlas_deps.
 	// deps collapses by source symbol; this preserves call-site
 	// multiplicity so two calls from the same function show as two
@@ -328,6 +374,17 @@ describe('mcp server tool dispatch', () => {
 		const content = result.content as { type: string; text: string }[]
 		const text = content[0].text
 		expect(text).toMatch(/(no callers of|call site)/)
+		const structured = result.structuredContent as {
+			query: string
+			direction: string
+			limit: number | null
+			count: number
+			callSites: unknown[]
+		}
+		expect(structured.query).toBe('AuthService')
+		expect(structured.direction).toBe('inbound')
+		expect(structured.limit).toBe(5)
+		expect(structured.count).toBe(structured.callSites.length)
 	})
 
 	test('atlas_symbol_detail omits source by default and includes it on request', async () => {

@@ -658,16 +658,28 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_deps ---
-	server.tool(
+	server.registerTool(
 		'atlas_deps',
-		'get dependency graph for a symbol (what it depends on and what depends on it)',
 		{
-			symbol: z.string().describe('symbol name or file:name reference'),
-			direction: z
-				.enum(['upstream', 'downstream', 'both'])
-				.optional()
-				.describe('dependency direction (default: both)'),
-			depth: z.number().optional().describe('max traversal depth (default 3)'),
+			description: 'get dependency graph for a symbol (what it depends on and what depends on it)',
+			inputSchema: {
+				symbol: z.string().describe('symbol name or file:name reference'),
+				direction: z
+					.enum(['upstream', 'downstream', 'both'])
+					.optional()
+					.describe('dependency direction (default: both)'),
+				depth: z.number().optional().describe('max traversal depth (default 3)'),
+			},
+			outputSchema: {
+				symbol: z.unknown(),
+				direction: z.enum(['upstream', 'downstream', 'both']),
+				depth: z.number().nullable(),
+				upstream: z.array(z.unknown()),
+				downstream: z.array(z.unknown()),
+				stats: z.unknown(),
+				truncated: z.boolean(),
+				truncationReason: z.string().optional(),
+			},
 		},
 		({ symbol, direction, depth }) =>
 			wrap(() => {
@@ -677,7 +689,19 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
 						isError: true,
 					}
-				return { content: [{ type: 'text' as const, text: formatDeps(result) }] }
+				return {
+					content: [{ type: 'text' as const, text: formatDeps(result) }],
+					structuredContent: {
+						symbol: result.symbol,
+						direction: direction ?? 'both',
+						depth: depth ?? null,
+						upstream: result.upstream,
+						downstream: result.downstream,
+						stats: result.stats,
+						truncated: result.truncated,
+						truncationReason: result.truncationReason,
+					},
+				}
 			}),
 	)
 
@@ -687,29 +711,28 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// multiple lines. pairs with atlas_deps, which collapses by source.
 	// use this when you need grep-granularity (e.g. "list every line
 	// that calls X, with file:line") rather than "which symbols call X".
-	server.tool(
+	server.registerTool(
 		'atlas_call_sites',
-		'list every call-site (one entry per edge row, preserving multiplicity). pairs with atlas_deps which collapses by source symbol',
 		{
-			symbol: z.string().describe('symbol name or file:name reference'),
-			direction: z
-				.enum(['inbound', 'outbound'])
-				.optional()
-				.describe('inbound=who calls this, outbound=what this calls (default inbound)'),
-			kind: z
-				.enum([
-					'calls',
-					'contains',
-					'extends',
-					'type_ref',
-					'passed_as',
-					'dispatches_to',
-					'instantiates',
-					'field_access',
-				])
-				.optional()
-				.describe('filter by edge kind'),
-			limit: z.number().optional().describe('max entries returned (default 50)'),
+			description:
+				'list every call-site (one entry per edge row, preserving multiplicity). pairs with atlas_deps which collapses by source symbol',
+			inputSchema: {
+				symbol: z.string().describe('symbol name or file:name reference'),
+				direction: z
+					.enum(['inbound', 'outbound'])
+					.optional()
+					.describe('inbound=who calls this, outbound=what this calls (default inbound)'),
+				kind: z.enum(EDGE_KINDS).optional().describe('filter by edge kind'),
+				limit: z.number().optional().describe('max entries returned (default 50)'),
+			},
+			outputSchema: {
+				query: z.string(),
+				direction: z.enum(['inbound', 'outbound']),
+				kind: z.union([z.enum(EDGE_KINDS), z.null()]),
+				limit: z.number().nullable(),
+				count: z.number(),
+				callSites: z.array(z.unknown()),
+			},
 		},
 		({ symbol, direction, kind, limit }) =>
 			wrap(() => {
@@ -723,6 +746,14 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				}
 				return {
 					content: [{ type: 'text' as const, text: formatCallSites(symbol, dir, result) }],
+					structuredContent: {
+						query: symbol,
+						direction: dir,
+						kind: kind ?? null,
+						limit: limit ?? null,
+						count: result.length,
+						callSites: result,
+					},
 				}
 			}),
 	)
