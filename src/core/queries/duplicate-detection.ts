@@ -1,6 +1,6 @@
-import type { AtlasStore } from '../storage/store.js'
 import type { DuplicatePair } from '../../shared/types.js'
 import { isVectorSearchAvailable } from '../storage/sqlite-ext.js'
+import type { AtlasStore } from '../storage/store.js'
 
 export type { DuplicatePair }
 
@@ -19,7 +19,9 @@ export function findDuplicates(
 		similarity: number
 		confirmed: number
 		description: string | null
-	}>('SELECT symbol_a_id as symbolAId, symbol_b_id as symbolBId, similarity, confirmed, description FROM duplicates ORDER BY similarity DESC')
+	}>(
+		'SELECT symbol_a_id as symbolAId, symbol_b_id as symbolBId, similarity, confirmed, description FROM duplicates ORDER BY similarity DESC',
+	)
 
 	if (stored.length > 0) {
 		// batch-fetch all symbols
@@ -76,6 +78,27 @@ export function detectDuplicatesFromEmbeddings(
 	maxResults = 100,
 	opts?: { excludeFileIds?: Set<number> },
 ): number {
+	const dupTable = store.queryRaw<{ name: string }>(
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='duplicates'",
+	)
+	if (dupTable.length === 0) return 0
+
+	const existing = store.queryRaw<{
+		symbolAId: string
+		symbolBId: string
+		confirmed: number
+		description: string | null
+	}>(
+		'SELECT symbol_a_id as symbolAId, symbol_b_id as symbolBId, confirmed, description FROM duplicates',
+	)
+	const annotations = new Map(
+		existing.map((row) => [
+			`${row.symbolAId}\0${row.symbolBId}`,
+			{ confirmed: row.confirmed, description: row.description },
+		]),
+	)
+	store.runRaw('DELETE FROM duplicates')
+
 	if (!isVectorSearchAvailable()) return 0
 
 	// check if embedding tables exist
@@ -83,11 +106,6 @@ export function detectDuplicatesFromEmbeddings(
 		"SELECT name FROM sqlite_master WHERE type='table' AND name='symbol_embeddings'",
 	)
 	if (tables.length === 0) return 0
-
-	const dupTable = store.queryRaw<{ name: string }>(
-		"SELECT name FROM sqlite_master WHERE type='table' AND name='duplicates'",
-	)
-	if (dupTable.length === 0) return 0
 
 	// only embed-eligible kinds, and only symbols whose source body is
 	// large enough to be meaningful (smallest function/method bodies still
@@ -107,14 +125,13 @@ export function detectDuplicatesFromEmbeddings(
 	// aren't buried under codegen noise.
 	const excluded = opts?.excludeFileIds
 	const meta =
-		excluded && excluded.size > 0
-			? metaRaw.filter((m) => !excluded.has(m.fileId))
-			: metaRaw
+		excluded && excluded.size > 0 ? metaRaw.filter((m) => !excluded.has(m.fileId)) : metaRaw
 
 	if (meta.length < 2) return 0
 
 	// pre-build lookup map to avoid O(n^2) .find() inside the KNN loop
 	const metaById = new Map(meta.map((m) => [m.symbolId, m]))
+	const seenPairs = new Set<string>()
 	let count = 0
 
 	// for each symbol, find similar symbols via KNN. stop early once we've
@@ -145,17 +162,23 @@ export function detectDuplicatesFromEmbeddings(
 
 				// avoid duplicate pairs (a,b) and (b,a)
 				const [first, second] = [entry.stableId, matchedMeta.stableId].sort()
+				const pairKey = `${first}\0${second}`
+				if (seenPairs.has(pairKey)) continue
+				seenPairs.add(pairKey)
+				const annotation = annotations.get(pairKey)
 
 				try {
 					store.runRaw(
-						'INSERT OR IGNORE INTO duplicates (symbol_a_id, symbol_b_id, similarity) VALUES (?, ?, ?)',
+						'INSERT INTO duplicates (symbol_a_id, symbol_b_id, similarity, confirmed, description) VALUES (?, ?, ?, ?, ?)',
 						first,
 						second,
 						similarity,
+						annotation?.confirmed ?? 0,
+						annotation?.description ?? null,
 					)
 					count++
 				} catch {
-					// already exists
+					// failed rows are skipped; detection is best-effort.
 				}
 			}
 		} catch {
