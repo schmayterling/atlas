@@ -79,6 +79,8 @@ describe('mcp server tool registration', () => {
 		const blastRadius = tools.tools.find((t) => t.name === 'atlas_blast_radius')
 		const trace = tools.tools.find((t) => t.name === 'atlas_trace')
 		const deadCode = tools.tools.find((t) => t.name === 'atlas_dead_code')
+		const history = tools.tools.find((t) => t.name === 'atlas_history')
+		const churn = tools.tools.find((t) => t.name === 'atlas_churn')
 		const testCoverage = tools.tools.find((t) => t.name === 'atlas_test_coverage')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		expect(status?.outputSchema).toMatchObject({
@@ -187,6 +189,20 @@ describe('mcp server tool registration', () => {
 				stats: {},
 			},
 		})
+		expect(history?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				file: { type: 'string' },
+				commits: { type: 'array' },
+			},
+		})
+		expect(churn?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				filters: { type: 'object' },
+				files: { type: 'array' },
+			},
+		})
 		expect(testCoverage?.outputSchema).toMatchObject({
 			type: 'object',
 			properties: {
@@ -271,6 +287,22 @@ describe('mcp server git tools', () => {
 		expect(content[0].type).toBe('text')
 		// the fixture project has no git history; expect the empty-state line
 		expect(content[0].text).toBeDefined()
+		const structured = result.structuredContent as {
+			filters: {
+				path: string | null
+				limit: number
+				sinceDays: number | null
+				since: number | null
+			}
+			files: unknown[]
+		}
+		expect(structured.filters).toEqual({
+			path: null,
+			limit: 5,
+			sinceDays: null,
+			since: null,
+		})
+		expect(structured.files).toEqual([])
 	})
 
 	test('atlas_history returns no-history message for an unknown file', async () => {
@@ -281,6 +313,14 @@ describe('mcp server git tools', () => {
 		expect(result.isError).toBeFalsy()
 		const content = result.content as { type: string; text: string }[]
 		expect(content[0].text).toContain('no history')
+		const structured = result.structuredContent as {
+			file: string
+			limit: number | null
+			commits: unknown[]
+		}
+		expect(structured.file).toBe('no-such-file.ts')
+		expect(structured.limit).toBeNull()
+		expect(structured.commits).toEqual([])
 	})
 })
 

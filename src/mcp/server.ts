@@ -950,24 +950,55 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_history ---
-	server.tool(
+	server.registerTool(
 		'atlas_history',
-		'git commit history for a file (most recent first)',
 		{
-			file: z.string().describe('repo-relative file path'),
-			limit: z.number().optional().describe('max commits to return (default 20)'),
+			description: 'git commit history for a file (most recent first)',
+			inputSchema: {
+				file: z.string().describe('repo-relative file path'),
+				limit: z.number().optional().describe('max commits to return (default 20)'),
+			},
+			outputSchema: {
+				file: z.string(),
+				limit: z.number().nullable(),
+				commits: z.array(
+					z.object({
+						hash: z.string(),
+						authorName: z.string(),
+						authorEmail: z.string(),
+						authoredAt: z.number(),
+						subject: z.string(),
+						status: z.enum(['A', 'M', 'D', 'R']),
+						renameFrom: z.string().nullable(),
+					}),
+				),
+			},
 		},
 		({ file, limit }) =>
 			wrap(() => {
 				const rows = engine.fileHistory(file).slice(0, limit ?? 20)
 				if (rows.length === 0) {
-					return { content: [{ type: 'text' as const, text: `no history for ${file}` }] }
+					return {
+						content: [{ type: 'text' as const, text: `no history for ${file}` }],
+						structuredContent: {
+							file,
+							limit: limit ?? null,
+							commits: rows,
+						},
+					}
 				}
 				const lines = rows.map((r) => {
 					const date = new Date(r.authoredAt).toISOString().slice(0, 10)
 					return `${date}  ${r.hash.slice(0, 7)}  ${r.authorName}  ${r.status}  ${r.subject}`
 				})
-				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+				return {
+					content: [{ type: 'text' as const, text: lines.join('\n') }],
+					structuredContent: {
+						file,
+						limit: limit ?? null,
+						commits: rows,
+					},
+				}
 			}),
 	)
 
@@ -1022,26 +1053,68 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_churn ---
-	server.tool(
+	server.registerTool(
 		'atlas_churn',
-		'hot files ranked by commit count (optionally filtered by path prefix)',
 		{
-			path: z.string().optional().describe('only files starting with this path prefix'),
-			limit: z.number().optional().describe('max files to return (default 20)'),
-			sinceDays: z.number().optional().describe('only count commits from the last N days'),
+			description: 'hot files ranked by commit count (optionally filtered by path prefix)',
+			inputSchema: {
+				path: z.string().optional().describe('only files starting with this path prefix'),
+				limit: z.number().optional().describe('max files to return (default 20)'),
+				sinceDays: z.number().optional().describe('only count commits from the last N days'),
+			},
+			outputSchema: {
+				filters: z.object({
+					path: z.string().nullable(),
+					limit: z.number(),
+					sinceDays: z.number().nullable(),
+					since: z.number().nullable(),
+				}),
+				files: z.array(
+					z.object({
+						filePath: z.string(),
+						commits: z.number(),
+						contributors: z.number(),
+						lastTouchedAt: z.number(),
+						topAuthor: z.string(),
+					}),
+				),
+			},
 		},
 		({ path, limit, sinceDays }) =>
 			wrap(() => {
 				const since = sinceDays ? Date.now() - sinceDays * 86400_000 : undefined
-				const rows = engine.churn({ pathPrefix: path, limit: limit ?? 20, since })
+				const effectiveLimit = limit ?? 20
+				const rows = engine.churn({ pathPrefix: path, limit: effectiveLimit, since })
 				if (rows.length === 0) {
-					return { content: [{ type: 'text' as const, text: 'no churn data available' }] }
+					return {
+						content: [{ type: 'text' as const, text: 'no churn data available' }],
+						structuredContent: {
+							filters: {
+								path: path ?? null,
+								limit: effectiveLimit,
+								sinceDays: sinceDays ?? null,
+								since: since ?? null,
+							},
+							files: rows,
+						},
+					}
 				}
 				const lines = rows.map((r) => {
 					const date = new Date(r.lastTouchedAt).toISOString().slice(0, 10)
 					return `${String(r.commits).padStart(4)} commits  ${date}  ${r.topAuthor.padEnd(20)}  ${r.filePath}`
 				})
-				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+				return {
+					content: [{ type: 'text' as const, text: lines.join('\n') }],
+					structuredContent: {
+						filters: {
+							path: path ?? null,
+							limit: effectiveLimit,
+							sinceDays: sinceDays ?? null,
+							since: since ?? null,
+						},
+						files: rows,
+					},
+				}
 			}),
 	)
 
