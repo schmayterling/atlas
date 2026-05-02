@@ -864,36 +864,48 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_dead_code ---
-	server.tool(
+	server.registerTool(
 		'atlas_dead_code',
-		'find unreferenced symbols (potential dead code). pass callersWithin to instead list symbols whose only callers live under a path prefix (refactor-candidate query, see #86)',
 		{
-			path: z.string().optional().describe('filter by file path'),
-			kind: z
-				.enum([
-					'function',
-					'class',
-					'method',
-					'interface',
-					'type',
-					'variable',
-					'module',
-					'enum',
-					'property',
-				])
-				.optional()
-				.describe('filter by symbol kind'),
-			callersWithin: z
-				.string()
-				.optional()
-				.describe(
-					'switch to internal-only mode: return symbols with callers all within this prefix (refactor-candidate query)',
-				),
+			description:
+				'find unreferenced symbols (potential dead code). pass callersWithin to instead list symbols whose only callers live under a path prefix (refactor-candidate query, see #86)',
+			inputSchema: {
+				path: z.string().optional().describe('filter by file path'),
+				kind: z.enum(SYMBOL_KINDS).optional().describe('filter by symbol kind'),
+				callersWithin: z
+					.string()
+					.optional()
+					.describe(
+						'switch to internal-only mode: return symbols with callers all within this prefix (refactor-candidate query)',
+					),
+			},
+			outputSchema: {
+				mode: z.enum(['dead-code', 'internal-only']),
+				filters: z.object({
+					path: z.string().nullable(),
+					kind: z.union([z.enum(SYMBOL_KINDS), z.null()]),
+					callersWithin: z.string().nullable(),
+				}),
+				symbols: z.array(z.unknown()),
+				stats: z.unknown(),
+			},
 		},
 		({ path, kind, callersWithin }) =>
 			wrap(() => {
 				const result = engine.deadCode({ path, kind, callersWithin })
-				return { content: [{ type: 'text' as const, text: formatDeadCode(result) }] }
+				return {
+					content: [{ type: 'text' as const, text: formatDeadCode(result) }],
+					structuredContent: {
+						mode: callersWithin ? 'internal-only' : 'dead-code',
+						filters: {
+							path: path ?? null,
+							kind: kind ?? null,
+							callersWithin: callersWithin ?? null,
+						},
+						symbols: result.symbols,
+						stats: result.stats,
+					},
+				}
 			}),
 	)
 

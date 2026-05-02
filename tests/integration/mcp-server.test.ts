@@ -76,6 +76,7 @@ describe('mcp server tool registration', () => {
 		const callSites = tools.tools.find((t) => t.name === 'atlas_call_sites')
 		const blastRadius = tools.tools.find((t) => t.name === 'atlas_blast_radius')
 		const trace = tools.tools.find((t) => t.name === 'atlas_trace')
+		const deadCode = tools.tools.find((t) => t.name === 'atlas_dead_code')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		expect(status?.outputSchema).toMatchObject({
 			type: 'object',
@@ -156,6 +157,15 @@ describe('mcp server tool registration', () => {
 			properties: {
 				source: {},
 				edgeKinds: {},
+			},
+		})
+		expect(deadCode?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				mode: { type: 'string' },
+				filters: { type: 'object' },
+				symbols: { type: 'array' },
+				stats: {},
 			},
 		})
 		expect(hotspots?.outputSchema).toMatchObject({
@@ -424,6 +434,31 @@ describe('mcp server tool dispatch', () => {
 		expect(structured.summary.totalSymbols).toBeGreaterThanOrEqual(0)
 		expect(structured.summary.totalFiles).toBeGreaterThanOrEqual(0)
 		expect(structured.truncated).toBe(false)
+	})
+
+	test('atlas_dead_code returns structured filters and stats', async () => {
+		const result = await client.callTool({
+			name: 'atlas_dead_code',
+			arguments: { path: 'auth.ts', kind: 'method' },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toBeDefined()
+		const structured = result.structuredContent as {
+			mode: string
+			filters: { path: string | null; kind: string | null; callersWithin: string | null }
+			symbols: unknown[]
+			stats: { total: number; byKind: Record<string, number>; byFile: Record<string, number> }
+		}
+		expect(structured.mode).toBe('dead-code')
+		expect(structured.filters).toEqual({
+			path: 'auth.ts',
+			kind: 'method',
+			callersWithin: null,
+		})
+		expect(structured.stats.total).toBe(structured.symbols.length)
+		expect(structured.stats.byKind).toBeDefined()
+		expect(structured.stats.byFile).toBeDefined()
 	})
 
 	test('atlas_symbol_detail omits source by default and includes it on request', async () => {
