@@ -280,30 +280,65 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// literal text search across indexed source files. this is the tool for
 	// "how many files mention X as a substring" or "find TODOs / comments /
 	// magic strings". backed by ripgrep; always fixed-string (no regex).
-	server.tool(
+	server.registerTool(
 		'atlas_content_search',
-		"Search indexed source files for a literal text substring (TODOs, comments, magic strings, any text that isn't a symbol name). Fixed-string only. Returns matching file paths + line numbers + text snippets and aggregate counts. For symbol-name lookup use atlas_search.",
 		{
-			query: z.string().describe('literal substring (no regex)'),
-			pathPrefix: z.string().optional().describe('restrict search to files under this path prefix'),
-			language: z
-				.string()
-				.optional()
-				.describe('restrict to files of this language (e.g. "typescript", "rust")'),
-			maxMatches: z.number().optional().describe('cap total matches (default 200)'),
+			description:
+				"Search indexed source files for a literal text substring (TODOs, comments, magic strings, any text that isn't a symbol name). Fixed-string only. Returns matching file paths + line numbers + text snippets and aggregate counts. For symbol-name lookup use atlas_search.",
+			inputSchema: {
+				query: z.string().describe('literal substring (no regex)'),
+				pathPrefix: z
+					.string()
+					.optional()
+					.describe('restrict search to files under this path prefix'),
+				language: z
+					.string()
+					.optional()
+					.describe('restrict to files of this language (e.g. "typescript", "rust")'),
+				maxMatches: z.number().optional().describe('cap total matches (default 200)'),
+			},
+			outputSchema: {
+				query: z.string(),
+				pathPrefix: z.string().nullable(),
+				language: z.string().nullable(),
+				maxMatches: z.number().nullable(),
+				counts: z.object({
+					files: z.number(),
+					matches: z.number(),
+					returned: z.number(),
+				}),
+				matches: z.array(z.unknown()),
+				warning: z.string().nullable(),
+			},
 		},
 		({ query, pathPrefix, language, maxMatches }) =>
 			wrap(() => {
 				const result = engine.searchContent(query, { pathPrefix, language, maxMatches })
+				const returnedMatches = result.matches.slice(0, 80)
 				const lines: string[] = []
 				lines.push(`query: ${result.query}`)
 				lines.push(`files matched: ${result.fileCount} | total matches: ${result.matchCount}`)
 				if (result.warning) lines.push(`warning: ${result.warning}`)
-				for (const m of result.matches.slice(0, 80)) {
+				for (const m of returnedMatches) {
 					lines.push(`  ${m.file}:${m.line}  ${m.text}`)
 				}
 				if (result.matches.length > 80) lines.push(`  ... (+${result.matches.length - 80} more)`)
-				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+				return {
+					content: [{ type: 'text' as const, text: lines.join('\n') }],
+					structuredContent: {
+						query: result.query,
+						pathPrefix: pathPrefix ?? null,
+						language: language ?? null,
+						maxMatches: maxMatches ?? null,
+						counts: {
+							files: result.fileCount,
+							matches: result.matchCount,
+							returned: returnedMatches.length,
+						},
+						matches: returnedMatches,
+						warning: result.warning ?? null,
+					},
+				}
 			}),
 	)
 

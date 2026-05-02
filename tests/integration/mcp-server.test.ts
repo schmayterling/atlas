@@ -64,6 +64,7 @@ describe('mcp server tool registration', () => {
 		const tools = await client.listTools()
 		const status = tools.tools.find((t) => t.name === 'atlas_status')
 		const search = tools.tools.find((t) => t.name === 'atlas_search')
+		const contentSearch = tools.tools.find((t) => t.name === 'atlas_content_search')
 		const files = tools.tools.find((t) => t.name === 'atlas_files')
 		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
 		const symbolDetail = tools.tools.find((t) => t.name === 'atlas_symbol_detail')
@@ -81,6 +82,13 @@ describe('mcp server tool registration', () => {
 			properties: {
 				query: { type: 'string' },
 				results: { type: 'array' },
+			},
+		})
+		expect(contentSearch?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				counts: { type: 'object' },
+				matches: { type: 'array' },
 			},
 		})
 		expect(files?.outputSchema).toMatchObject({
@@ -221,6 +229,26 @@ describe('mcp server tool dispatch', () => {
 		expect(structured.query).toBe('AuthService')
 		expect(structured.total).toBeGreaterThan(0)
 		expect(structured.results.some((s) => s.name === 'AuthService')).toBe(true)
+	})
+
+	test('atlas_content_search returns structured counts and matches', async () => {
+		const result = await client.callTool({
+			name: 'atlas_content_search',
+			arguments: { query: 'createAuthService', maxMatches: 5 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('files matched:')
+		const structured = result.structuredContent as {
+			query: string
+			counts: { files: number; matches: number; returned: number }
+			matches: { file: string; line: number; text: string }[]
+		}
+		expect(structured.query).toBe('createAuthService')
+		expect(structured.counts.files).toBeGreaterThan(0)
+		expect(structured.counts.matches).toBeGreaterThan(0)
+		expect(structured.counts.returned).toBe(structured.matches.length)
+		expect(structured.matches.some((m) => m.file === 'auth.ts')).toBe(true)
 	})
 
 	test('multiple sequential tool calls succeed (regression: stateless transport reuse)', async () => {
