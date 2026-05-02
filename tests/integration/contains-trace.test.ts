@@ -5,13 +5,10 @@ import { join } from 'node:path'
 import '../helpers/setup.js'
 import { AtlasEngine } from '../../src/core/engine.js'
 
-// flow-trace's default edge set now includes `contains` so a path like
-// factory -instantiates-> Class -contains-> .method resolves end-to-end.
-// these tests pin both the success case (direct `new Foo()` factory)
-// and the limitation surfaced in codex review: a helper-returning
-// factory (`return _make(Class)` where _make does the `new`) still does
-// NOT resolve, because the ts-resolver bails on instantiates when `new`
-// targets a type parameter rather than a concrete class declaration.
+// flow-trace retries with structural edges when the cheap execution
+// pass finds no path, so a path like factory -instantiates-> Class
+// -contains-> .method still resolves end-to-end. these tests pin both
+// the success case and the documented blind-factory limitation.
 
 let projectRoot: string
 let engine: AtlasEngine
@@ -56,11 +53,11 @@ export function makeWidget(): Widget {
 
 		const result = engine.trace('makeWidget', 'greet')
 		expect(result).not.toBeNull()
-		expect(result!.paths.length).toBeGreaterThan(0)
+		expect(result?.paths.length).toBeGreaterThan(0)
 
 		// the load-bearing assertion: at least one path uses the
-		// instantiates -> contains hop sequence we just enabled.
-		const hasInstantiatesContains = result!.paths.some((p) => {
+		// fallback instantiates -> contains hop sequence.
+		const hasInstantiatesContains = result?.paths.some((p) => {
 			const kinds = p.edges.map((e) => e.kind)
 			const i = kinds.indexOf('instantiates')
 			return i >= 0 && kinds[i + 1] === 'contains'
@@ -113,9 +110,9 @@ export function makeWidget(): Widget {
 
 		const result = engine.trace('makeWidget', 'greet')
 		expect(result).not.toBeNull()
-		expect(result!.paths.length).toBeGreaterThan(0)
+		expect(result?.paths.length).toBeGreaterThan(0)
 
-		const hasTypeRefContains = result!.paths.some((p) => {
+		const hasTypeRefContains = result?.paths.some((p) => {
 			const kinds = p.edges.map((e) => e.kind)
 			const i = kinds.indexOf('type_ref')
 			return i >= 0 && kinds[i + 1] === 'contains'
@@ -166,7 +163,7 @@ export function makeWidgetBlind() {
 
 		const result = engine.trace('makeWidgetBlind', 'greet')
 		expect(result).not.toBeNull()
-		expect(result!.paths.length).toBe(0)
+		expect(result?.paths.length).toBe(0)
 	})
 
 	test('--edge-kinds override disables contains traversal', async () => {
@@ -203,6 +200,6 @@ export function makeWidget(): Widget {
 			edgeKinds: ['calls', 'instantiates'],
 		})
 		expect(result).not.toBeNull()
-		expect(result!.paths.length).toBe(0)
+		expect(result?.paths.length).toBe(0)
 	})
 })

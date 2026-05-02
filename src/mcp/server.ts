@@ -1,21 +1,45 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { AtlasEngine } from '../core/engine.js'
 import { getOrCreateEngine } from '../core/engine-pool.js'
+import type { AtlasEngine } from '../core/engine.js'
 import { log } from '../shared/logger.js'
+import { EDGE_KINDS, type EdgeKind } from '../shared/types.js'
 import {
 	formatBlast,
 	formatCallSites,
 	formatDeadCode,
 	formatDeps,
+	formatHotspots,
 	formatOverview,
 	formatSearch,
 	formatStatus,
 	formatTrace,
 } from './formatters.js'
 
-type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
+type ToolResult = {
+	content: { type: 'text'; text: string }[]
+	structuredContent?: Record<string, unknown>
+	isError?: boolean
+}
+
+const FAST_TRACE_EDGE_KINDS: EdgeKind[] = ['calls', 'passed_as', 'dispatches_to', 'instantiates']
+const FULL_TRACE_EDGE_KINDS: EdgeKind[] = [...EDGE_KINDS]
+
+function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
+	if (value === undefined || !Number.isFinite(value)) return fallback
+	return Math.min(Math.max(Math.trunc(value), min), max)
+}
+
+function traceEdgeKinds(
+	preset: 'fast' | 'full' | undefined,
+	edgeKinds: EdgeKind[] | undefined,
+): EdgeKind[] | undefined {
+	if (edgeKinds && edgeKinds.length > 0) return edgeKinds
+	if (preset === 'fast') return FAST_TRACE_EDGE_KINDS
+	if (preset === 'full') return FULL_TRACE_EDGE_KINDS
+	return undefined
+}
 
 // detect whether the index's recorded git commit matches the project's
 // current HEAD. returns a machine-readable prefix that agents can parse
@@ -103,11 +127,12 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				'  - "find symbol by name" → atlas_search (exact/fuzzy name match; NOT content search)\n' +
 				'  - "where does the parser handle errors" (intent, no exact name) → atlas_semantic_search (needs Ollama)\n' +
 				'  - "how many files mention pcre2 / TODO / some string" → atlas_content_search (literal text, fixed-string)\n' +
-				'  - "show me the source of X" → atlas_symbol_detail (metadata + direct deps + source body)\n' +
-				'  - "what depends on X / what does X call" → atlas_deps, atlas_call_sites, atlas_trace\n' +
+				'  - "show me metadata for X" → atlas_symbol_detail; pass includeSource=true only when source is needed\n' +
+				'  - "what depends on X / what does X call" → atlas_deps, atlas_call_sites, atlas_trace (preset=fast for low-latency traces, preset=full for structural traces)\n' +
 				'  - "impact of changing X" → atlas_blast_radius\n' +
 				'  - "which tests exercise X" → atlas_test_coverage\n' +
 				'  - "is this symbol used" → atlas_dead_code\n' +
+				'  - "which symbols are risky" → atlas_hotspots (fanin * churn * coverage)\n' +
 				'  - "which files are risky" → atlas_hot_fragile (churn × untested-symbol count)\n' +
 				'always call atlas_status first to check if the index is fresh.',
 		},
@@ -135,7 +160,11 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		'atlas_search',
 		'Find symbols (functions, classes, types, variables) by exact or fuzzy name match. Only matches identifiers; for content/comment/substring search use atlas_content_search. For rich context on one known symbol use atlas_overview.',
 		{
-			query: z.string().describe('symbol identifier (e.g. "safeParse", "ZodObject"). NOT a file-content substring'),
+			query: z
+				.string()
+				.describe(
+					'symbol identifier (e.g. "safeParse", "ZodObject"). NOT a file-content substring',
+				),
 			kind: z
 				.enum([
 					'function',
@@ -166,7 +195,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// or arbitrary substrings; for content search use atlas_content_search.
 	server.tool(
 		'atlas_semantic_search',
-		'Find symbols by meaning when you don\'t know an exact name. Uses embedding similarity. Does NOT search comments or substrings; use atlas_content_search for that. Requires Ollama with nomic-embed-text.',
+		"Find symbols by meaning when you don't know an exact name. Uses embedding similarity. Does NOT search comments or substrings; use atlas_content_search for that. Requires Ollama with nomic-embed-text.",
 		{
 			query: z.string().describe('natural-language intent (e.g. "parser error handling")'),
 			limit: z.number().optional().describe('max results (default 10)'),
@@ -201,11 +230,14 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// magic strings". backed by ripgrep; always fixed-string (no regex).
 	server.tool(
 		'atlas_content_search',
-		'Search indexed source files for a literal text substring (TODOs, comments, magic strings, any text that isn\'t a symbol name). Fixed-string only. Returns matching file paths + line numbers + text snippets and aggregate counts. For symbol-name lookup use atlas_search.',
+		"Search indexed source files for a literal text substring (TODOs, comments, magic strings, any text that isn't a symbol name). Fixed-string only. Returns matching file paths + line numbers + text snippets and aggregate counts. For symbol-name lookup use atlas_search.",
 		{
 			query: z.string().describe('literal substring (no regex)'),
 			pathPrefix: z.string().optional().describe('restrict search to files under this path prefix'),
-			language: z.string().optional().describe('restrict to files of this language (e.g. "typescript", "rust")'),
+			language: z
+				.string()
+				.optional()
+				.describe('restrict to files of this language (e.g. "typescript", "rust")'),
 			maxMatches: z.number().optional().describe('cap total matches (default 200)'),
 		},
 		({ query, pathPrefix, language, maxMatches }) =>
@@ -229,11 +261,19 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// "read" a symbol's code in one call rather than atlas_search + read_file.
 	server.tool(
 		'atlas_symbol_detail',
-		'Read a symbol\'s full source body + metadata + direct deps + LLM summary (if indexed with summaries). Use when you need to see the actual code, not just find where a symbol is.',
+		'Read compact symbol metadata, relationship counts, optional cached LLM summary, and optionally source. Defaults to metadata only; pass includeSource=true when code is needed.',
 		{
 			symbol: z.string().describe('symbol name or file::name reference'),
+			includeSource: z
+				.boolean()
+				.optional()
+				.describe('include source body (default false to save tokens)'),
+			maxSourceChars: z
+				.number()
+				.optional()
+				.describe('max source chars when includeSource=true (default 12000, max 50000)'),
 		},
-		({ symbol }) =>
+		({ symbol, includeSource, maxSourceChars }) =>
 			wrap(async () => {
 				const result = await engine.symbolDetail(symbol)
 				if (!result) {
@@ -243,6 +283,12 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					}
 				}
 				const s = result.symbol
+				const sourceCap = clampInt(maxSourceChars, 12_000, 200, 50_000)
+				const source = result.sourceCode ?? '(source unavailable)'
+				const sourceTruncated = includeSource === true && source.length > sourceCap
+				const sourceText = sourceTruncated
+					? `${source.slice(0, sourceCap)}\n[truncated at ${sourceCap} chars]`
+					: source
 				const lines = [
 					`${s.kind} ${s.name}  (${s.qualifiedName})`,
 					`  ${s.filePath}:${s.lineStart}-${s.lineEnd}`,
@@ -250,11 +296,20 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					s.docComment ? `  doc: ${s.docComment.slice(0, 200)}` : '',
 					result.summary ? `  summary: ${result.summary}` : '',
 					`  upstream=${result.upstream.length} downstream=${result.downstream.length}`,
-					'',
-					'--- source ---',
-					result.sourceCode ?? '(source unavailable)',
+					includeSource === true ? '' : '  source: omitted (pass includeSource=true)',
+					includeSource === true ? '--- source ---' : '',
+					includeSource === true ? sourceText : '',
 				].filter(Boolean)
-				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+				return {
+					content: [{ type: 'text' as const, text: lines.join('\n') }],
+					structuredContent: {
+						symbol: s,
+						upstreamCount: result.upstream.length,
+						downstreamCount: result.downstream.length,
+						sourceIncluded: includeSource === true,
+						sourceTruncated,
+					},
+				}
 			}),
 	)
 
@@ -345,7 +400,16 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				.optional()
 				.describe('inbound=who calls this, outbound=what this calls (default inbound)'),
 			kind: z
-				.enum(['calls', 'contains', 'extends', 'type_ref', 'passed_as', 'dispatches_to', 'instantiates', 'field_access'])
+				.enum([
+					'calls',
+					'contains',
+					'extends',
+					'type_ref',
+					'passed_as',
+					'dispatches_to',
+					'instantiates',
+					'field_access',
+				])
 				.optional()
 				.describe('filter by edge kind'),
 			limit: z.number().optional().describe('max entries returned (default 50)'),
@@ -389,16 +453,29 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// --- atlas_trace ---
 	server.tool(
 		'atlas_trace',
-		'find execution paths between two symbols (how does code flow from A to B)',
+		'find execution paths between two symbols. use preset=fast for low-latency call-flow tracing; use preset=full or explicit edgeKinds when structural contains/type edges are required.',
 		{
 			from: z.string().describe('source symbol name'),
 			to: z.string().describe('target symbol name'),
 			maxPaths: z.number().optional().describe('max paths to return (default 5)'),
 			maxDepth: z.number().optional().describe('max path depth (default 10)'),
+			preset: z
+				.enum(['fast', 'full'])
+				.optional()
+				.describe('fast excludes high-fanout structural edges; full uses the engine default'),
+			edgeKinds: z
+				.array(z.enum(EDGE_KINDS))
+				.optional()
+				.describe('exact edge kinds to traverse; overrides preset when provided'),
 		},
-		({ from, to, maxPaths, maxDepth }) =>
+		({ from, to, maxPaths, maxDepth, preset, edgeKinds }) =>
 			wrap(() => {
-				const result = engine.trace(from, to, { maxPaths, maxDepth })
+				const resolvedEdgeKinds = traceEdgeKinds(preset, edgeKinds)
+				const result = engine.trace(from, to, {
+					maxPaths,
+					maxDepth,
+					edgeKinds: resolvedEdgeKinds,
+				})
 				if (!result)
 					return {
 						content: [
@@ -409,7 +486,16 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						],
 						isError: true,
 					}
-				return { content: [{ type: 'text' as const, text: formatTrace(result) }] }
+				return {
+					content: [{ type: 'text' as const, text: formatTrace(result) }],
+					structuredContent: {
+						source: result.source,
+						target: result.target,
+						stats: result.stats,
+						edgeKinds: resolvedEdgeKinds ?? 'auto',
+						preset: preset ?? 'auto',
+					},
+				}
 			}),
 	)
 
@@ -511,8 +597,9 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				parts.push(`\nfiles (${detail.files.length}):`)
 				for (const f of detail.files) parts.push(`  ${f.path}`)
 				if (detail.topSymbols.length > 0) {
-					parts.push(`\ntop exported symbols:`)
-					for (const s of detail.topSymbols) parts.push(`  ${s.kind.padEnd(10)} ${s.name}  (${s.filePath})`)
+					parts.push('\ntop exported symbols:')
+					for (const s of detail.topSymbols)
+						parts.push(`  ${s.kind.padEnd(10)} ${s.name}  (${s.filePath})`)
 				}
 				return { content: [{ type: 'text' as const, text: parts.join('\n') }] }
 			}),
@@ -525,10 +612,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		{
 			path: z.string().optional().describe('only files starting with this path prefix'),
 			limit: z.number().optional().describe('max files to return (default 20)'),
-			sinceDays: z
-				.number()
-				.optional()
-				.describe('only count commits from the last N days'),
+			sinceDays: z.number().optional().describe('only count commits from the last N days'),
 		},
 		({ path, limit, sinceDays }) =>
 			wrap(() => {
@@ -556,7 +640,10 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			wrap(() => {
 				const result = engine.testCoverage(symbol)
 				if (!result) {
-					return { content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }], isError: true }
+					return {
+						content: [{ type: 'text' as const, text: `symbol not found: ${symbol}` }],
+						isError: true,
+					}
 				}
 				if (result.tests.length === 0) {
 					return {
@@ -578,6 +665,27 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			}),
 	)
 
+	// --- atlas_hotspots ---
+	server.tool(
+		'atlas_hotspots',
+		'rank exported symbols by fanin * churn * test coverage. use this before reading files to pick the highest-risk symbols.',
+		{
+			limit: z.number().optional().describe('max symbols to return (default 20)'),
+			coverage: z
+				.enum(['called', 'imported', 'none'])
+				.optional()
+				.describe('filter by coverage level'),
+		},
+		({ limit, coverage }) =>
+			wrap(() => {
+				const rows = engine.hotspots({ limit: limit ?? 20, coverage })
+				return {
+					content: [{ type: 'text' as const, text: formatHotspots(rows) }],
+					structuredContent: { rows },
+				}
+			}),
+	)
+
 	// --- atlas_hot_fragile ---
 	server.tool(
 		'atlas_hot_fragile',
@@ -589,7 +697,14 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 			wrap(() => {
 				const rows = engine.hotFragile({ limit: limit ?? 20 })
 				if (rows.length === 0) {
-					return { content: [{ type: 'text' as const, text: 'no hot-fragile files (need git history + test_links)' }] }
+					return {
+						content: [
+							{
+								type: 'text' as const,
+								text: 'no hot-fragile files (need git history + test_links)',
+							},
+						],
+					}
 				}
 				const lines = rows.map((r) => {
 					// render from the explicit score fields (#43) — no ad hoc
@@ -618,7 +733,9 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				const groups = engine.listChannels(actualKind)
 				if (groups.length === 0) {
 					return {
-						content: [{ type: 'text' as const, text: `no ${actualKind} groups. run atlas index first.` }],
+						content: [
+							{ type: 'text' as const, text: `no ${actualKind} groups. run atlas index first.` },
+						],
 					}
 				}
 				const lines = groups.map(
@@ -626,7 +743,10 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				)
 				return {
 					content: [
-						{ type: 'text' as const, text: `${actualKind} groups (${groups.length}):\n${lines.join('\n')}` },
+						{
+							type: 'text' as const,
+							text: `${actualKind} groups (${groups.length}):\n${lines.join('\n')}`,
+						},
 					],
 				}
 			}),
@@ -650,9 +770,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				}
 				const lines = [
 					`${kind}:${value} (${result.symbols.length} symbols)`,
-					...result.symbols.map(
-						(s) => `  ${s.name.padEnd(30)}  ${s.filePath}:${s.lineStart}`,
-					),
+					...result.symbols.map((s) => `  ${s.name.padEnd(30)}  ${s.filePath}:${s.lineStart}`),
 				]
 				// metadata (#70): queue pub/sub direction, graphql kind,
 				// openapi schemaPath. skip the whole block when every row
@@ -663,11 +781,11 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					for (const h of result.hits) {
 						const pieces = h.metadata
 							? Object.entries(h.metadata)
-								.filter(([, v]) => v !== null && v !== undefined)
-								.map(([k, v]) => `${k}=${String(v)}`)
-								.join(' ')
+									.filter(([, v]) => v !== null && v !== undefined)
+									.map(([k, v]) => `${k}=${String(v)}`)
+									.join(' ')
 							: ''
-						lines.push(`  ${h.filePath}:${h.line}${pieces ? '  ' + pieces : ''}`)
+						lines.push(`  ${h.filePath}:${h.line}${pieces ? `  ${pieces}` : ''}`)
 					}
 				}
 				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }

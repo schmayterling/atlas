@@ -31,6 +31,7 @@ describe('mcp server tool registration', () => {
 		expect(names).toContain('atlas_subsystems')
 		expect(names).toContain('atlas_subsystem')
 		expect(names).toContain('atlas_test_coverage')
+		expect(names).toContain('atlas_hotspots')
 		expect(names).toContain('atlas_hot_fragile')
 		expect(names).toContain('atlas_channels_list')
 		expect(names).toContain('atlas_channels_show')
@@ -46,8 +47,10 @@ describe('mcp server tool registration', () => {
 		// formatter side instead by listing tools and confirming descriptions
 		const tools = await client.listTools()
 		const testCov = tools.tools.find((t) => t.name === 'atlas_test_coverage')
+		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		const hotFragile = tools.tools.find((t) => t.name === 'atlas_hot_fragile')
 		expect(testCov?.description).toBeTruthy()
+		expect(hotspots?.description).toBeTruthy()
 		expect(hotFragile?.description).toBeTruthy()
 	})
 })
@@ -81,6 +84,17 @@ describe('mcp server tier-4 tools', () => {
 	test('atlas_hot_fragile returns text content (empty-state ok)', async () => {
 		const result = await client.callTool({
 			name: 'atlas_hot_fragile',
+			arguments: { limit: 5 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].type).toBe('text')
+		expect(content[0].text).toBeDefined()
+	})
+
+	test('atlas_hotspots returns text content (empty-state ok)', async () => {
+		const result = await client.callTool({
+			name: 'atlas_hotspots',
 			arguments: { limit: 5 },
 		})
 		expect(result.isError).toBeFalsy()
@@ -180,6 +194,51 @@ describe('mcp server tool dispatch', () => {
 		const content = result.content as { type: string; text: string }[]
 		const text = content[0].text
 		expect(text).toMatch(/(no callers of|call site)/)
+	})
+
+	test('atlas_symbol_detail omits source by default and includes it on request', async () => {
+		const compact = await client.callTool({
+			name: 'atlas_symbol_detail',
+			arguments: { symbol: 'AuthService' },
+		})
+		expect(compact.isError).toBeFalsy()
+		const compactContent = compact.content as { type: string; text: string }[]
+		expect(compactContent[0].text).toContain('source: omitted')
+		expect(compactContent[0].text).not.toContain('export class AuthService')
+		expect(compact.structuredContent).toMatchObject({ sourceIncluded: false })
+
+		const withSource = await client.callTool({
+			name: 'atlas_symbol_detail',
+			arguments: { symbol: 'AuthService', includeSource: true },
+		})
+		expect(withSource.isError).toBeFalsy()
+		const sourceContent = withSource.content as { type: string; text: string }[]
+		expect(sourceContent[0].text).toContain('--- source ---')
+		expect(sourceContent[0].text).toContain('export class AuthService')
+		expect(withSource.structuredContent).toMatchObject({ sourceIncluded: true })
+	})
+
+	test('atlas_trace accepts fast preset and exposes edge kinds in structured content', async () => {
+		const result = await client.callTool({
+			name: 'atlas_trace',
+			arguments: { from: 'loginRoute', to: 'login', preset: 'fast', maxPaths: 3 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('loginRoute')
+		expect(result.structuredContent).toMatchObject({ preset: 'fast' })
+		const edgeKinds = (result.structuredContent as { edgeKinds: string[] }).edgeKinds
+		expect(edgeKinds).toContain('calls')
+		expect(edgeKinds).not.toContain('contains')
+
+		const full = await client.callTool({
+			name: 'atlas_trace',
+			arguments: { from: 'loginRoute', to: 'login', preset: 'full', maxPaths: 3 },
+		})
+		expect(full.isError).toBeFalsy()
+		expect(full.structuredContent).toMatchObject({ preset: 'full' })
+		const fullEdgeKinds = (full.structuredContent as { edgeKinds: string[] }).edgeKinds
+		expect(fullEdgeKinds).toContain('contains')
 	})
 
 	test('atlas_call_sites returns symbol-not-found for an unknown symbol', async () => {

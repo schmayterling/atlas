@@ -1,8 +1,26 @@
 import type { MultiDirectedGraph } from 'graphology'
-import type { EdgeKind, FlowPath, FlowTraceResult, SubgraphBudget, SymbolResult } from '../../shared/types.js'
+import type {
+	EdgeKind,
+	FlowPath,
+	FlowTraceResult,
+	SubgraphBudget,
+	SymbolResult,
+} from '../../shared/types.js'
 import type { GraphEdge } from '../graph/graph-index.js'
 import { loadSubgraph } from '../graph/graph-index.js'
 import type { AtlasStore } from '../storage/store.js'
+
+const FAST_TRACE_EDGE_KINDS: EdgeKind[] = ['calls', 'passed_as', 'dispatches_to', 'instantiates']
+const FULL_TRACE_EDGE_KINDS: EdgeKind[] = [
+	'calls',
+	'type_ref',
+	'extends',
+	'passed_as',
+	'dispatches_to',
+	'instantiates',
+	'field_access',
+	'contains',
+]
 
 // TRAVERSAL surface. test files are NOT filtered. tracing a flow between
 // two named symbols may legitimately walk through test scaffolding when the
@@ -15,20 +33,50 @@ export function traceFlow(
 ): FlowTraceResult {
 	const maxPaths = opts?.maxPaths ?? 5
 	const maxDepth = opts?.maxDepth ?? 10
-	// default set includes passed_as so trace surfaces middleware /
-	// handler registration chains, dispatches_to so go interface
-	// dispatch is a reachable hop, instantiates so traces can path
-	// through `new ClassName()` boundaries, field_access so structural
-	// property reads land as a reachable step, and contains so factory
-	// patterns (factory -instantiates-> Class -contains-> .method)
-	// resolve as a single trace path. without contains, atlas_trace
-	// returned 0 paths from `string()` to `ZodString.parse` because the
-	// class→member hop was excluded from traversal. see #49, #50, #85,
-	// #87, BENCHMARK.md §5.1 call-tracing weakness.
-	const edgeKinds =
-		opts?.edgeKinds ??
-		(['calls', 'type_ref', 'extends', 'passed_as', 'dispatches_to', 'instantiates', 'field_access', 'contains'] as EdgeKind[])
+	if (opts?.edgeKinds) {
+		return traceFlowWithEdgeKinds(
+			store,
+			sourceStableId,
+			targetStableId,
+			maxPaths,
+			maxDepth,
+			opts.edgeKinds,
+		)
+	}
 
+	// cheap execution edges cover calls, function references passed into
+	// registrars, go interface dispatch, and constructor boundaries. if
+	// that pass finds no path, retry with structural type/property/class
+	// edges so factory patterns still resolve. see #49, #50, #85, #87,
+	// and BENCHMARK.md section 5.1 call-tracing weakness.
+	const fast = traceFlowWithEdgeKinds(
+		store,
+		sourceStableId,
+		targetStableId,
+		maxPaths,
+		maxDepth,
+		FAST_TRACE_EDGE_KINDS,
+	)
+	if (fast.paths.length > 0) return fast
+
+	return traceFlowWithEdgeKinds(
+		store,
+		sourceStableId,
+		targetStableId,
+		maxPaths,
+		maxDepth,
+		FULL_TRACE_EDGE_KINDS,
+	)
+}
+
+function traceFlowWithEdgeKinds(
+	store: AtlasStore,
+	sourceStableId: string,
+	targetStableId: string,
+	maxPaths: number,
+	maxDepth: number,
+	edgeKinds: EdgeKind[],
+): FlowTraceResult {
 	const sourceSym = store.getSymbolByStableId(sourceStableId)
 	const targetSym = store.getSymbolByStableId(targetStableId)
 
@@ -58,23 +106,20 @@ export function traceFlow(
 		}
 	}
 
-	// collect all paths first, then batch-resolve symbols. the path
-	// enumeration itself has a wall-clock budget independent of the
-	// subgraph load budget — DFS over a graph that includes `contains`
-	// can fan out heavily on classes with many members, and a query that
-	// happens to find no path can otherwise burn CPU exhausting the
-	// search space. cap at 2s by default; the load already budgeted 5s.
+	// collect paths first, then batch-resolve symbols. the path
+	// enumeration has a wall-clock budget independent of the subgraph
+	// load budget. use bounded shortest-path search instead of dfs so
+	// high-fanout `contains` edges do not force atlas to enumerate deep
+	// unrelated paths before returning the nearest useful trace.
 	const pathSearchDeadline = performance.now() + 2000
-	const rawPaths: string[][] = []
-	let truncatedByTimeout = false
-	for (const nodePath of findAllSimplePaths(graph, sourceStableId, targetStableId, maxDepth, pathSearchDeadline)) {
-		if (rawPaths.length >= maxPaths) break
-		if (performance.now() > pathSearchDeadline) {
-			truncatedByTimeout = true
-			break
-		}
-		rawPaths.push(nodePath)
-	}
+	const { paths: rawPaths, truncated: truncatedBySearch } = findShortestSimplePaths(
+		graph,
+		sourceStableId,
+		targetStableId,
+		maxDepth,
+		pathSearchDeadline,
+		maxPaths,
+	)
 
 	// batch-fetch all unique node symbols
 	const allNodeIds = [...new Set(rawPaths.flat())]
@@ -133,46 +178,54 @@ export function traceFlow(
 			// here; the deadline case is also worth surfacing in CLI output
 			// so a query that returns 0 paths under timeout doesn't look
 			// indistinguishable from a query that found zero genuine paths.
-			truncated: paths.length >= maxPaths || truncatedByTimeout,
+			truncated: paths.length >= maxPaths || truncatedBySearch,
 		},
 	}
 }
 
-// DFS-based all-simple-paths generator, cycle-safe via visited
-// backtracking. checks the deadline at each branch so a high-fanout
-// graph (notably one that includes `contains` so classes expand to
-// every member) can't burn unbounded CPU on a search that has already
-// run past its budget.
-function* findAllSimplePaths(
+// breadth-first simple-path search returns nearest paths first and
+// stops as soon as the caller's maxPaths budget is satisfied. the queue
+// cap is a second guard for dense graphs where no path exists.
+function findShortestSimplePaths(
 	graph: MultiDirectedGraph,
 	source: string,
 	target: string,
 	maxDepth: number,
 	deadline: number,
-): Generator<string[]> {
-	const visited = new Set<string>()
-	const path: string[] = [source]
+	maxPaths: number,
+): { paths: string[][]; truncated: boolean } {
+	const paths: string[][] = []
+	const queue: string[][] = [[source]]
+	let index = 0
+	let truncated = false
+	const maxQueuedPaths = 50_000
 
-	function* dfs(current: string, depth: number): Generator<string[]> {
-		if (performance.now() > deadline) return
+	while (index < queue.length) {
+		if (performance.now() > deadline) return { paths, truncated: true }
+		const path = queue[index++]
+		const current = path[path.length - 1]
 		if (current === target) {
-			yield [...path]
-			return
+			paths.push(path)
+			if (paths.length >= maxPaths) {
+				truncated = true
+				break
+			}
+			continue
 		}
-		if (depth >= maxDepth) return
+		if (path.length - 1 >= maxDepth) continue
 
-		visited.add(current)
 		for (const neighbor of graph.outNeighbors(current)) {
-			if (!visited.has(neighbor)) {
-				path.push(neighbor)
-				yield* dfs(neighbor, depth + 1)
-				path.pop()
+			if (path.includes(neighbor)) continue
+			queue.push([...path, neighbor])
+			if (queue.length - index > maxQueuedPaths) {
+				truncated = true
+				break
 			}
 		}
-		visited.delete(current)
+		if (truncated) break
 	}
 
-	yield* dfs(source, 0)
+	return { paths, truncated }
 }
 
 function makeEmptySymbol(id: string): SymbolResult {

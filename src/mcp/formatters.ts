@@ -1,3 +1,4 @@
+import type { HotspotEntry } from '../core/queries/hotspots.js'
 import type {
 	BlastRadiusResult,
 	CallSite,
@@ -39,13 +40,17 @@ export function formatDeps(r: DependencyResult): string {
 	if (r.upstream.length > 0) {
 		lines.push('', 'depended on by:')
 		for (const dep of r.upstream) {
-			lines.push(`  ${dep.symbol.kind} ${dep.symbol.name}  ${dep.symbol.filePath}:${dep.symbol.lineStart}  [${dep.edgeKind}]`)
+			lines.push(
+				`  ${dep.symbol.kind} ${dep.symbol.name}  ${dep.symbol.filePath}:${dep.symbol.lineStart}  [${dep.edgeKind}]`,
+			)
 		}
 	}
 	if (r.downstream.length > 0) {
 		lines.push('', 'depends on:')
 		for (const dep of r.downstream) {
-			lines.push(`  ${dep.symbol.kind} ${dep.symbol.name}  ${dep.symbol.filePath}:${dep.symbol.lineStart}  [${dep.edgeKind}]`)
+			lines.push(
+				`  ${dep.symbol.kind} ${dep.symbol.name}  ${dep.symbol.filePath}:${dep.symbol.lineStart}  [${dep.edgeKind}]`,
+			)
 		}
 	}
 	lines.push('', `${r.stats.totalNodes} nodes, ${r.stats.totalEdges} edges`)
@@ -57,13 +62,17 @@ export function formatBlast(r: BlastRadiusResult): string {
 	if (r.direct.length > 0) {
 		lines.push('', `direct (${r.direct.length}):`)
 		for (const item of r.direct) {
-			lines.push(`  ${item.symbol.kind} ${item.symbol.name}  ${item.symbol.filePath}:${item.symbol.lineStart}  [${item.relationship}]`)
+			lines.push(
+				`  ${item.symbol.kind} ${item.symbol.name}  ${item.symbol.filePath}:${item.symbol.lineStart}  [${item.relationship}]`,
+			)
 		}
 	}
 	if (r.transitive.length > 0) {
 		lines.push('', `transitive (${r.transitive.length}):`)
 		for (const item of r.transitive.slice(0, 20)) {
-			lines.push(`  ${item.symbol.kind} ${item.symbol.name}  ${item.symbol.filePath}:${item.symbol.lineStart}  depth ${item.depth}`)
+			lines.push(
+				`  ${item.symbol.kind} ${item.symbol.name}  ${item.symbol.filePath}:${item.symbol.lineStart}  depth ${item.depth}`,
+			)
 		}
 		if (r.transitive.length > 20) lines.push(`  ...and ${r.transitive.length - 20} more`)
 	}
@@ -84,6 +93,17 @@ export function formatTrace(r: FlowTraceResult): string {
 			const prefix = j === 0 ? '  ' : '  -> '
 			lines.push(`${prefix}${node.name} (${node.filePath}:${node.lineStart})`)
 		}
+	}
+	return lines.join('\n')
+}
+
+export function formatHotspots(rows: HotspotEntry[]): string {
+	if (rows.length === 0) return 'no hotspots found. run `atlas index` first.'
+	const lines = ['score  fanin  commits  coverage  symbol']
+	for (const r of rows) {
+		lines.push(
+			`${String(Math.round(r.score)).padStart(5)}  ${String(r.fanin).padStart(5)}  ${String(r.commits).padStart(7)}  ${r.coverage.padEnd(8)}  ${r.name}  ${r.filePath}:${r.lineStart}`,
+		)
 	}
 	return lines.join('\n')
 }
@@ -116,7 +136,9 @@ export function formatOverview(r: SymbolOverview): string {
 		lines.push('  (none)')
 	} else {
 		for (const n of r.upstream) {
-			lines.push(`  ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  [${n.edgeKind}]`)
+			lines.push(
+				`  ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  [${n.edgeKind}]`,
+			)
 		}
 	}
 
@@ -125,23 +147,32 @@ export function formatOverview(r: SymbolOverview): string {
 		lines.push('  (none)')
 	} else {
 		for (const n of r.downstream) {
-			lines.push(`  ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  [${n.edgeKind}]`)
+			lines.push(
+				`  ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  [${n.edgeKind}]`,
+			)
 		}
 	}
 
-	lines.push('', `blast radius: ${r.blastRadius.total} affected symbol${r.blastRadius.total === 1 ? '' : 's'}`)
+	lines.push(
+		'',
+		`blast radius: ${r.blastRadius.total} affected symbol${r.blastRadius.total === 1 ? '' : 's'}`,
+	)
 	if (r.blastRadius.sample.length > 0 && r.blastRadius.total > r.downstream.length) {
 		lines.push(`  sample (first ${r.blastRadius.sample.length}):`)
 		for (const n of r.blastRadius.sample) {
-			lines.push(`    ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  depth=${n.depth}`)
+			lines.push(
+				`    ${n.symbol.kind.padEnd(9)} ${n.symbol.name}  ${n.symbol.filePath}:${n.symbol.lineStart}  depth=${n.depth}`,
+			)
 		}
 	}
 
-	lines.push('', `test coverage:`)
+	lines.push('', 'test coverage:')
 	if (!r.testCoverage || r.testCoverage.tests.length === 0) {
 		lines.push('  (no tests)')
 	} else {
-		lines.push(`  covered by ${r.testCoverage.tests.length} test file${r.testCoverage.tests.length === 1 ? '' : 's'} (${r.testCoverage.coveredBy}):`)
+		lines.push(
+			`  covered by ${r.testCoverage.tests.length} test file${r.testCoverage.tests.length === 1 ? '' : 's'} (${r.testCoverage.coveredBy}):`,
+		)
 		for (const t of r.testCoverage.tests) {
 			lines.push(`    ${t.confidence.padEnd(8)} ${t.testFilePath}`)
 		}
@@ -164,9 +195,10 @@ export function formatCallSites(
 		const verb = direction === 'inbound' ? 'callers of' : 'callees of'
 		return `no ${verb} ${target}`
 	}
-	const header = direction === 'inbound'
-		? `${sites.length} call site${sites.length === 1 ? '' : 's'} calling ${target}:`
-		: `${sites.length} call site${sites.length === 1 ? '' : 's'} called from ${target}:`
+	const header =
+		direction === 'inbound'
+			? `${sites.length} call site${sites.length === 1 ? '' : 's'} calling ${target}:`
+			: `${sites.length} call site${sites.length === 1 ? '' : 's'} called from ${target}:`
 	const lines = [header]
 	for (const s of sites) {
 		const line = s.callSiteLine ?? s.sourceLineStart
