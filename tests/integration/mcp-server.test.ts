@@ -333,6 +333,8 @@ describe('mcp server tool dispatch', () => {
 		expect(result.isError).toBeFalsy()
 		const content = result.content as { type: string; text: string }[]
 		expect(content[0].text).toContain('filters: exportedOnly=true, kinds=function')
+		expect(content[0].text).toContain('matched /')
+		expect(content[0].text).toContain('matched,')
 		const structured = result.structuredContent as {
 			filters: { kinds: string[]; exportedOnly: boolean }
 			counts: { symbols: number; totalSymbols: number }

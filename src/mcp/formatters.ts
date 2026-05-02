@@ -87,7 +87,7 @@ export function formatFileOutline(
 		`file ${r.path}`,
 		`  language: ${r.language}${r.isTest ? ' test' : ''}`,
 		`  size: ${r.sizeBytes} bytes`,
-		`  symbols: ${r.symbols.length}${totalSymbols === r.symbols.length ? '' : `/${totalSymbols}`} (${exported.length} exported, ${internal.length} internal)`,
+		`  symbols: ${totalSymbols === r.symbols.length ? r.symbols.length : `${r.symbols.length} matched / ${totalSymbols} total`} (${exported.length} exported, ${internal.length} internal)`,
 		`  imports=${r.imports.length} importedBy=${r.importers.length}`,
 	]
 	if (opts.filters && opts.filters.length > 0) lines.push(`  filters: ${opts.filters.join(', ')}`)
@@ -95,7 +95,9 @@ export function formatFileOutline(
 
 	if (visibleSymbols.length > 0) {
 		const total =
-			totalSymbols === r.symbols.length ? r.symbols.length : `${r.symbols.length}/${totalSymbols}`
+			totalSymbols === r.symbols.length
+				? r.symbols.length
+				: `${r.symbols.length} matched, ${totalSymbols} total`
 		lines.push('', `symbols (${visibleSymbols.length}/${total}):`)
 		for (const sym of visibleSymbols) {
 			const exportedMarker = sym.isExported ? 'exported' : 'internal'
