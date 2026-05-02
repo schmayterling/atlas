@@ -245,12 +245,22 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// when you don't know the exact symbol name and want to find by intent
 	// (e.g. "where is the parser handling errors?"). does NOT search comments
 	// or arbitrary substrings; for content search use atlas_content_search.
-	server.tool(
+	server.registerTool(
 		'atlas_semantic_search',
-		"Find symbols by meaning when you don't know an exact name. Uses embedding similarity. Does NOT search comments or substrings; use atlas_content_search for that. Requires Ollama with nomic-embed-text.",
 		{
-			query: z.string().describe('natural-language intent (e.g. "parser error handling")'),
-			limit: z.number().optional().describe('max results (default 10)'),
+			description:
+				"Find symbols by meaning when you don't know an exact name. Uses embedding similarity. Does NOT search comments or substrings; use atlas_content_search for that. Requires Ollama with nomic-embed-text.",
+			inputSchema: {
+				query: z.string().describe('natural-language intent (e.g. "parser error handling")'),
+				limit: z.number().optional().describe('max results (default 10)'),
+			},
+			outputSchema: {
+				query: z.string(),
+				limit: z.number().nullable(),
+				embeddingsAvailable: z.boolean(),
+				count: z.number(),
+				results: z.array(z.unknown()),
+			},
 		},
 		({ query, limit }) =>
 			wrap(async () => {
@@ -263,6 +273,13 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 								text: 'embeddings not available. run `atlas index` with Ollama running.',
 							},
 						],
+						structuredContent: {
+							query: result.query,
+							limit: limit ?? null,
+							embeddingsAvailable: false,
+							count: 0,
+							results: [],
+						},
 					}
 				}
 				return {
@@ -272,6 +289,13 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 							text: formatSearch({ query, total: result.results.length, results: result.results }),
 						},
 					],
+					structuredContent: {
+						query: result.query,
+						limit: limit ?? null,
+						embeddingsAvailable: true,
+						count: result.results.length,
+						results: result.results,
+					},
 				}
 			}),
 	)
