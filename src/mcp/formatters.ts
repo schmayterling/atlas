@@ -18,6 +18,10 @@ function compactInline(value: string, maxChars: number): string {
 	return `${text.slice(0, maxChars - 3)}...`
 }
 
+function compactSignature(value: string, maxChars: number): string {
+	return compactInline(value, maxChars).replace(/\):\s*:\s*/g, '): ')
+}
+
 export function formatStatus(r: StatusResult): string {
 	const lines = [
 		`health: ${r.health}`,
@@ -38,7 +42,7 @@ export function formatSearch(r: SearchResult): string {
 	const lines = [`${r.total} results for "${r.query}"`, '']
 	for (const sym of r.results) {
 		lines.push(`${sym.kind} ${sym.name}  ${sym.filePath}:${sym.lineStart}`)
-		if (sym.signature) lines.push(`  signature: ${sym.signature}`)
+		if (sym.signature) lines.push(`  signature: ${compactSignature(sym.signature, 180)}`)
 	}
 	return lines.join('\n')
 }
@@ -88,7 +92,7 @@ export function formatFileOutline(
 			lines.push(
 				`  ${sym.kind.padEnd(9)} ${exportedMarker.padEnd(8)} ${sym.name}  L${sym.lineStart}-${sym.lineEnd}`,
 			)
-			if (sym.signature) lines.push(`    ${compactInline(sym.signature, 140)}`)
+			if (sym.signature) lines.push(`    ${compactSignature(sym.signature, 140)}`)
 		}
 		if (visibleSymbols.length < r.symbols.length) {
 			lines.push(`  ... (+${r.symbols.length - visibleSymbols.length} more symbols)`)
@@ -231,7 +235,7 @@ export function formatOverview(r: SymbolOverview): string {
 	const lines: string[] = []
 	lines.push(`${s.kind} ${s.name}`)
 	lines.push(`  file: ${s.filePath}:${s.lineStart}`)
-	if (s.signature) lines.push(`  signature: ${s.signature}`)
+	if (s.signature) lines.push(`  signature: ${compactSignature(s.signature, 180)}`)
 	lines.push(`  exported: ${s.isExported}`)
 	if (r.subsystem) lines.push(`  subsystem: ${r.subsystem.name} (${r.subsystem.id})`)
 

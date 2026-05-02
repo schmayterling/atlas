@@ -130,7 +130,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				'  - "where does the parser handle errors" (intent, no exact name) → atlas_semantic_search (needs Ollama)\n' +
 				'  - "how many files mention pcre2 / TODO / some string" → atlas_content_search (literal text, fixed-string)\n' +
 				'  - "list files under X" → atlas_files (indexed file list with symbol counts)\n' +
-				'  - "what is in file X" → atlas_file_outline (symbols + imports + importers, no source body)\n' +
+				'  - "what is in file X" → atlas_file_outline (path or filePath, symbols + imports + importers, no source body)\n' +
 				'  - "show me metadata for X" → atlas_symbol_detail; pass includeSource=true only when source is needed\n' +
 				'  - "what depends on X / what does X call" → atlas_deps, atlas_call_sites, atlas_trace (preset=fast for low-latency traces, preset=full for structural traces)\n' +
 				'  - "impact of changing X" → atlas_blast_radius\n' +
@@ -306,7 +306,8 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 		'atlas_file_outline',
 		'Read a compact indexed outline for one file: symbols, imports, importers, and optional history. Does not include source.',
 		{
-			path: z.string().describe('repo-relative file path'),
+			path: z.string().optional().describe('repo-relative file path'),
+			filePath: z.string().optional().describe('alias for path'),
 			symbolLimit: z.number().optional().describe('max symbols to list (default 80, max 300)'),
 			importLimit: z
 				.number()
@@ -317,12 +318,19 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				.optional()
 				.describe('include recent git/churn context (default false)'),
 		},
-		({ path, symbolLimit, importLimit, includeHistory }) =>
+		({ path, filePath, symbolLimit, importLimit, includeHistory }) =>
 			wrap(() => {
-				const result = engine.fileArticle(path)
+				const targetPath = path ?? filePath
+				if (!targetPath) {
+					return {
+						content: [{ type: 'text' as const, text: 'file path required' }],
+						isError: true,
+					}
+				}
+				const result = engine.fileArticle(targetPath)
 				if (!result) {
 					return {
-						content: [{ type: 'text' as const, text: `file not found: ${path}` }],
+						content: [{ type: 'text' as const, text: `file not found: ${targetPath}` }],
 						isError: true,
 					}
 				}

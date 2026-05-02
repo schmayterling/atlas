@@ -256,6 +256,7 @@ describe('mcp server tool dispatch', () => {
 		const text = content[0].text
 		expect(text).toContain('file auth.ts')
 		expect(text).toContain('symbols')
+		expect(text).not.toContain(': :')
 		expect(text).not.toContain('export class AuthService')
 		expect(result.structuredContent).toMatchObject({
 			path: 'auth.ts',
@@ -268,6 +269,15 @@ describe('mcp server tool dispatch', () => {
 		}
 		expect(structured.symbols.length).toBeLessThanOrEqual(3)
 		expect(structured.counts.symbols).toBeGreaterThanOrEqual(structured.symbols.length)
+	})
+
+	test('atlas_file_outline accepts filePath alias', async () => {
+		const result = await client.callTool({
+			name: 'atlas_file_outline',
+			arguments: { filePath: 'auth.ts', symbolLimit: 1 },
+		})
+		expect(result.isError).toBeFalsy()
+		expect(result.structuredContent).toMatchObject({ path: 'auth.ts' })
 	})
 
 	test('atlas_file_outline returns file-not-found for an unknown path', async () => {
