@@ -62,11 +62,27 @@ describe('mcp server tool registration', () => {
 
 	test('structured tools expose output schemas', async () => {
 		const tools = await client.listTools()
+		const status = tools.tools.find((t) => t.name === 'atlas_status')
+		const search = tools.tools.find((t) => t.name === 'atlas_search')
 		const files = tools.tools.find((t) => t.name === 'atlas_files')
 		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
 		const symbolDetail = tools.tools.find((t) => t.name === 'atlas_symbol_detail')
 		const trace = tools.tools.find((t) => t.name === 'atlas_trace')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
+		expect(status?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				health: { type: 'string' },
+				stats: { type: 'object' },
+			},
+		})
+		expect(search?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				query: { type: 'string' },
+				results: { type: 'array' },
+			},
+		})
 		expect(files?.outputSchema).toMatchObject({
 			type: 'object',
 			properties: {
@@ -180,6 +196,14 @@ describe('mcp server tool dispatch', () => {
 		const content = result.content as { type: string; text: string }[]
 		expect(content[0].type).toBe('text')
 		expect(content[0].text).toContain('files:')
+		const structured = result.structuredContent as {
+			health: string
+			stats: { files: number; symbols: number; edges: number }
+		}
+		expect(structured.health).toBe('good')
+		expect(structured.stats.files).toBeGreaterThan(0)
+		expect(structured.stats.symbols).toBeGreaterThan(0)
+		expect(structured.stats.edges).toBeGreaterThan(0)
 	})
 
 	test('atlas_search finds AuthService', async () => {
@@ -189,6 +213,14 @@ describe('mcp server tool dispatch', () => {
 		})
 		const content = result.content as { type: string; text: string }[]
 		expect(content[0].text).toContain('AuthService')
+		const structured = result.structuredContent as {
+			query: string
+			total: number
+			results: { name: string }[]
+		}
+		expect(structured.query).toBe('AuthService')
+		expect(structured.total).toBeGreaterThan(0)
+		expect(structured.results.some((s) => s.name === 'AuthService')).toBe(true)
 	})
 
 	test('multiple sequential tool calls succeed (regression: stateless transport reuse)', async () => {

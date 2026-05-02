@@ -151,8 +151,36 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// status intentionally skips the staleness prefix: lastCommit is
 	// already part of the formatted body, and a duplicate prefix would
 	// just clutter the tool whose job is to surface freshness.
-	server.tool('atlas_status', 'check index health, freshness, and statistics', {}, () =>
-		safe(() => ({ content: [{ type: 'text' as const, text: formatStatus(engine.status()) }] })),
+	server.registerTool(
+		'atlas_status',
+		{
+			description: 'check index health, freshness, and statistics',
+			inputSchema: {},
+			outputSchema: {
+				projectRoot: z.string(),
+				dbPath: z.string(),
+				dbSizeBytes: z.number(),
+				lastIndexedAt: z.number().nullable(),
+				lastCommit: z.string().nullable(),
+				lastBranch: z.string().nullable(),
+				health: z.string(),
+				staleFileCount: z.number(),
+				stats: z.object({
+					files: z.number(),
+					symbols: z.number(),
+					edges: z.number(),
+				}),
+				languages: z.record(z.string(), z.number()),
+			},
+		},
+		() =>
+			safe(() => {
+				const result = engine.status()
+				return {
+					content: [{ type: 'text' as const, text: formatStatus(result) }],
+					structuredContent: { ...result },
+				}
+			}),
 	)
 
 	// --- atlas_search ---
@@ -161,35 +189,54 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// comments, string literals, or arbitrary substrings; use atlas_content_search
 	// for those. prefer atlas_overview when you want rich context on a single
 	// known symbol rather than a list of candidates.
-	server.tool(
+	server.registerTool(
 		'atlas_search',
-		'Find symbols (functions, classes, types, variables) by exact or fuzzy name match. Only matches identifiers; for content/comment/substring search use atlas_content_search. For rich context on one known symbol use atlas_overview.',
 		{
-			query: z
-				.string()
-				.describe(
-					'symbol identifier (e.g. "safeParse", "ZodObject"). NOT a file-content substring',
-				),
-			kind: z
-				.enum([
-					'function',
-					'class',
-					'method',
-					'interface',
-					'type',
-					'variable',
-					'module',
-					'enum',
-					'property',
-				])
-				.optional()
-				.describe('filter by symbol kind'),
-			limit: z.number().optional().describe('max results (default 20)'),
+			description:
+				'Find symbols (functions, classes, types, variables) by exact or fuzzy name match. Only matches identifiers; for content/comment/substring search use atlas_content_search. For rich context on one known symbol use atlas_overview.',
+			inputSchema: {
+				query: z
+					.string()
+					.describe(
+						'symbol identifier (e.g. "safeParse", "ZodObject"). NOT a file-content substring',
+					),
+				kind: z
+					.enum([
+						'function',
+						'class',
+						'method',
+						'interface',
+						'type',
+						'variable',
+						'module',
+						'enum',
+						'property',
+					])
+					.optional()
+					.describe('filter by symbol kind'),
+				limit: z.number().optional().describe('max results (default 20)'),
+			},
+			outputSchema: {
+				query: z.string(),
+				kind: z.string().nullable(),
+				limit: z.number().nullable(),
+				total: z.number(),
+				results: z.array(z.unknown()),
+			},
 		},
 		({ query, kind, limit }) =>
 			wrap(() => {
 				const result = engine.search(query, { kind, limit })
-				return { content: [{ type: 'text' as const, text: formatSearch(result) }] }
+				return {
+					content: [{ type: 'text' as const, text: formatSearch(result) }],
+					structuredContent: {
+						query,
+						kind: kind ?? null,
+						limit: limit ?? null,
+						total: result.total,
+						results: result.results,
+					},
+				}
 			}),
 	)
 
