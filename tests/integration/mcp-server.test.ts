@@ -73,6 +73,7 @@ describe('mcp server tool registration', () => {
 		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
 		const symbolDetail = tools.tools.find((t) => t.name === 'atlas_symbol_detail')
 		const resolveSymbol = tools.tools.find((t) => t.name === 'atlas_resolve_symbol')
+		const overview = tools.tools.find((t) => t.name === 'atlas_overview')
 		const deps = tools.tools.find((t) => t.name === 'atlas_deps')
 		const callSites = tools.tools.find((t) => t.name === 'atlas_call_sites')
 		const blastRadius = tools.tools.find((t) => t.name === 'atlas_blast_radius')
@@ -134,6 +135,15 @@ describe('mcp server tool registration', () => {
 			properties: {
 				query: { type: 'string' },
 				symbol: {},
+			},
+		})
+		expect(overview?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				symbol: {},
+				upstream: { type: 'array' },
+				downstream: { type: 'array' },
+				blastRadius: {},
 			},
 		})
 		expect(deps?.outputSchema).toMatchObject({
@@ -380,6 +390,23 @@ describe('mcp server tool dispatch', () => {
 		expect(text).toContain('downstream callees')
 		expect(text).toContain('blast radius:')
 		expect(text).toContain('test coverage:')
+		const structured = result.structuredContent as {
+			query: string
+			limit: number | null
+			symbol: { name: string }
+			upstream: unknown[]
+			downstream: unknown[]
+			blastRadius: { total: number; sample: unknown[] }
+			testCoverage: { target: { name: string }; tests: unknown[] } | null
+		}
+		expect(structured.query).toBe('AuthService')
+		expect(structured.limit).toBe(5)
+		expect(structured.symbol.name).toBe('AuthService')
+		expect(Array.isArray(structured.upstream)).toBe(true)
+		expect(Array.isArray(structured.downstream)).toBe(true)
+		expect(structured.blastRadius.total).toBeGreaterThanOrEqual(0)
+		expect(Array.isArray(structured.blastRadius.sample)).toBe(true)
+		expect(structured.testCoverage?.target.name).toBe('AuthService')
 	})
 
 	test('atlas_resolve_symbol returns structured symbol identity', async () => {

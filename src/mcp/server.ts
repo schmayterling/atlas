@@ -649,13 +649,27 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	// test coverage + subsystem in a single tool call, so an agent
 	// doesn't chain resolve/deps/blast/test_coverage/subsystem. lists
 	// are capped to `limit` (default 10) so the payload stays bounded.
-	server.tool(
+	server.registerTool(
 		'atlas_overview',
-		'comprehensive overview of a symbol: identity, callers, callees, blast radius, test coverage, subsystem (single tool call instead of chaining 5+)',
 		{
-			symbol: z.string().describe('symbol name or file:name reference'),
-			depth: z.number().optional().describe('max traversal depth for deps and blast (default 2)'),
-			limit: z.number().optional().describe('max entries per list section (default 10)'),
+			description:
+				'comprehensive overview of a symbol: identity, callers, callees, blast radius, test coverage, subsystem (single tool call instead of chaining 5+)',
+			inputSchema: {
+				symbol: z.string().describe('symbol name or file:name reference'),
+				depth: z.number().optional().describe('max traversal depth for deps and blast (default 2)'),
+				limit: z.number().optional().describe('max entries per list section (default 10)'),
+			},
+			outputSchema: {
+				query: z.string(),
+				depth: z.number().nullable(),
+				limit: z.number().nullable(),
+				symbol: z.unknown(),
+				upstream: z.array(z.unknown()),
+				downstream: z.array(z.unknown()),
+				blastRadius: z.unknown(),
+				testCoverage: z.object({}).passthrough().nullable(),
+				subsystem: z.object({}).passthrough().nullable(),
+			},
 		},
 		({ symbol, depth, limit }) =>
 			wrap(() => {
@@ -666,7 +680,20 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 						isError: true,
 					}
 				}
-				return { content: [{ type: 'text' as const, text: formatOverview(result) }] }
+				return {
+					content: [{ type: 'text' as const, text: formatOverview(result) }],
+					structuredContent: {
+						query: symbol,
+						depth: depth ?? null,
+						limit: limit ?? null,
+						symbol: result.symbol,
+						upstream: result.upstream,
+						downstream: result.downstream,
+						blastRadius: result.blastRadius,
+						testCoverage: result.testCoverage,
+						subsystem: result.subsystem,
+					},
+				}
 			}),
 	)
 
