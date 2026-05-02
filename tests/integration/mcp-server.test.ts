@@ -72,11 +72,13 @@ describe('mcp server tool registration', () => {
 		const files = tools.tools.find((t) => t.name === 'atlas_files')
 		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
 		const symbolDetail = tools.tools.find((t) => t.name === 'atlas_symbol_detail')
+		const resolveSymbol = tools.tools.find((t) => t.name === 'atlas_resolve_symbol')
 		const deps = tools.tools.find((t) => t.name === 'atlas_deps')
 		const callSites = tools.tools.find((t) => t.name === 'atlas_call_sites')
 		const blastRadius = tools.tools.find((t) => t.name === 'atlas_blast_radius')
 		const trace = tools.tools.find((t) => t.name === 'atlas_trace')
 		const deadCode = tools.tools.find((t) => t.name === 'atlas_dead_code')
+		const testCoverage = tools.tools.find((t) => t.name === 'atlas_test_coverage')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		expect(status?.outputSchema).toMatchObject({
 			type: 'object',
@@ -127,6 +129,13 @@ describe('mcp server tool registration', () => {
 				sourceIncluded: { type: 'boolean' },
 			},
 		})
+		expect(resolveSymbol?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				query: { type: 'string' },
+				symbol: {},
+			},
+		})
 		expect(deps?.outputSchema).toMatchObject({
 			type: 'object',
 			properties: {
@@ -168,6 +177,13 @@ describe('mcp server tool registration', () => {
 				stats: {},
 			},
 		})
+		expect(testCoverage?.outputSchema).toMatchObject({
+			type: 'object',
+			properties: {
+				coveredBy: { type: 'string' },
+				tests: { type: 'array' },
+			},
+		})
 		expect(hotspots?.outputSchema).toMatchObject({
 			type: 'object',
 			properties: {
@@ -201,6 +217,17 @@ describe('mcp server tier-4 tools', () => {
 		const content = result.content as { type: string; text: string }[]
 		expect(content[0].type).toBe('text')
 		expect(content[0].text).toContain('coverage:')
+		const structured = result.structuredContent as {
+			query: string
+			target: { name: string }
+			coveredBy: string
+			count: number
+			tests: unknown[]
+		}
+		expect(structured.query).toBe('AuthService')
+		expect(structured.target.name).toBe('AuthService')
+		expect(structured.coveredBy).toBe('none')
+		expect(structured.count).toBe(structured.tests.length)
 	})
 
 	test('atlas_hot_fragile returns text content (empty-state ok)', async () => {
@@ -353,6 +380,24 @@ describe('mcp server tool dispatch', () => {
 		expect(text).toContain('downstream callees')
 		expect(text).toContain('blast radius:')
 		expect(text).toContain('test coverage:')
+	})
+
+	test('atlas_resolve_symbol returns structured symbol identity', async () => {
+		const result = await client.callTool({
+			name: 'atlas_resolve_symbol',
+			arguments: { symbol: 'AuthService' },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('AuthService')
+		const structured = result.structuredContent as {
+			query: string
+			symbol: { name: string; filePath: string; lineStart: number }
+		}
+		expect(structured.query).toBe('AuthService')
+		expect(structured.symbol.name).toBe('AuthService')
+		expect(structured.symbol.filePath).toBe('auth.ts')
+		expect(structured.symbol.lineStart).toBe(8)
 	})
 
 	test('atlas_deps returns structured dependency graph', async () => {

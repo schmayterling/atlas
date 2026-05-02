@@ -610,11 +610,18 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_resolve_symbol ---
-	server.tool(
+	server.registerTool(
 		'atlas_resolve_symbol',
-		'get detailed info about a specific symbol including signature, location, and relationship counts',
 		{
-			symbol: z.string().describe('symbol name or file:name reference'),
+			description:
+				'get detailed info about a specific symbol including signature, location, and relationship counts',
+			inputSchema: {
+				symbol: z.string().describe('symbol name or file:name reference'),
+			},
+			outputSchema: {
+				query: z.string(),
+				symbol: z.unknown(),
+			},
 		},
 		({ symbol }) =>
 			wrap(() => {
@@ -626,7 +633,13 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					}
 				const signature = result.signature ? formatSignature(result.signature, 180) : 'none'
 				const text = `${result.kind} ${result.name}\n  file: ${result.filePath}:${result.lineStart}\n  signature: ${signature}\n  exported: ${result.isExported}\n  usages: ${result.usageCount}, dependents: ${result.dependentCount}`
-				return { content: [{ type: 'text' as const, text }] }
+				return {
+					content: [{ type: 'text' as const, text }],
+					structuredContent: {
+						query: symbol,
+						symbol: result,
+					},
+				}
 			}),
 	)
 
@@ -1006,11 +1019,20 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 	)
 
 	// --- atlas_test_coverage ---
-	server.tool(
+	server.registerTool(
 		'atlas_test_coverage',
-		'show test files that cover a symbol (imported or called)',
 		{
-			symbol: z.string().describe('symbol name or qualifiedName'),
+			description: 'show test files that cover a symbol (imported or called)',
+			inputSchema: {
+				symbol: z.string().describe('symbol name or qualifiedName'),
+			},
+			outputSchema: {
+				query: z.string(),
+				target: z.unknown(),
+				coveredBy: z.enum(['imported', 'called', 'none']),
+				count: z.number(),
+				tests: z.array(z.unknown()),
+			},
 		},
 		({ symbol }) =>
 			wrap(() => {
@@ -1029,6 +1051,13 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 								text: `${result.target.name} (${result.target.filePath}:${result.target.lineStart})\ncoverage: none`,
 							},
 						],
+						structuredContent: {
+							query: symbol,
+							target: result.target,
+							coveredBy: result.coveredBy,
+							count: 0,
+							tests: [],
+						},
 					}
 				}
 				const lines = [
@@ -1037,7 +1066,16 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 					'',
 					...result.tests.map((t) => `  ${t.confidence.padEnd(8)}  ${t.testFilePath}`),
 				]
-				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+				return {
+					content: [{ type: 'text' as const, text: lines.join('\n') }],
+					structuredContent: {
+						query: symbol,
+						target: result.target,
+						coveredBy: result.coveredBy,
+						count: result.tests.length,
+						tests: result.tests,
+					},
+				}
 			}),
 	)
 
