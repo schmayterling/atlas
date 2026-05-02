@@ -20,6 +20,7 @@ describe('mcp server tool registration', () => {
 		const names = result.tools.map((t) => t.name).sort()
 		expect(names).toContain('atlas_status')
 		expect(names).toContain('atlas_search')
+		expect(names).toContain('atlas_files')
 		expect(names).toContain('atlas_file_outline')
 		expect(names).toContain('atlas_overview')
 		expect(names).toContain('atlas_deps')
@@ -47,10 +48,12 @@ describe('mcp server tool registration', () => {
 		// instructions are exposed via initialize result; check the
 		// formatter side instead by listing tools and confirming descriptions
 		const tools = await client.listTools()
+		const files = tools.tools.find((t) => t.name === 'atlas_files')
 		const fileOutline = tools.tools.find((t) => t.name === 'atlas_file_outline')
 		const testCov = tools.tools.find((t) => t.name === 'atlas_test_coverage')
 		const hotspots = tools.tools.find((t) => t.name === 'atlas_hotspots')
 		const hotFragile = tools.tools.find((t) => t.name === 'atlas_hot_fragile')
+		expect(files?.description).toBeTruthy()
 		expect(fileOutline?.description).toBeTruthy()
 		expect(testCov?.description).toBeTruthy()
 		expect(hotspots?.description).toBeTruthy()
@@ -219,6 +222,28 @@ describe('mcp server tool dispatch', () => {
 		expect(sourceContent[0].text).toContain('--- source ---')
 		expect(sourceContent[0].text).toContain('export class AuthService')
 		expect(withSource.structuredContent).toMatchObject({ sourceIncluded: true })
+	})
+
+	test('atlas_files lists indexed files with filters and structured counts', async () => {
+		const result = await client.callTool({
+			name: 'atlas_files',
+			arguments: { pathPrefix: 'auth', language: 'typescript', limit: 5 },
+		})
+		expect(result.isError).toBeFalsy()
+		const content = result.content as { type: string; text: string }[]
+		expect(content[0].text).toContain('auth.ts')
+		expect(content[0].text).toContain('symbols')
+		expect(result.structuredContent).toMatchObject({
+			pathPrefix: 'auth',
+			language: 'typescript',
+			includeTests: true,
+		})
+		const structured = result.structuredContent as {
+			files: unknown[]
+			counts: { total: number; returned: number }
+		}
+		expect(structured.files.length).toBeLessThanOrEqual(5)
+		expect(structured.counts.total).toBeGreaterThanOrEqual(structured.counts.returned)
 	})
 
 	test('atlas_file_outline returns a compact indexed file outline', async () => {

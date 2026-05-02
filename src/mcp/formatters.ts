@@ -5,6 +5,7 @@ import type {
 	DeadCodeResult,
 	DependencyResult,
 	FileArticleResult,
+	FileInfo,
 	FlowTraceResult,
 	SearchResult,
 	StatusResult,
@@ -39,6 +40,26 @@ export function formatSearch(r: SearchResult): string {
 		lines.push(`${sym.kind} ${sym.name}  ${sym.filePath}:${sym.lineStart}`)
 		if (sym.signature) lines.push(`  signature: ${sym.signature}`)
 	}
+	return lines.join('\n')
+}
+
+export function formatFiles(
+	files: FileInfo[],
+	opts: { total: number; limit: number; pathPrefix?: string; language?: string },
+): string {
+	if (files.length === 0) return 'no files found'
+	const filters = [
+		opts.pathPrefix ? `pathPrefix=${opts.pathPrefix}` : '',
+		opts.language ? `language=${opts.language}` : '',
+	].filter(Boolean)
+	const header = filters.length > 0 ? `files (${filters.join(', ')})` : 'files'
+	const lines = [`${header}: ${files.length}/${opts.total}`]
+	for (const f of files) {
+		lines.push(
+			`  ${String(f.symbolCount).padStart(4)} symbols  ${f.language.padEnd(10)} ${String(f.sizeBytes).padStart(7)}b  ${f.path}`,
+		)
+	}
+	if (files.length < opts.total) lines.push(`  ... (+${opts.total - files.length} more files)`)
 	return lines.join('\n')
 }
 

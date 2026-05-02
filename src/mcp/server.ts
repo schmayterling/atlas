@@ -11,6 +11,7 @@ import {
 	formatDeadCode,
 	formatDeps,
 	formatFileOutline,
+	formatFiles,
 	formatHotspots,
 	formatOverview,
 	formatSearch,
@@ -128,6 +129,7 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				'  - "find symbol by name" → atlas_search (exact/fuzzy name match; NOT content search)\n' +
 				'  - "where does the parser handle errors" (intent, no exact name) → atlas_semantic_search (needs Ollama)\n' +
 				'  - "how many files mention pcre2 / TODO / some string" → atlas_content_search (literal text, fixed-string)\n' +
+				'  - "list files under X" → atlas_files (indexed file list with symbol counts)\n' +
 				'  - "what is in file X" → atlas_file_outline (symbols + imports + importers, no source body)\n' +
 				'  - "show me metadata for X" → atlas_symbol_detail; pass includeSource=true only when source is needed\n' +
 				'  - "what depends on X / what does X call" → atlas_deps, atlas_call_sites, atlas_trace (preset=fast for low-latency traces, preset=full for structural traces)\n' +
@@ -254,6 +256,48 @@ export function createMcpServer(engine: AtlasEngine): McpServer {
 				}
 				if (result.matches.length > 80) lines.push(`  ... (+${result.matches.length - 80} more)`)
 				return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+			}),
+	)
+
+	// --- atlas_files ---
+	server.tool(
+		'atlas_files',
+		'List indexed files with language, symbol count, and size. Use before reading files when browsing by path prefix.',
+		{
+			pathPrefix: z.string().optional().describe('only files under this repo-relative path prefix'),
+			language: z.string().optional().describe('filter by indexed language'),
+			includeTests: z.boolean().optional().describe('include test files (default true)'),
+			limit: z.number().optional().describe('max files to return (default 200, max 1000)'),
+		},
+		({ pathPrefix, language, includeTests, limit }) =>
+			wrap(() => {
+				const maxFiles = clampInt(limit, 200, 1, 1000)
+				const all = engine
+					.files({ includeTests: includeTests ?? true })
+					.filter((f) => !pathPrefix || f.path.startsWith(pathPrefix))
+					.filter((f) => !language || f.language === language)
+					.sort((a, b) => a.path.localeCompare(b.path))
+				const files = all.slice(0, maxFiles)
+				return {
+					content: [
+						{
+							type: 'text' as const,
+							text: formatFiles(files, {
+								total: all.length,
+								limit: maxFiles,
+								pathPrefix,
+								language,
+							}),
+						},
+					],
+					structuredContent: {
+						files,
+						counts: { total: all.length, returned: files.length },
+						pathPrefix: pathPrefix ?? null,
+						language: language ?? null,
+						includeTests: includeTests ?? true,
+					},
+				}
 			}),
 	)
 
